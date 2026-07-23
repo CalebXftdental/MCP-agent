@@ -1,0 +1,14 @@
+{
+  "// note": "Keeps the deploy zip clean. Do NOT add .deployment here — Oryx needs it.",
+  "appService.zipIgnorePattern": [
+    "__pycache__{,/**}",
+    "*.pyc",
+    "*.pyo",
+    ".env*",
+    "*.db",
+    "*.sqlite*",
+    ".vscode{,/**}",
+    ".git{,/**}",
+    "*.log"
+  ]
+}

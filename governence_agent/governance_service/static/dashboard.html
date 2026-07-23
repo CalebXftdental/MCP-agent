@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Governance Agent — Call Monitor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0b0e14; --panel: #131722; --border: #232838; --text: #e6e9f0;
+    --muted: #8b91a3; --ok: #3ecf8e; --err: #f0625b; --denied: #f0a84d; --auth: #d24d6b; --accent: #5b8cff;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f5f6f8; --panel: #ffffff; --border: #e2e5eb; --text: #1a1d24; --muted: #6b7280; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    background: var(--bg); color: var(--text); padding: 24px;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  h2 { font-size: 14px; margin: 28px 0 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .bar { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+  input, select {
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 10px; font-size: 13px;
+  }
+  input[type="password"] { min-width: 260px; }
+  button {
+    background: var(--accent); color: white; border: none; border-radius: 6px;
+    padding: 6px 14px; font-size: 13px; cursor: pointer;
+  }
+  button.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .stats { display: flex; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+  .stat {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 16px; min-width: 100px;
+  }
+  .stat.alert { border-color: var(--auth); }
+  .stat .n { font-size: 20px; font-weight: 600; }
+  .stat.alert .n { color: var(--auth); }
+  .stat .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 8px 10px; font-size: 12.5px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; text-transform: uppercase; font-size: 10.5px; letter-spacing: .04em; }
+  td.wrap { white-space: normal; max-width: 320px; color: var(--muted); }
+  td.mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  tr:last-child td { border-bottom: none; }
+  tr.auth-row td { background: rgba(210,77,107,.08); }
+  .badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .badge.ok { background: rgba(62,207,142,.15); color: var(--ok); }
+  .badge.error { background: rgba(240,98,91,.15); color: var(--err); }
+  .badge.denied { background: rgba(240,168,77,.15); color: var(--denied); }
+  .badge.unauthorized { background: rgba(210,77,107,.18); color: var(--auth); }
+  .badge.rate_limited { background: rgba(210,77,107,.18); color: var(--auth); }
+  .bar-fill-wrap { background: var(--border); border-radius: 4px; height: 6px; width: 100px; overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 8px; }
+  .bar-fill { height: 100%; background: var(--accent); }
+  .bar-fill.hot { background: var(--auth); }
+  .empty { color: var(--muted); padding: 30px; text-align: center; }
+  .err-banner {
+    background: rgba(240,98,91,.12); border: 1px solid var(--err); color: var(--err);
+    padding: 8px 12px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; display: none;
+  }
+  .table-wrap { overflow-x: auto; }
+</style>
+</head>
+<body>
+  <h1>Governance Agent — Call Monitor</h1>
+  <div class="sub">Live view of every request handled by this governance agent (tool calls, denials, rate limits, and unauthorized attempts). Read-only.</div>
+
+  <div class="bar">
+    <input id="token" type="password" placeholder="Governance API key (Bearer token)">
+    <button id="saveToken">Connect</button>
+    <select id="consumerFilter"><option value="">All consumers</option></select>
+    <select id="toolFilter"><option value="">All tools</option></select>
+    <select id="typeFilter">
+      <option value="">All event types</option>
+      <option value="call">Calls</option>
+      <option value="denied">Denied</option>
+      <option value="rate_limited">Rate limited</option>
+      <option value="auth_denied">Unauthorized</option>
+    </select>
+    <label style="font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px;">
+      <input type="checkbox" id="autoRefresh" style="width:auto;"> Auto-refresh (3s)
+    </label>
+    <button class="secondary" id="refreshNow">Refresh now</button>
+  </div>
+
+  <div class="err-banner" id="errBanner"></div>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th><th>Type</th><th>Request ID</th><th>Consumer</th><th>Client IP</th><th>Tool / Path</th>
+          <th>Args</th><th>Session</th><th>Status</th><th>Latency</th><th>Detail</th>
+        </tr>
+      </thead>
+      <tbody id="rows"><tr><td colspan="11" class="empty">Enter an API key above to connect.</td></tr></tbody>
+    </table>
+  </div>
+
+  <h2>Rate limit usage (this window)</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Consumer</th><th>Usage</th><th>Used / Limit</th><th>Window resets in</th></tr></thead>
+      <tbody id="rateLimitRows"><tr><td colspan="4" class="empty">—</td></tr></tbody>
+    </table>
+  </div>
+
+  <h2>Active sessions (account scope)</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Session</th><th>Customer ID</th><th>Consumer</th><th>First seen</th><th>Last seen</th></tr></thead>
+      <tbody id="sessionRows"><tr><td colspan="5" class="empty">—</td></tr></tbody>
+    </table>
+  </div>
+
+<script>
+(function () {
+  const tokenInput = document.getElementById('token');
+  const saved = localStorage.getItem('governance_dashboard_token');
+  if (saved) tokenInput.value = saved;
+
+  let timer = null;
+  let lastCalls = [];
+
+  function authHeaders() {
+    return { 'Authorization': 'Bearer ' + tokenInput.value.trim() };
+  }
+
+  function fmtTime(ts) {
+    return ts ? new Date(ts * 1000).toLocaleTimeString() : '—';
+  }
+
+  function badge(status) {
+    const known = ['ok', 'error', 'denied', 'unauthorized', 'rate_limited'];
+    const cls = known.includes(status) ? status : 'error';
+    return `<span class="badge ${cls}">${status}</span>`;
+  }
+
+  function populateFilter(select, values) {
+    const current = select.value;
+    const opts = ['<option value="">All</option>'].concat(
+      values.map(v => `<option value="${v}">${v}</option>`)
+    );
+    select.innerHTML = opts.join('');
+    select.value = current;
+  }
+
+  async function fetchJson(path) {
+    const res = await fetch(path, { headers: authHeaders() });
+    if (res.status === 401) throw new Error('unauthorized');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  }
+
+  async function refresh() {
+    const token = tokenInput.value.trim();
+    const errBanner = document.getElementById('errBanner');
+    if (!token) return;
+    try {
+      const [callsData, sessionsData, rateLimitData] = await Promise.all([
+        fetchJson('/admin/calls?limit=300'),
+        fetchJson('/admin/sessions?limit=100'),
+        fetchJson('/admin/rate-limits'),
+      ]);
+      errBanner.style.display = 'none';
+      lastCalls = callsData.calls || [];
+      renderCalls(lastCalls);
+      renderSessions(sessionsData.sessions || []);
+      renderRateLimits(rateLimitData.rate_limits || []);
+    } catch (e) {
+      errBanner.textContent = e.message === 'unauthorized'
+        ? 'Unauthorized — check the shared secret.'
+        : 'Could not reach the governance agent: ' + e.message;
+      errBanner.style.display = 'block';
+    }
+  }
+
+  function renderCalls(calls) {
+    const consumerSel = document.getElementById('consumerFilter');
+    const toolSel = document.getElementById('toolFilter');
+    const typeSel = document.getElementById('typeFilter');
+    populateFilter(consumerSel, [...new Set(calls.map(c => c.consumer))].sort());
+    populateFilter(toolSel, [...new Set(calls.map(c => c.tool))].sort());
+
+    const consumerFilter = consumerSel.value;
+    const toolFilter = toolSel.value;
+    const typeFilter = typeSel.value;
+    const filtered = calls.filter(c =>
+      (!consumerFilter || c.consumer === consumerFilter) &&
+      (!toolFilter || c.tool === toolFilter) &&
+      (!typeFilter || c.type === typeFilter)
+    );
+
+    const total = filtered.length;
+    const ok = filtered.filter(c => c.status === 'ok').length;
+    const denied = filtered.filter(c => c.status === 'denied').length;
+    const errors = filtered.filter(c => c.status === 'error').length;
+    const unauthorized = filtered.filter(c => c.type === 'auth_denied').length;
+    const rateLimited = filtered.filter(c => c.type === 'rate_limited').length;
+    const scoped = filtered.filter(c => c.status === 'ok' || c.status === 'error');
+    const avgLatency = scoped.length
+      ? (scoped.reduce((a, c) => a + (c.latency_ms || 0), 0) / scoped.length).toFixed(0)
+      : 0;
+
+    document.getElementById('stats').innerHTML = `
+      <div class="stat"><div class="n">${total}</div><div class="l">Events</div></div>
+      <div class="stat"><div class="n">${ok}</div><div class="l">OK</div></div>
+      <div class="stat"><div class="n">${denied}</div><div class="l">Denied</div></div>
+      <div class="stat"><div class="n">${errors}</div><div class="l">Errors</div></div>
+      <div class="stat ${rateLimited ? 'alert' : ''}"><div class="n">${rateLimited}</div><div class="l">Rate limited</div></div>
+      <div class="stat ${unauthorized ? 'alert' : ''}"><div class="n">${unauthorized}</div><div class="l">Unauthorized</div></div>
+      <div class="stat"><div class="n">${avgLatency}ms</div><div class="l">Avg latency</div></div>
+    `;
+
+    const rows = document.getElementById('rows');
+    if (!filtered.length) {
+      rows.innerHTML = '<tr><td colspan="11" class="empty">No events recorded yet.</td></tr>';
+      return;
+    }
+    rows.innerHTML = filtered.map(c => `
+      <tr class="${c.type === 'auth_denied' ? 'auth-row' : ''}">
+        <td>${fmtTime(c.ts)}</td>
+        <td>${c.type || 'call'}</td>
+        <td class="mono">${c.request_id || '—'}</td>
+        <td>${c.consumer || '—'}</td>
+        <td class="mono">${c.client_ip || '—'}</td>
+        <td>${c.tool || '—'}</td>
+        <td class="wrap mono">${c.args ? String(c.args) : ''}</td>
+        <td class="mono">${c.session_id || '—'}</td>
+        <td>${badge(c.status)}</td>
+        <td>${c.status === 'ok' || c.status === 'error' ? (c.latency_ms ?? '—') + 'ms' : '—'}</td>
+        <td class="wrap">${c.detail ? String(c.detail).slice(0, 200) : ''}</td>
+      </tr>
+    `).join('');
+  }
+
+  function renderRateLimits(rateLimits) {
+    const body = document.getElementById('rateLimitRows');
+    if (!rateLimits.length) {
+      body.innerHTML = '<tr><td colspan="4" class="empty">No consumers have made a request yet.</td></tr>';
+      return;
+    }
+    body.innerHTML = rateLimits.map(r => {
+      const pct = Math.min(100, Math.round((r.used / Math.max(r.limit, 1)) * 100));
+      const hot = pct >= 80 ? 'hot' : '';
+      const mins = Math.round(r.window_resets_in_sec / 60);
+      return `
+        <tr>
+          <td>${r.consumer}</td>
+          <td><span class="bar-fill-wrap"><span class="bar-fill ${hot}" style="width:${pct}%"></span></span>${pct}%</td>
+          <td>${r.used} / ${r.limit}</td>
+          <td>${mins}m</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  function renderSessions(sessions) {
+    const body = document.getElementById('sessionRows');
+    if (!sessions.length) {
+      body.innerHTML = '<tr><td colspan="5" class="empty">No sessions recorded yet.</td></tr>';
+      return;
+    }
+    body.innerHTML = sessions.map(s => `
+      <tr>
+        <td class="mono">${s.session_id}</td>
+        <td>${s.customer_id || '<span style="color:var(--muted)">unscoped</span>'}</td>
+        <td>${s.consumer || '—'}</td>
+        <td>${fmtTime(s.first_seen)}</td>
+        <td>${fmtTime(s.last_seen)}</td>
+      </tr>
+    `).join('');
+  }
+
+  function startAutoRefresh() {
+    if (timer) clearInterval(timer);
+    if (document.getElementById('autoRefresh').checked) {
+      timer = setInterval(refresh, 3000);
+    }
+  }
+
+  document.getElementById('saveToken').addEventListener('click', () => {
+    localStorage.setItem('governance_dashboard_token', tokenInput.value.trim());
+    refresh();
+  });
+  document.getElementById('refreshNow').addEventListener('click', refresh);
+  document.getElementById('autoRefresh').addEventListener('change', startAutoRefresh);
+  document.getElementById('consumerFilter').addEventListener('change', () => renderCalls(lastCalls));
+  document.getElementById('toolFilter').addEventListener('change', () => renderCalls(lastCalls));
+  document.getElementById('typeFilter').addEventListener('change', () => renderCalls(lastCalls));
+
+  if (saved) refresh();
+  startAutoRefresh();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,2197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frontier Governance</title>
+<style>
+  :root{
+    --gray900:#212121; --gray800:#575c62; --gray700:#767c84; --gray400:#C4C4C4;
+    --gray300:#E0E0E0; --gray200:#E7E7E7; --gray100:#EFEFF0; --gray50:#F6F7F8;
+    --highlight:#2FC7BA; --highlight-darker:#1a9c90; --bg:#ffffff;
+    --highlight-text:#ffffff; --text:#1b1b1b; --secondary-text:#575c62;
+    --error:#f44336; --notify:#f0512a; --status:#d7efec;
+    --msg-bg:#ecf0f6; --msg-self-bg:#2FC7BA; --msg-self-text:#ffffff;
+    --radius:12px; --radius-sm:8px;
+    --shadow:0 1px 2px rgba(33,33,33,.04), 0 6px 20px -10px rgba(33,33,33,.15);
+    --sidebar-w:250px;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  html{font-size:16.5px}   /* root bump -> every rem-based size grows a little on all pages */
+  body{margin:0;background:var(--gray50);color:var(--text);font-size:15.5px;line-height:1.55;-webkit-font-smoothing:antialiased}
+  a{color:var(--highlight-darker);text-decoration:none}
+  h2{font-size:1.2rem;margin:0 0 .2rem;font-weight:650}
+  h3{font-size:1rem;margin:0 0 .5rem;font-weight:650}
+  .muted{color:var(--secondary-text);font-size:.86rem}
+  code,.mono{font-family:ui-monospace,"Cascadia Code",Consolas,monospace;font-size:.85em}
+
+  /* layout */
+  .app{display:grid;grid-template-columns:var(--sidebar-w) 1fr;height:100vh}
+  aside{background:var(--bg);border-right:1px solid var(--gray200);display:flex;flex-direction:column;min-width:0}
+  .brand{display:flex;flex-direction:column;align-items:flex-start;gap:.3rem;padding:1.05rem 1.25rem;border-bottom:1px solid var(--gray100)}
+  .brand-logo{height:30px;width:auto;max-width:190px;display:block}
+  .brand .logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--highlight),#5ad6cb);
+    display:grid;place-items:center;color:#fff;font-weight:700;font-size:1.05rem;box-shadow:var(--shadow)}
+  .brand b{font-size:1rem;font-weight:700;letter-spacing:-.01em}
+  .brand .sub{font-size:.68rem;color:var(--secondary-text);text-transform:uppercase;letter-spacing:.14em;font-weight:600;padding-left:2px}
+  nav{padding:.75rem .6rem;overflow-y:auto;flex:1}
+  nav .group{font-size:.68rem;text-transform:uppercase;letter-spacing:.09em;color:var(--gray700);
+    padding:.9rem .7rem .35rem;font-weight:600}
+  nav a.item{display:flex;align-items:center;gap:.7rem;padding:.6rem .7rem;border-radius:var(--radius-sm);
+    color:var(--gray800);font-weight:550;cursor:pointer;margin:.1rem 0;transition:background .12s,color .12s}
+  nav a.item:hover{background:var(--gray50)}
+  nav a.item.active{background:var(--highlight);color:var(--highlight-text);box-shadow:var(--shadow)}
+  nav a.item .ic{width:1.2rem;text-align:center;font-size:1rem}
+  .who{border-top:1px solid var(--gray100);padding:.85rem 1.25rem;display:flex;align-items:center;gap:.6rem}
+  .avatar{width:30px;height:30px;border-radius:50%;background:var(--status);color:var(--highlight-darker);
+    display:grid;place-items:center;font-weight:700;font-size:.8rem}
+  .who .n{font-weight:600;font-size:.85rem;line-height:1.15}
+  .who .r{font-size:.72rem;color:var(--secondary-text)}
+  .who button{margin-left:auto}
+
+  main{overflow-y:auto;min-width:0}
+  .topbar{position:sticky;top:0;z-index:5;background:rgba(255,255,255,.85);backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--gray200);padding:1rem 1.75rem;display:flex;align-items:center;gap:1rem}
+  .topbar h1{font-size:1.25rem;margin:0;font-weight:700;letter-spacing:-.015em}
+  .topbar .desc{color:var(--secondary-text);font-size:.85rem}
+  .content{padding:1.5rem 1.75rem;max-width:1100px}
+
+  /* components */
+  .card{background:var(--bg);border:1px solid var(--gray200);border-radius:var(--radius);
+    padding:1.25rem;margin-bottom:1.1rem;box-shadow:var(--shadow)}
+  .card > h2{margin-bottom:.15rem}
+  .row{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.75rem}
+  label{display:flex;flex-direction:column;gap:.28rem;font-size:.8rem;color:var(--secondary-text);font-weight:600}
+  input,select,textarea{font:inherit;font-size:.88rem;padding:.55rem .65rem;border:1px solid var(--gray300);
+    border-radius:var(--radius-sm);background:var(--bg);color:var(--text);width:100%}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--highlight);outline-offset:0;border-color:transparent}
+  textarea{font-family:ui-monospace,Consolas,monospace;resize:vertical}
+  button{font:inherit;cursor:pointer;border:0;border-radius:var(--radius-sm);padding:.55rem 1rem;
+    background:var(--highlight);color:var(--highlight-text);font-weight:600;transition:background .12s,transform .05s}
+  button:hover{background:var(--highlight-darker)} button:active{transform:translateY(1px)}
+  button:disabled{opacity:.5;cursor:default}
+  button.ghost{background:transparent;color:var(--gray800);border:1px solid var(--gray300)}
+  button.ghost:hover{background:var(--gray50);color:var(--text)}
+  button.sm{padding:.32rem .6rem;font-size:.78rem;font-weight:600}
+  button.danger{background:transparent;color:var(--error);border:1px solid var(--gray300)}
+  button.danger:hover{background:#fdecea;border-color:var(--error)}
+
+  table{border-collapse:collapse;width:100%;font-size:.86rem}
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--gray200);border-radius:var(--radius);background:var(--bg);box-shadow:var(--shadow)}
+  th,td{text-align:left;padding:.65rem .8rem;border-bottom:1px solid var(--gray100);vertical-align:top}
+  thead th{font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:var(--gray700);background:var(--gray50)}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:var(--gray50)}
+
+  .pill{display:inline-block;border-radius:100px;padding:.12rem .55rem;font-size:.72rem;font-weight:600;background:var(--gray100);color:var(--gray800)}
+  .pill.ok{background:var(--status);color:var(--highlight-darker)}
+  .pill.warn{background:#fdecea;color:var(--error)}
+  .pill.pending{background:#fff4e5;color:#b26a00}
+  .key{background:#fff;border:1px dashed var(--highlight);color:var(--text);padding:.7rem .8rem;border-radius:var(--radius-sm);
+    font-family:ui-monospace,Consolas,monospace;word-break:break-all;margin-top:.6rem}
+  .err{color:var(--error);font-size:.85rem;min-height:1.1rem;margin:.3rem 0}
+  .empty{color:var(--secondary-text);padding:1rem;text-align:center;font-size:.85rem}
+  .toast{position:fixed;bottom:1.25rem;right:1.25rem;background:var(--gray900);color:#fff;padding:.7rem 1rem;
+    border-radius:var(--radius-sm);box-shadow:var(--shadow);opacity:0;transform:translateY(8px);transition:.2s;z-index:50}
+  .toast.show{opacity:1;transform:none}
+
+  /* chat */
+  .chat{display:flex;flex-direction:column;height:calc(100vh - 66px)}
+  .chatlog{flex:1;overflow-y:auto;padding:1.5rem 1.75rem;display:flex;flex-direction:column;gap:.7rem}
+  .msg{padding:.65rem .9rem;border-radius:14px;max-width:70%;white-space:pre-wrap;word-wrap:break-word;box-shadow:var(--shadow)}
+  .msg.me{align-self:flex-end;background:var(--msg-self-bg);color:var(--msg-self-text);border-bottom-right-radius:4px}
+  .msg.bot{align-self:flex-start;background:var(--msg-bg);border:1px solid var(--gray200);border-bottom-left-radius:4px;
+    white-space:normal;color:var(--text)}
+  .msg.bot p{margin:0} .msg.bot div+div{margin-top:.15rem}
+  .msg.bot ul{margin:.35rem 0;padding-left:1.25rem} .msg.bot li{margin:.12rem 0}
+  .msg.bot strong{font-weight:700} .msg.bot em{font-style:italic}
+  .msg.bot code{background:rgba(33,33,33,.07);padding:.05rem .3rem;border-radius:4px;
+    font-family:ui-monospace,Consolas,monospace;font-size:.85em}
+  .msg.bot .mdspace{height:.55rem}
+  .typing{display:inline-flex;gap:5px;align-items:center;height:1.1rem}
+  .typing i{width:6px;height:6px;border-radius:50%;background:var(--secondary-text);display:inline-block;
+    animation:tdot 1.2s infinite ease-in-out}
+  .typing i:nth-child(2){animation-delay:.18s} .typing i:nth-child(3){animation-delay:.36s}
+  @keyframes tdot{0%,70%,100%{opacity:.25;transform:translateY(0)}35%{opacity:1;transform:translateY(-3px)}}
+  @media (prefers-reduced-motion:reduce){.typing i{animation:none;opacity:.5}}
+  .tools{align-self:flex-start;color:var(--secondary-text);font-size:.72rem;font-family:ui-monospace,Consolas,monospace}
+  .chatbar{display:flex;gap:.6rem;padding:1rem 1.75rem;border-top:1px solid var(--gray200);background:var(--bg)}
+  .chatbar input{flex:1}
+  .hint{margin:auto;color:var(--secondary-text);text-align:center;max-width:30rem}
+
+  @media (max-width:820px){
+    .app{grid-template-columns:1fr} aside{position:fixed;left:0;top:0;bottom:0;width:var(--sidebar-w);
+      transform:translateX(-100%);transition:.2s;z-index:30} aside.open{transform:none}
+    .menu-btn{display:inline-grid!important}
+  }
+  .menu-btn{display:none;place-items:center;background:transparent;color:var(--text);border:1px solid var(--gray300);
+    width:38px;height:38px;padding:0}
+
+  /* ── security analytics: KPIs, charts, heatmap, drawer ── */
+  .num{font-family:ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:.7rem;margin-bottom:.4rem}
+  .kpi{background:var(--bg);border:1px solid var(--gray200);border-radius:var(--radius);padding:.8rem .95rem;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .kpi .lab{font-size:.66rem;text-transform:uppercase;letter-spacing:.07em;color:var(--gray700);font-weight:650}
+  .kpi .val{font-family:ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums;font-size:1.5rem;font-weight:600;margin-top:.15rem;letter-spacing:-.02em}
+  .kpi .val small{font-size:.8rem;color:var(--gray700);font-weight:500}
+  .kpi.alert .val{color:var(--error)} .kpi.alert .lab{color:var(--error)}
+  .kpi .spark{position:absolute;right:6px;bottom:6px;width:64px;height:26px;opacity:.85}
+  .section-head{display:flex;align-items:baseline;gap:.5rem;margin:1.5rem 0 0}
+  .section-head h2{font-size:1rem} .section-head .muted{font-size:.78rem}
+  .charts{display:grid;grid-template-columns:repeat(4,1fr);gap:.75rem;margin-top:.7rem}
+  .charts .card{margin:0;padding:1rem} .chart-t{font-weight:650;font-size:.85rem} .chart-s{font-size:.72rem;color:var(--gray700);margin:.05rem 0 .55rem}
+  .span2{grid-column:span 2}
+  .donut-row{display:flex;gap:1rem;align-items:center}
+  .legend{display:flex;flex-direction:column;gap:.35rem;flex:1;min-width:0}
+  .legend .lg{display:flex;align-items:center;gap:.45rem;font-size:.76rem;color:var(--secondary-text)}
+  .legend .sw{width:9px;height:9px;border-radius:2px;flex:none}
+  .legend .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .legend b{margin-left:auto;font-family:ui-monospace,Consolas,monospace}
+  .hbars{display:flex;flex-direction:column;gap:.5rem}
+  .hbar{display:grid;grid-template-columns:minmax(120px,220px) 1fr 40px;align-items:center;gap:.6rem;font-size:.78rem}
+  .hbar .hl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--secondary-text)}
+  .hbar .trk{background:var(--gray100);border-radius:100px;height:8px;overflow:hidden}
+  .hbar .fil{height:100%;background:var(--highlight);border-radius:100px}
+  .hbar .hv{text-align:right;font-family:ui-monospace,Consolas,monospace}
+  .barchart{width:100%;height:auto;overflow:visible} .barchart text{fill:var(--gray700);font-size:10px}
+  svg text.dn{font-family:ui-monospace,Consolas,monospace}
+  .heat{display:grid;grid-template-columns:auto repeat(24,1fr);gap:2px;font-size:.6rem}
+  .heat .hd{color:var(--gray700);text-align:center;font-size:.55rem}
+  .heat .rl{color:var(--gray700);padding-right:.35rem;text-align:right;align-self:center}
+  .heat .cell{aspect-ratio:1;border-radius:2px;background:var(--gray100)}
+  .seg{display:inline-flex;border:1px solid var(--gray300);border-radius:var(--radius-sm);overflow:hidden}
+  .seg button{background:var(--bg);color:var(--secondary-text);padding:.32rem .62rem;font-size:.76rem;font-weight:600;border:0;border-right:1px solid var(--gray200)}
+  .seg button:last-child{border-right:0} .seg button.on{background:var(--status);color:var(--highlight-darker)}
+  .pill.sev-critical{background:#fdecea;color:var(--error)}
+  .pill.sev-high{background:#ffe7dd;color:var(--notify)}
+  .pill.sev-medium{background:#fff4e5;color:#b26a00}
+  .pill.sev-low{background:var(--gray100);color:var(--gray800)}
+  .sevbar{width:4px;border-radius:3px;align-self:stretch;min-height:34px}
+  .drawer{position:fixed;top:0;right:0;bottom:0;width:430px;max-width:93vw;background:var(--bg);border-left:1px solid var(--gray200);
+    box-shadow:-12px 0 48px -18px rgba(33,33,33,.4);z-index:60;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column}
+  .drawer.open{transform:none}
+  .drawer .dh{padding:1.05rem 1.2rem;border-bottom:1px solid var(--gray100);display:flex;gap:.7rem;align-items:flex-start}
+  .drawer .db{padding:1.1rem 1.2rem;overflow-y:auto;display:flex;flex-direction:column;gap:1rem}
+  .backdrop{position:fixed;inset:0;background:rgba(33,33,33,.28);z-index:55;opacity:0;pointer-events:none;transition:opacity .25s}
+  .backdrop.open{opacity:1;pointer-events:auto}
+  .kv{display:grid;grid-template-columns:1fr 1fr;gap:.7rem .9rem}
+  .kv .k,.klbl{font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;color:var(--gray700);font-weight:650}
+  .kv .v{font-size:.85rem;margin-top:.1rem;word-break:break-word}
+  @media (max-width:820px){.kpis,.charts{grid-template-columns:1fr 1fr}.span2{grid-column:auto}}
+
+  /* ── quick asks, reply actions, structured results, home ── */
+  .qa-group{margin-bottom:.7rem} .qa-group:last-child{margin-bottom:0}
+  .qa-label{font-size:.66rem;text-transform:uppercase;letter-spacing:.07em;color:var(--gray700);font-weight:650;margin-bottom:.35rem}
+  .qa-chips{display:flex;flex-wrap:wrap;gap:.4rem}
+  .qa-chip{display:inline-flex;align-items:center;gap:.4rem;background:var(--bg);border:1px solid var(--gray300);
+    border-radius:100px;padding:.32rem .75rem;font:inherit;font-size:.8rem;color:var(--text);cursor:pointer;transition:.12s}
+  .qa-chip:hover{border-color:var(--highlight);background:var(--status);color:var(--highlight-darker)}
+  .qa-del{background:none;border:0;color:inherit;opacity:.5;cursor:pointer;padding:0;font-size:.72rem;line-height:1}
+  .qa-del:hover{opacity:1}
+  .msg-actions{display:flex;flex-wrap:wrap;gap:.55rem;margin-top:.5rem;opacity:0;transition:opacity .12s}
+  .msg.bot:hover .msg-actions{opacity:1}
+  .msg-actions button{background:none;border:0;color:var(--secondary-text);cursor:pointer;font:inherit;font-size:.72rem;padding:.1rem .2rem}
+  .msg-actions button:hover{color:var(--text)} .msg-actions button.on{color:var(--highlight-darker);font-weight:600}
+  .followups{display:flex;flex-wrap:wrap;gap:.4rem;align-self:flex-start;max-width:75%}
+  .mdtable-wrap{overflow-x:auto;margin:.45rem 0}
+  .mdtable{border-collapse:collapse;font-size:.9em;width:100%}
+  .mdtable th,.mdtable td{border:1px solid var(--gray300);padding:.32rem .55rem;text-align:left;white-space:nowrap}
+  .mdtable th{background:var(--gray100);font-weight:650}
+  .mdcode{background:var(--gray900);color:#e9edf0;border-radius:8px;padding:.6rem .8rem;overflow-x:auto;font-size:.8em;margin:.45rem 0}
+  .mdcode code{background:none;color:inherit;padding:0}
+  .mdh{font-weight:700;margin:.35rem 0 .1rem}
+  .pg-task{transition:border-color .12s,box-shadow .12s}
+  .pg-task:hover{border-color:var(--highlight);box-shadow:var(--shadow)}
+  .home-hero{background:linear-gradient(120deg,var(--status),transparent)}
+  .home-hero h2{font-size:1.35rem}
+
+  /* ── My Workflow: hand-rolled graph canvas (no external library) ── */
+  .wf-pal-item{border:1px solid var(--gray200);border-radius:var(--radius-sm);padding:.5rem .6rem;margin-bottom:.4rem;
+    cursor:grab;background:var(--bg);transition:border-color .12s}
+  .wf-pal-item:hover{border-color:var(--highlight)}
+  .wf-pal-item.locked{opacity:.5;cursor:not-allowed}
+  .wf-pal-item .t{font-weight:650;font-size:.82rem;display:flex;justify-content:space-between;gap:.4rem;align-items:center}
+  .wf-pal-item .d{font-size:.72rem;color:var(--secondary-text);margin-top:.15rem}
+  .wf-pal-group{font-size:.66rem;text-transform:uppercase;letter-spacing:.07em;color:var(--gray700);font-weight:650;margin:.7rem 0 .35rem}
+  .wf-pal-group:first-child{margin-top:0}
+  .wf-canvas-wrap{overflow:auto;position:relative;padding:0!important}
+  .wf-canvas{position:relative}
+  .wf-canvas.dragover{outline:2px dashed var(--highlight);outline-offset:-2px}
+  .wf-edges{position:absolute;top:0;left:0;pointer-events:none;overflow:visible}
+  .wf-node{position:absolute;width:190px;border:1px solid var(--gray300);border-radius:var(--radius-sm);
+    background:var(--bg);box-shadow:var(--shadow);cursor:grab;user-select:none}
+  .wf-node.selected{border-color:var(--highlight);box-shadow:0 0 0 2px var(--highlight)}
+  .wf-node.needs-gate{border-color:var(--error)}
+  .wf-node .hd{padding:.5rem .6rem;border-bottom:1px solid var(--gray100);font-size:.78rem;font-weight:650;
+    display:flex;justify-content:space-between;gap:.3rem;align-items:center}
+  .wf-node .bd{padding:.45rem .6rem;font-size:.7rem;color:var(--secondary-text)}
+  .wf-node .bd .row{gap:.3rem;justify-content:space-between;font-size:.68rem;margin:.1rem 0}
+  .wf-port{width:10px;height:10px;border-radius:50%;background:var(--gray400);border:2px solid var(--bg);
+    position:absolute;cursor:crosshair;pointer-events:all}
+  .wf-port:hover{background:var(--highlight)}
+  .wf-port.in{left:-6px}
+  .wf-port.out{right:-6px}
+  .wf-node-del{background:none;border:0;color:var(--secondary-text);cursor:pointer;font-size:.9rem;line-height:1;padding:0}
+  .wf-node-del:hover{color:var(--error)}
+  .wf-prop-row{border:1px solid var(--gray200);border-radius:var(--radius-sm);padding:.5rem .6rem;margin-bottom:.5rem}
+  .wf-prop-row label{margin-bottom:.2rem}
+  .wf-bound-chip{display:flex;justify-content:space-between;align-items:center;gap:.4rem;background:var(--status);
+    color:var(--highlight-darker);border-radius:var(--radius-sm);padding:.4rem .55rem;font-size:.78rem}
+  .wf-bound-chip button{background:none;border:0;color:inherit;padding:0;font-size:.75rem;text-decoration:underline}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside id="sidebar">
+    <div class="brand">
+      <img class="brand-logo" src="/dashboard/logo.png" alt="Frontier Dental">
+      <div class="sub" id="brand-sub">MCP</div>
+    </div>
+    <nav id="nav"></nav>
+    <div class="who">
+      <div class="avatar" id="avatar">–</div>
+      <div><div class="n" id="who-name">…</div><div class="r" id="who-role"></div></div>
+      <button class="ghost sm" onclick="logout()">Sign out</button>
+    </div>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <button class="menu-btn" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+      <div><h1 id="page-title">…</h1><div class="desc" id="page-desc"></div></div>
+    </div>
+    <div id="view"></div>
+  </main>
+</div>
+<div class="toast" id="toast"></div>
+<div class="backdrop" id="backdrop" onclick="closeDrawer()"></div>
+<aside class="drawer" id="drawer" aria-hidden="true"></aside>
+
+<script>
+// ── helpers ──────────────────────────────────────────────────────────────────
+const $ = (s,r=document)=>r.querySelector(s);
+const el = (h)=>{const t=document.createElement('template');t.innerHTML=h.trim();return t.content.firstElementChild;};
+const esc = (s)=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// Minimal, SAFE markdown -> HTML for assistant replies: everything is escaped
+// FIRST, then a small set of inline/line patterns are re-introduced, so nothing
+// the model emits can inject markup.
+function mdToHtml(src){
+  const inline=(t)=>esc(t)
+    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/`([^`]+)`/g,'<code>$1</code>')
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?]|$)/g,'$1<em>$2</em>');
+  const cells=(r)=>r.replace(/^\s*\|/,'').replace(/\|\s*$/,'').split('|').map(c=>c.trim());
+  const lines=String(src??'').split('\n');
+  const out=[]; let i=0, inList=false;
+  const closeList=()=>{ if(inList){out.push('</ul>');inList=false;} };
+  while(i<lines.length){
+    const line=lines[i].replace(/\s+$/,'');
+    if(/^```/.test(line)){                       // fenced code block
+      closeList(); i++; const code=[];
+      while(i<lines.length && !/^```/.test(lines[i])){ code.push(lines[i]); i++; }
+      i++; out.push('<pre class="mdcode"><code>'+esc(code.join('\n'))+'</code></pre>'); continue;
+    }
+    if(line.includes('|') && i+1<lines.length && /-/.test(lines[i+1]) && /^[\s:|-]+$/.test(lines[i+1].trim())){
+      closeList();                               // GFM table
+      const head=cells(line); i+=2; const rows=[];
+      while(i<lines.length && lines[i].includes('|') && lines[i].trim()!==''){ rows.push(cells(lines[i])); i++; }
+      out.push('<div class="mdtable-wrap"><table class="mdtable"><thead><tr>'+head.map(h=>'<th>'+inline(h)+'</th>').join('')+
+        '</tr></thead><tbody>'+rows.map(r=>'<tr>'+r.map(c=>'<td>'+inline(c)+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>');
+      continue;
+    }
+    const h=line.match(/^(#{1,3})\s+(.*)$/);
+    if(h){ closeList(); out.push('<div class="mdh">'+inline(h[2])+'</div>'); i++; continue; }
+    const m=line.match(/^\s*[-*]\s+(.*)$/);
+    if(m){ if(!inList){out.push('<ul>');inList=true;} out.push('<li>'+inline(m[1])+'</li>'); i++; continue; }
+    closeList();
+    out.push(line.trim()===''?'<div class="mdspace"></div>':'<div>'+inline(line)+'</div>');
+    i++;
+  }
+  closeList();
+  return out.join('');
+}
+
+// ── Quick Asks (saved prompts) + assistant helpers ──────────────────────────────
+const QUICK_STARTERS=[
+  {g:'Customers',items:['Find the customer {name or email}','Show a 360° overview of customer {customer id}','Find customers in {region}']},
+  {g:'Orders',items:['Show recent orders for {customer}','Get details for order {order number}','What did {customer} spend this year?']},
+  {g:'Invoices & finance',items:['Show overdue invoices for {customer}','Look up invoice {invoice number}']},
+];
+function _qaKey(){return 'gov_quickasks:'+(ME.name||'anon');}
+function getSavedAsks(){try{return JSON.parse(localStorage.getItem(_qaKey())||'[]');}catch(e){return [];}}
+function setSavedAsks(l){localStorage.setItem(_qaKey(),JSON.stringify(l.slice(0,50)));}
+function saveAsk(t){const l=getSavedAsks();if(t&&!l.includes(t)){l.unshift(t);setSavedAsks(l);}}
+function removeAsk(t){setSavedAsks(getSavedAsks().filter(x=>x!==t));}
+function fillTemplate(t){
+  for(const m of [...t.matchAll(/\{([^}]+)\}/g)]){
+    const val=prompt(m[1]+'?'); if(val===null) return null; t=t.replace(m[0],val);
+  }
+  return t;
+}
+let PENDING_ASK=null;
+function askAssistant(text){const t=fillTemplate(text); if(t===null)return; PENDING_ASK=t; go('assistant');}
+function renderQuickAsks(box){
+  const saved=getSavedAsks(); let html='';
+  if(saved.length) html+=`<div class="qa-group"><div class="qa-label">★ Your saved</div><div class="qa-chips">`+
+    saved.map(t=>`<span class="qa-chip" data-ask="${esc(t)}">${esc(t)}<button class="qa-del" data-del="${esc(t)}" title="Remove">✕</button></span>`).join('')+`</div></div>`;
+  html+=QUICK_STARTERS.map(g=>`<div class="qa-group"><div class="qa-label">${esc(g.g)}</div><div class="qa-chips">`+
+    g.items.map(t=>`<span class="qa-chip" data-ask="${esc(t)}">${esc(t)}</span>`).join('')+`</div></div>`).join('');
+  box.innerHTML=html;
+  box.onclick=(e)=>{
+    const del=e.target.closest('[data-del]'); if(del){e.stopPropagation();removeAsk(del.dataset.del);renderQuickAsks(box);return;}
+    const chip=e.target.closest('[data-ask]'); if(chip) askAssistant(chip.dataset.ask);
+  };
+}
+function suggestFollowups(q,reply){
+  const t=(q+' '+reply).toLowerCase(); const s=[];
+  if(/customer|client|account/.test(t)) s.push('Show their recent orders');
+  if(/\border|orders\b/.test(t)) s.push('Show the line items');
+  if(/invoice|overdue|balance|owe/.test(t)) s.push('Which invoices are overdue?');
+  if(/spend|total|revenue|sales/.test(t)) s.push('Break it down by month');
+  if(!s.length) s.push('Summarize that','Show more detail');
+  return s.slice(0,3);
+}
+async function exportConversation(conv){
+  try{
+    const t=await api('/dashboard/chat-history/'+encodeURIComponent(conv));
+    if(!t.messages||!t.messages.length){toast('Nothing to export yet',true);return;}
+    const text=t.messages.map(m=>(m.role==='user'?'You: ':'Assistant: ')+m.content).join('\n\n');
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([text],{type:'text/plain'}));
+    a.download='conversation.txt'; a.click(); URL.revokeObjectURL(a.href);
+  }catch(e){toast('Nothing to export yet',true);}
+}
+// Pinned answers (per user, localStorage)
+function _saKey(){return 'gov_savedans:'+(ME.name||'anon');}
+function getSavedAnswers(){try{return JSON.parse(localStorage.getItem(_saKey())||'[]');}catch(e){return [];}}
+function setSavedAnswers(l){localStorage.setItem(_saKey(),JSON.stringify(l.slice(0,50)));}
+function saveAnswer(text){const l=getSavedAnswers();l.unshift({text,ts:Date.now()});setSavedAnswers(l);}
+function removeAnswer(ts){setSavedAnswers(getSavedAnswers().filter(x=>x.ts!==ts));}
+function renderSavedAnswers(box){
+  const l=getSavedAnswers();
+  box.innerHTML=`<div class="between"><h2>Saved answers</h2><span class="muted" style="font-size:.76rem">Pinned from the Assistant</span></div>`+
+    (l.length?`<div style="margin-top:.6rem;display:flex;flex-direction:column;gap:.5rem">`+l.map(a=>`<div class="row" style="justify-content:space-between;align-items:flex-start;gap:.6rem;border:1px solid var(--gray200);border-radius:var(--radius-sm);padding:.5rem .7rem">
+      <div style="font-size:.85rem;flex:1;min-width:0">${esc(a.text.slice(0,180))}${a.text.length>180?'…':''}</div>
+      <div class="row" style="flex-wrap:nowrap;gap:.3rem"><button class="sm ghost" data-copy="${a.ts}">Copy</button><button class="sm danger" data-del="${a.ts}">✕</button></div></div>`).join('')+`</div>`
+    :'<p class="empty" style="margin-top:.4rem">No saved answers yet — pin one with ☆ in the Assistant.</p>');
+  box.onclick=(e)=>{const b=e.target.closest('button');if(!b)return;
+    if(b.dataset.copy){const a=getSavedAnswers().find(x=>String(x.ts)===b.dataset.copy);if(a){navigator.clipboard&&navigator.clipboard.writeText(a.text);toast('Copied');}}
+    if(b.dataset.del){removeAnswer(Number(b.dataset.del));renderSavedAnswers(box);}};
+}
+// Result table -> CSV, and a simple bar chart from a numeric column
+function tableToCsv(table){
+  const q=v=>{v=(v==null?'':String(v)).trim();return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+  return [...table.rows].map(r=>[...r.cells].map(c=>q(c.textContent)).join(',')).join('\n');
+}
+function downloadText(name,text,type){const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([text],{type:type||'text/plain'}));a.download=name;a.click();URL.revokeObjectURL(a.href);}
+function chartFromTable(table){
+  const items=[];
+  for(const r of [...table.rows].slice(1)){const c=[...r.cells];if(!c.length)continue;
+    let num=null; for(let i=c.length-1;i>=1;i--){const n=parseFloat(c[i].textContent.replace(/[^0-9.\-]/g,''));if(!isNaN(n)){num=n;break;}}
+    if(num!=null)items.push({k:c[0].textContent.trim(),n:num});}
+  return items;
+}
+const LLM_ACTIONS=['Summarize that','Explain simply','Show as a table'];
+
+// Shared streaming client: streams the answer from /chat/stream, calling
+// onUpdate(text,{tools,phase}) as it arrives; falls back to /chat on any
+// streaming failure. Returns {reply, tools, conv}. Used by the Assistant and
+// the AI Playground.
+async function streamOrChat(message, conv, onUpdate){
+  try{
+    const r=await fetch('/chat/stream',{method:'POST',credentials:'same-origin',
+      headers:{'content-type':'application/json'},body:JSON.stringify({message,conversation_id:conv})});
+    const ct=r.headers.get('content-type')||'';
+    if(!r.ok||!r.body||!ct.includes('text/event-stream')) throw new Error('stream unavailable');
+    const reader=r.body.getReader(), dec=new TextDecoder(); let buf='',text='',tools=[],started=false;
+    for(;;){
+      const {value,done}=await reader.read(); if(done)break;
+      buf+=dec.decode(value,{stream:true}); let i;
+      while((i=buf.indexOf('\n\n'))>=0){
+        const blk=buf.slice(0,i); buf=buf.slice(i+2);
+        const dl=blk.split('\n').find(l=>l.startsWith('data:')); if(!dl)continue;
+        let ev; try{ev=JSON.parse(dl.slice(5).trim());}catch(e){continue;}
+        if(ev.type==='meta'){ if(ev.conversation_id)conv=ev.conversation_id; }
+        else if(ev.type==='delta'){ started=true; text+=ev.text||''; onUpdate&&onUpdate(text,{tools,phase:'answer'}); }
+        else if(ev.type==='replace'){ text=ev.text||''; onUpdate&&onUpdate(text,{tools,phase:'answer'}); }
+        else if(ev.type==='tools'){ tools.push(...(ev.tools||[])); if(!started)onUpdate&&onUpdate('',{tools,phase:'tools'}); }
+        else if(ev.type==='done'){ if(ev.tool_calls&&ev.tool_calls.length)tools=ev.tool_calls.map(t=>t.tool); }
+        else if(ev.type==='error'){ throw new Error(ev.message||'stream error'); }
+      }
+    }
+    return {reply:text, tools, conv};
+  }catch(e){
+    // Streaming unavailable / failed mid-flight -> the plain endpoint (records the turn).
+    const j=await api('/chat',{method:'POST',body:JSON.stringify({message,conversation_id:conv})});
+    return {reply:j.reply||'', tools:(j.tool_calls||[]).map(t=>t.tool), conv:j.conversation_id||conv};
+  }
+}
+let ME = {name:'', role:'user'};
+let CATALOG = {backends:{}, levels:[], categories:[]};
+
+function toast(msg,bad){const t=$('#toast');t.textContent=msg;t.style.background=bad?'var(--error)':'var(--gray900)';
+  t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600);}
+async function api(path,opts){
+  const r = await fetch(path, Object.assign({credentials:'same-origin',headers:{'content-type':'application/json'}},opts||{}));
+  if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error||('HTTP '+r.status));}
+  return r.status===204?{}:r.json();
+}
+async function logout(){
+  // Clear every stored conversation pointer, not just the current one -- belt
+  // and suspenders alongside the per-user namespacing below.
+  Object.keys(sessionStorage).filter(k=>k.startsWith(ACTIVE_CONV_KEY)).forEach(k=>sessionStorage.removeItem(k));
+  await fetch('/dashboard/logout',{method:'POST',credentials:'same-origin'});location='/dashboard';
+}
+
+// Active conversation id -- sessionStorage (not a bare JS var) so it survives a
+// hard refresh/reopened tab too, not just SPA in-app navigation, matching how
+// long the server itself considers the conversation alive (GOVERNANCE_CHAT_IDLE_SEC,
+// default 1h) rather than only "as long as you don't leave the Assistant panel").
+//
+// Namespaced by the logged-in user (ME.name), NOT a single shared key --
+// sessionStorage is scoped to the browser TAB, not to who's logged in, and is
+// never cleared on logout. Without this namespacing, testing account A then
+// logging into account B in the SAME tab would silently hand B the SAME
+// conversation_id A was using, sending both users' messages to one session
+// (a real bug found 2026-07: it surfaced as a spurious "forbidden" on Cosmos,
+// since a cross-partition owner-unknown lookup could match either user's
+// same-id document -- see _chat_transcript/_chat_resume server-side).
+const ACTIVE_CONV_KEY='gov_active_conv';
+function _convKey(){return ACTIVE_CONV_KEY+':'+(ME.name||'anon');}
+function getActiveConv(){
+  const key=_convKey();
+  let c=sessionStorage.getItem(key);
+  if(!c){c='chat-'+Math.random().toString(36).slice(2);sessionStorage.setItem(key,c);}
+  return c;
+}
+function setActiveConv(c){sessionStorage.setItem(_convKey(),c);}
+
+// ── routing ──────────────────────────────────────────────────────────────────
+const ROUTES = {
+  home:{title:'Home',desc:'Your starting point — ask anything, run a saved query, and see recent activity.',icon:'🏠',render:renderHome},
+  assistant:{title:'Assistant',desc:'Ask about customers, orders, shipments, and invoices — answered through the governed tools.',icon:'💬',render:renderAssistant},
+  playground:{title:'AI Playground',desc:'Guided AI tasks — draft messages, summarize accounts, and surface insights, all through the governed assistant.',icon:'🪄',render:renderPlayground},
+  workflows:{title:'Workflows',desc:'Run governed office workflows that turn data into reports, decks, and files.',icon:'WF',render:renderWorkflows},
+  automations:{title:'Automations',desc:'Recurring governed workflows with deterministic local due-run execution.',icon:'AU',render:renderAutomations},
+  my_workflows:{title:'My Workflow',desc:'Build a custom automation by connecting governed tools, approval gates, and AI steps -- no code required.',icon:'MW',render:renderMyWorkflows},
+  knowledge:{title:'Knowledge',desc:'Local document ingestion, search, and citation-backed answers.',icon:'KB',render:renderKnowledge},
+  files:{title:'Files',desc:'Generated artifacts, classifications, and downloads.',icon:'FL',render:renderFiles},
+  sends:{title:'Send Queue',desc:'Approval-gated email delivery queue and connector handoff status.',icon:'SQ',render:renderSends},
+  calendar:{title:'Calendar',desc:'Draft invite artifacts and approval-gated calendar connector queue.',icon:'CA',render:renderCalendar},
+  templates:{title:'Templates',desc:'Reusable report, deck, email, calendar, prompt, and workflow templates.',icon:'TP',render:renderTemplates},
+  'code-plans':{title:'Code Plans',desc:'Read-only opencode planning, repository reviews, and workflow template drafts.',icon:'CP',admin:true,render:renderCodePlans},
+  agents:{title:'Agents',desc:'Autonomous agent identities with allowed workflow templates and schedule constraints.',icon:'AG',admin:true,render:renderAgents},
+  access:{title:'My Access',desc:'Your status, granted data domains, and API key.',icon:'🔑',render:renderAccess},
+  activity:{title:'My Activity',desc:'Your governed calls — what you accessed, what was redacted, and your rate-limit headroom.',icon:'📈',render:renderActivity},
+  developer:{title:'Developer',desc:'Your API key, an MCP connection snippet, and a playground to test governed tools.',icon:'🧰',render:renderDeveloper},
+  history:{title:'History',desc:'Your past assistant conversations — each closes and gets summarized after 1h idle.',icon:'🕘',render:renderHistory},
+  consumers:{title:'Consumers',desc:'Principals (people & agents), their categories, and API keys.',icon:'👥',admin:true,render:renderConsumers},
+  requests:{title:'Access Requests',desc:'Approve signups and access asks; review denied-attempt suggestions.',icon:'📥',admin:true,render:renderRequests},
+  categories:{title:'Categories',desc:'Data-domain templates: which backend, tools, and sensitivity levels each grants.',icon:'🗂️',admin:true,render:renderCategories},
+  'department-admin':{title:'Departments',desc:'Org-unit groupings of categories, used by self-signup. Editing a department’s categories updates every member’s access immediately — no per-user resync.',icon:'🏢',admin:true,render:renderDepartments},
+  whitelist:{title:'IP Allowlist',desc:'Global CIDR allowlist enforced at the MCP edge.',icon:'🛡️',admin:true,render:renderWhitelist},
+  monitor:{title:'Monitor',desc:'Live security overview — call volume, authorization, sensitive access, and every governed tool call.',icon:'📊',admin:true,render:renderMonitor},
+  alerts:{title:'Alerts',desc:'Security incidents — enumeration, denial bursts, and anomalies grouped per principal for triage.',icon:'🚨',admin:true,render:renderAlerts},
+  security:{title:'Security',desc:'Backend health and API-key hygiene — dormant keys, unused grants, unrotated credentials.',icon:'🔒',admin:true,render:renderSecurity},
+};
+function currentKey(){
+  const p = location.pathname.replace(/^\/dashboard\/?/,'').split('/')[0];
+  if(p==='admin') return 'consumers';
+  return ROUTES[p] ? p : 'home';  // default landing = Home
+}
+function buildNav(){
+  const nav=$('#nav'); nav.innerHTML='';
+  const mk=(k)=>{const r=ROUTES[k];const a=el(`<a class="item" data-k="${k}"><span class="ic">${r.icon}</span>${r.title}</a>`);
+    a.onclick=(e)=>{e.preventDefault();go(k);}; a.href='/dashboard/'+k; return a;};
+  ['home','assistant','playground','workflows','my_workflows','automations','knowledge','files','sends','calendar','templates','code-plans','access','activity','developer','history'].forEach(k=>nav.appendChild(mk(k)));
+  if(ME.role==='admin'){
+    nav.appendChild(el('<div class="group">Administration</div>'));
+    ['alerts','monitor','security','agents','consumers','requests','approvals','categories','department-admin','whitelist'].forEach(k=>nav.appendChild(mk(k)));
+  }
+}
+function go(key){
+  if(ROUTES[key].admin && ME.role!=='admin') key='home';
+  history.pushState({},'','/dashboard/'+key);
+  paint(key);
+}
+function paint(key){
+  const r=ROUTES[key];
+  $('#page-title').textContent=r.title; $('#page-desc').textContent=r.desc;
+  document.querySelectorAll('#nav a.item').forEach(a=>a.classList.toggle('active',a.dataset.k===key));
+  $('#sidebar').classList.remove('open');
+  const v=$('#view'); v.innerHTML='';
+  r.render(v).catch(e=>{v.innerHTML=`<div class="content"><div class="card"><p class="err">${esc(e.message)}</p></div></div>`;});
+}
+window.onpopstate=()=>paint(currentKey());
+
+// ── panels ───────────────────────────────────────────────────────────────────
+function wrap(html){return `<div class="content">${html}</div>`;}
+
+async function renderHome(v){
+  const first=(ME.name||'there').split(/[.@ ]/)[0];
+  v.innerHTML=wrap(`
+    <div class="card card-pad home-hero">
+      <h2>Hi ${esc(first.charAt(0).toUpperCase()+first.slice(1))} 👋</h2>
+      <p class="muted">Ask about customers, orders, shipments, and invoices — in plain language.</p>
+      <form id="home_ask" class="row" style="margin-top:.9rem;flex-wrap:nowrap;gap:.5rem">
+        <input id="home_q" placeholder="e.g. Show recent orders for Acme Dental" style="flex:1" autocomplete="off">
+        <button>Ask</button></form>
+    </div>
+    <div class="card card-pad"><div class="between"><h2>Quick asks</h2>
+      <span class="muted" style="font-size:.76rem">Click to run · save your own with ★ in the Assistant</span></div>
+      <div id="home_qa" style="margin-top:.8rem"></div></div>
+    <div class="card card-pad" id="home_saved"></div>
+    <div class="card"><div class="card-pad between" style="padding-bottom:.6rem"><h2>Recent activity</h2>
+      <a href="/dashboard/activity" onclick="event.preventDefault();go('activity')">View all →</a></div>
+      <div class="tbl-wrap" style="border-radius:0 0 var(--radius) var(--radius);border-left:0;border-right:0;border-bottom:0"><table>
+        <thead><tr><th>When</th><th>Tool</th><th>Status</th></tr></thead>
+        <tbody id="home_act"><tr><td colspan="3" class="empty">Loading…</td></tr></tbody></table></div></div>`);
+  $('#home_ask').onsubmit=(e)=>{e.preventDefault();const q=$('#home_q').value.trim();if(q){PENDING_ASK=q;go('assistant');}};
+  renderQuickAsks($('#home_qa'));
+  renderSavedAnswers($('#home_saved'));
+  try{
+    const a=await api('/dashboard/my-activity'); const rows=(a.calls||[]).slice(0,6);
+    $('#home_act').innerHTML=rows.map(c=>`<tr>
+      <td class="muted num">${c.ts?_fmtWhen(c.ts):'—'}</td><td class="mono" style="font-size:.8rem">${esc(c.tool)}</td>
+      <td><span class="pill ${c.status==='ok'?'ok':(c.status==='denied'?'warn':'')}">${esc(c.status)}</span></td></tr>`).join('')
+      || '<tr><td colspan="3" class="empty">No activity yet — ask something above to get started.</td></tr>';
+  }catch(e){$('#home_act').innerHTML='<tr><td colspan="3" class="empty">—</td></tr>';}
+}
+
+const AI_TASKS=[
+  {id:'draft',icon:'✉️',title:'Draft a message',desc:'A polished email or reminder, written from the account’s data.',
+   fields:[{k:'who',label:'Customer',ph:'name, email, or customer id'},
+           {k:'about',label:'About',ph:'e.g. their overdue invoice'},
+           {k:'kind',label:'Type',type:'select',options:['email','payment reminder','follow-up','thank-you note']},
+           {k:'tone',label:'Tone',type:'select',options:['friendly','formal','firm']}],
+   tmpl:'Draft a {tone} {kind} to {who} about {about}. Use only real details from their account; keep it concise and professional.'},
+  {id:'summary',icon:'📋',title:'Summarize an account',desc:'A quick 360° summary of a customer.',
+   fields:[{k:'who',label:'Customer',ph:'name, email, or customer id'}],
+   tmpl:'Give me a concise summary of {who}: profile, recent orders, total spend, and any open invoices.'},
+  {id:'insights',icon:'💡',title:'Get insights',desc:'Surface anything notable or unusual.',
+   fields:[{k:'who',label:'Customer or topic',ph:'e.g. Acme Dental, or "overdue invoices"'}],
+   tmpl:'Look at {who} and highlight anything notable, unusual, or worth my attention. Be specific and cite the numbers.'},
+  {id:'review',icon:'📊',title:'Account review',desc:'A review with key metrics and a short narrative.',
+   fields:[{k:'who',label:'Customer',ph:'name, email, or customer id'}],
+   tmpl:'Generate an account review for {who}: key metrics, recent orders, open invoices, and a short narrative summary as a table where useful.'},
+  {id:'compare',icon:'⚖️',title:'Compare two customers',desc:'A side-by-side of two accounts.',
+   fields:[{k:'a',label:'Customer A',ph:'name, email, or id'},{k:'b',label:'Customer B',ph:'name, email, or id'}],
+   tmpl:'Compare {a} and {b}: profile, recent order volume, total spend, and open invoices. Present the comparison as a table.'},
+  {id:'justify',icon:'🔑',title:'Draft an access request',desc:'A business justification you can paste into a request.',
+   fields:[{k:'what',label:'Access you need',ph:'e.g. finance invoices'},{k:'why',label:'Why you need it',ph:'e.g. month-end reconciliation'}],
+   tmpl:'Write a short, professional business justification (2-3 sentences) for requesting access to {what}, because I need to {why}. Output only the justification text — do not call any tools.'},
+  {id:'translate',icon:'🌐',title:'Translate text',desc:'Translate any text into another language.',
+   fields:[{k:'lang',label:'Into',type:'select',options:['Spanish','French','German','Chinese (Simplified)','Portuguese','Japanese','English']},
+           {k:'text',label:'Text to translate',type:'textarea',ph:'Paste the text here'}],
+   tmpl:'Translate the following into {lang}, preserving meaning and tone. Output only the translation — do not call any tools:\n\n{text}'},
+];
+async function renderPlayground(v){
+  v.innerHTML=wrap(`
+    <div class="card card-pad"><h2>AI tasks</h2>
+      <p class="muted">Pick a task, fill in a couple of details, and the assistant does it for you — governed and redacted just like the chat. Results are AI drafts; review before you send or rely on them.</p>
+      <div class="grid" id="pg_tasks" style="margin-top:.85rem"></div></div>
+    <div id="pg_form"></div>
+    <div id="pg_out"></div>`);
+  $('#pg_tasks').innerHTML=AI_TASKS.map((t,i)=>`<div class="card pg-task" data-i="${i}" style="margin:0;cursor:pointer;padding:1rem">
+    <div style="font-size:1.5rem;line-height:1">${t.icon}</div>
+    <b style="display:block;margin-top:.4rem">${esc(t.title)}</b>
+    <div class="muted" style="font-size:.78rem;margin-top:.2rem">${esc(t.desc)}</div></div>`).join('');
+  $('#pg_tasks').onclick=(e)=>{const c=e.target.closest('.pg-task');if(c)openTask(AI_TASKS[Number(c.dataset.i)]);};
+
+  function openTask(t){
+    $('#pg_form').innerHTML=`<div class="card card-pad"><div class="between"><h2>${t.icon} ${esc(t.title)}</h2>
+        <button class="btn ghost sm" id="pg_close">✕</button></div>
+      <div class="grid" style="margin-top:.75rem">${t.fields.map(f=>f.type==='select'
+        ?`<label>${esc(f.label)}<select data-f="${f.k}">${f.options.map(o=>`<option>${esc(o)}</option>`).join('')}</select></label>`
+        :f.type==='textarea'
+        ?`<label style="grid-column:1/-1">${esc(f.label)}<textarea data-f="${f.k}" rows="4" placeholder="${esc(f.ph||'')}"></textarea></label>`
+        :`<label>${esc(f.label)}<input data-f="${f.k}" placeholder="${esc(f.ph||'')}"></label>`).join('')
+      }<label style="grid-column:1/-1">Extra instructions <span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0">(optional — how should it be analyzed?)</span>
+        <textarea data-extra rows="2" placeholder="e.g. focus on the last 3 months · flag anything over $10k · keep it to bullet points"></textarea></label></div>
+      <div class="row" style="margin-top:.85rem"><button id="pg_run">Run task</button></div></div>`;
+    $('#pg_close').onclick=()=>{$('#pg_form').innerHTML='';$('#pg_out').innerHTML='';};
+    $('#pg_run').onclick=()=>{
+      const vals={}; $('#pg_form').querySelectorAll('[data-f]').forEach(el=>vals[el.dataset.f]=el.value.trim());
+      for(const f of t.fields){ if(f.type!=='select' && !vals[f.k]){toast('Please fill in '+f.label,true);return;} }
+      let prompt=t.tmpl.replace(/\{(\w+)\}/g,(m,k)=>vals[k]||m);
+      const extra=($('#pg_form').querySelector('[data-extra]').value||'').trim();
+      if(extra) prompt+='\n\nAdditional instructions from the user: '+extra;
+      runTask(prompt);
+    };
+  }
+  async function runTask(prompt){
+    $('#pg_out').innerHTML=`<div class="card card-pad"><div class="between"><h2>Result</h2>
+        <span class="pill warn">AI draft — review before use</span></div>
+      <div class="msg bot" id="pg_reply" style="max-width:100%;margin-top:.7rem"><span class="typing"><i></i><i></i><i></i></span></div>
+      <div class="row" id="pg_actions" style="margin-top:.7rem"></div></div>`;
+    const rep=$('#pg_reply');
+    const onUpdate=(text,meta)=>{
+      if(meta.phase==='tools' && !text) rep.innerHTML=`<span class="muted">using: ${esc((meta.tools||[]).join(', '))}…</span>`;
+      else rep.innerHTML=mdToHtml(text);
+    };
+    try{
+      const s=await streamOrChat(prompt,'pg-'+Math.random().toString(36).slice(2),onUpdate);
+      const reply=s.reply||'(no reply)'; rep.innerHTML=mdToHtml(reply);
+      $('#pg_actions').innerHTML=`<button class="ghost sm" id="pg_copy">⧉ Copy</button>`+
+        `<button class="ghost sm" id="pg_save">☆ Save</button>`+
+        (/\|.*\|/.test(reply)?'<button class="ghost sm" id="pg_csv">⬇ CSV</button>':'')+
+        ((s.tools&&s.tools.length)?`<span class="muted" style="font-size:.72rem;align-self:center">used: ${esc(s.tools.join(', '))}</span>`:'');
+      $('#pg_copy').onclick=()=>{navigator.clipboard&&navigator.clipboard.writeText(reply);toast('Copied');};
+      $('#pg_save').onclick=()=>{saveAnswer(reply);toast('Saved to your answers');};
+      const csv=$('#pg_csv'); if(csv)csv.onclick=()=>{const tb=rep.querySelector('.mdtable');if(tb)downloadText('result.csv',tableToCsv(tb),'text/csv');};
+    }catch(e){rep.innerHTML=`<span class="err">${esc(e.message)}</span>`;}
+  }
+}
+
+async function renderAssistant(v){
+  v.innerHTML=`<div class="chat">
+    <div class="row" style="padding:.6rem 1.75rem 0;justify-content:flex-end;gap:.4rem">
+      <button id="cexport" class="sm ghost">Export</button>
+      <button id="cnew" class="sm ghost">+ New conversation</button></div>
+    <div class="chatlog" id="clog">
+      <div class="hint" id="chint"></div></div>
+    <form class="chatbar" id="cform"><input id="cq" placeholder="Ask a question…" autocomplete="off" autofocus>
+      <button id="csave" type="button" class="ghost" title="Save this ask to Quick asks">★</button>
+      <button id="csend">Send</button></form></div>`;
+  const log=$('#clog'); let conv=getActiveConv();
+  $('#chint').innerHTML=`<h3>How can I help?</h3><p class="muted">Ask in plain language — or start with one of these:</p><div id="hint_qa" style="margin-top:.7rem;text-align:left"></div>`;
+  renderQuickAsks($('#hint_qa'));
+
+  const add=(cls,txt)=>{const d=el(`<div class="msg ${cls}"></div>`);
+    if(cls==='bot')d.innerHTML=mdToHtml(txt); else d.textContent=txt;
+    log.appendChild(d);log.scrollTop=log.scrollHeight;return d;};
+  const thinking=()=>{const d=el('<div class="msg bot"><span class="typing"><i></i><i></i><i></i></span></div>');
+    log.appendChild(d);log.scrollTop=log.scrollHeight;return d;};
+  const actionsBar=(reply,p,q)=>{
+    const hasTable=!!p.querySelector('.mdtable');
+    const bar=el(`<div class="msg-actions"><button data-a="copy">⧉ Copy</button>`+
+      (hasTable?'<button data-a="csv">⬇ CSV</button><button data-a="chart">📊 Chart</button>':'')+
+      `<button data-a="retry">↻ Retry</button><button data-a="save">☆ Save</button>`+
+      `<button data-a="up" title="Helpful">👍</button><button data-a="down" title="Not helpful">👎</button></div>`);
+    bar.onclick=async(e)=>{const b=e.target.closest('button');if(!b)return;const a=b.dataset.a;
+      if(a==='copy'){navigator.clipboard&&navigator.clipboard.writeText(reply);toast('Copied');return;}
+      if(a==='csv'){const t=p.querySelector('.mdtable');if(t)downloadText('result.csv',tableToCsv(t),'text/csv');return;}
+      if(a==='chart'){const ex=p.querySelector('.reply-chart');if(ex){ex.remove();return;}
+        const items=chartFromTable(p.querySelector('.mdtable'));
+        if(!items.length){toast('No numeric column to chart',true);return;}
+        const c=el('<div class="reply-chart" style="margin-top:.55rem"></div>');c.innerHTML=_hbars(items);p.appendChild(c);return;}
+      if(a==='retry'){send(q);return;}
+      if(a==='save'){saveAnswer(reply);toast('Saved to your answers');return;}
+      try{await api('/dashboard/feedback',{method:'POST',body:JSON.stringify({conversation_id:conv,rating:a})});
+        bar.querySelectorAll('[data-a="up"],[data-a="down"]').forEach(x=>x.classList.remove('on'));b.classList.add('on');toast('Thanks for the feedback');}
+      catch(err){toast(err.message,true);}};
+    return bar;
+  };
+  const addFollowups=(q,reply)=>{
+    const chips=[...LLM_ACTIONS, ...suggestFollowups(q,reply)].filter((c,i,arr)=>arr.indexOf(c)===i).slice(0,5);
+    const d=el('<div class="followups"></div>');
+    chips.forEach(c=>{const b=el(`<button class="qa-chip"></button>`);b.textContent=c;b.onclick=()=>send(c);d.appendChild(b);});
+    log.appendChild(d);log.scrollTop=log.scrollHeight;
+  };
+  const addWorkflowSuggestions=async(q,reply)=>{
+    let data;
+    try{data=await api('/workflow-suggestions',{method:'POST',body:JSON.stringify({message:q+'\n'+reply,limit:3})});}
+    catch(e){return;}
+    const suggestions=data.suggestions||[];
+    if(!suggestions.length)return;
+    const box=el('<div class="msg bot" style="max-width:760px"></div>');
+    box.innerHTML=`<b>Run this as a workflow</b><p class="muted" style="font-size:.78rem;margin:.25rem 0 .55rem">Create governed files, approvals, and audit-backed workflow runs from this request.</p><div class="grid">${suggestions.map(s=>`<div class="card" style="margin:0;padding:.75rem"><div class="row" style="justify-content:space-between"><b>${esc(s.displayName)}</b><span class="pill ok">${esc((s.outputTypes||[]).join(', ')||'workflow')}</span></div><p class="muted" style="font-size:.76rem;margin:.35rem 0">${esc(s.reason)}</p><button class="sm ghost" data-launch-wf="${esc(s.templateId)}" data-inputs="${esc(JSON.stringify(s.inputs||{}))}">Launch</button></div>`).join('')}</div>`;
+    box.onclick=async(e)=>{
+      const b=e.target.closest('[data-launch-wf]'); if(!b)return;
+      b.disabled=true; b.textContent='Launching...';
+      try{
+        const inputs=JSON.parse(b.dataset.inputs||'{}');
+        const r=await api('/workflow-suggestions/launch',{method:'POST',body:JSON.stringify({template_id:b.dataset.launchWf,inputs})});
+        toast('Workflow launched');
+        const links=(r.artifacts||[]).map(a=>`<a href="${esc(a.downloadUrl)}">${esc(a.filename)}</a>`).join(' | ');
+        const out=el('<div class="tools"></div>');
+        out.innerHTML=`workflow ${esc(r.status)}: <span class="mono">${esc(r.runId)}</span>${links?' | '+links:''} | <button class="sm ghost" onclick="go('workflows')">Runs</button><button class="sm ghost" onclick="go('files')">Files</button>`;
+        log.appendChild(out);log.scrollTop=log.scrollHeight;
+      }catch(err){toast(err.message,true);b.disabled=false;b.textContent='Launch';}
+    };
+    log.appendChild(box);log.scrollTop=log.scrollHeight;
+  };
+
+  async function send(q){
+    q=(q||'').trim(); if(!q)return;
+    log.querySelector('.hint')?.remove();
+    log.querySelectorAll('.followups').forEach(f=>f.remove());
+    add('me',q); $('#cq').value=''; $('#csend').disabled=true; const p=thinking();
+    const onUpdate=(text,meta)=>{
+      if(meta.phase==='tools' && !text) p.innerHTML=`<div class="tools">using: ${esc((meta.tools||[]).join(', '))}…</div>`;
+      else p.innerHTML=mdToHtml(text);
+      log.scrollTop=log.scrollHeight;
+    };
+    let reply='', tools=[];
+    try{
+      const s=await streamOrChat(q,conv,onUpdate);
+      reply=s.reply||'(no reply)'; tools=s.tools||[];
+      if(s.conv){conv=s.conv;setActiveConv(conv);}
+      p.innerHTML=mdToHtml(reply);
+    }catch(err){p.textContent='⚠ '+err.message;$('#csend').disabled=false;$('#cq').focus();return;}
+    p.appendChild(actionsBar(reply,p,q));
+    if(tools&&tools.length)log.appendChild(el(`<div class="tools">used: ${esc(tools.join(', '))}</div>`));
+    addFollowups(q,reply);
+    addWorkflowSuggestions(q,reply);
+    $('#csend').disabled=false;$('#cq').focus();
+  }
+
+  $('#cform').onsubmit=(e)=>{e.preventDefault();send($('#cq').value);};
+  $('#csave').onclick=()=>{const t=$('#cq').value.trim();if(!t){toast('Type an ask first, then save it',true);return;}saveAsk(t);toast('Saved to Quick asks');};
+  $('#cnew').onclick=()=>{setActiveConv('chat-'+Math.random().toString(36).slice(2));paint('assistant');};
+  $('#cexport').onclick=()=>exportConversation(conv);
+
+  try{
+    const t=await api('/dashboard/chat-history/'+encodeURIComponent(conv));
+    if(t.messages&&t.messages.length){log.querySelector('.hint')?.remove();t.messages.forEach(m=>add(m.role==='user'?'me':'bot',m.content));}
+  }catch(e){/* no history yet for this id -- fine, start fresh */}
+
+  if(PENDING_ASK){const t=PENDING_ASK;PENDING_ASK=null;send(t);}
+}
+
+async function renderAccess(v){
+  const [a,catalog]=await Promise.all([
+    api('/dashboard/my-access'),
+    api('/dashboard/category-catalog').catch(()=>({categories:[]})),
+  ]);
+  const categories=catalog.categories||[];
+  const backendLabel=Object.fromEntries(categories.map(c=>[c.backend,c.display_name]));
+  const statusPill=a.status==='active'?'ok':(a.status==='pending'?'pending':'warn');
+  const access=a.access||{};
+  // access[b].tools is now [{name,description}] (see manifest.ToolPolicy.description) --
+  // one plain-English line per tool, not the raw canonical name.
+  const accessHtml=Object.keys(access).length? Object.entries(access).map(([b,g])=>`
+    <div style="margin-bottom:1.1rem">
+      <div class="row"><b>${esc(backendLabel[b]||b)}</b>${(g.levels||[]).map(l=>`<span class="pill ok">${esc(l)}</span>`).join(' ')}</div>
+      <ul style="margin:.5rem 0 0;padding-left:1.3rem">
+        ${(g.tools||[]).map(t=>`<li>${esc(t.description||t.name||t)}</li>`).join('')||'<li class="muted">no tools</li>'}
+      </ul></div>`).join('') : '<p class="empty">No access granted yet.</p>';
+  const myAccessReqs=(a.requests||[]).filter(r=>r.kind==='access');
+  // tools already pending in an earlier, not-yet-decided request (per backend) --
+  // only "selections"-shaped requests are relevant here (what this UI now submits).
+  const pendingByBackend={};
+  myAccessReqs.filter(r=>r.status==='pending'&&r.selections).forEach(r=>r.selections.forEach(s=>{
+    (pendingByBackend[s.backend]=pendingByBackend[s.backend]||new Set());
+    s.tools.forEach(t=>pendingByBackend[s.backend].add(t));
+  }));
+  const grantedToolNames=b=>new Set(((access[b]&&access[b].tools)||[]).map(t=>t.name||t));
+  const toolDesc=(cat,name)=>{const c=categories.find(c=>c.id===cat);const t=c&&c.tools.find(t=>t.name===name);return t?t.description:name;};
+  const reqRowLabel=r=>r.selections? r.selections.map(s=>`${s.tools.map(t=>toolDesc(s.category,t)).join(', ')}`).join(' | ')
+    : (r.categories? r.categories.map(c=>(categories.find(x=>x.id===c)||{}).display_name||c).join(', ') : ('backend: '+(r.backend||'—')));
+  v.innerHTML=wrap(`
+    <div class="card"><h2>Account</h2>
+      <div class="row" style="margin-top:.6rem">
+        <span class="pill ${statusPill}">${esc(a.status)}</span>
+        <span class="pill">${esc(a.role)}</span><span class="pill">${esc(a.type)}</span>
+        ${a.department?`<span class="pill">${esc(a.department)}</span>`:''}
+        <span class="muted">${esc(a.full_name||a.name)} (${esc(a.name)})</span></div></div>
+    <div class="card"><h2>Granted access</h2><p class="muted">What you can currently do${a.department?' (incl. via your department)':''}.</p>${accessHtml}</div>
+    <div id="ra_denials"></div>
+    <div class="card"><h2>Request more access</h2>
+      <p class="muted">Open a category to pick the specific things you need — an admin reviews before anything is granted.</p>
+      <div id="ra_cats" style="margin-top:.7rem"><p class="empty">Loading…</p></div>
+      <label style="margin-top:.7rem">Why do you need this?<textarea id="ra_just" rows="2" placeholder="optional"></textarea></label>
+      <div class="row" style="margin-top:.6rem"><button id="ra_send" ${a.status!=='active'?'disabled':''}>Request access</button></div>
+      <div class="tbl-wrap" style="margin-top:1rem"><table><thead><tr><th>Requested</th><th>Status</th><th>Justification</th></tr></thead>
+        <tbody>${myAccessReqs.map(r=>`<tr><td>${esc(reqRowLabel(r))}</td>
+          <td><span class="pill ${r.status==='approved'?'ok':(r.status==='pending'?'pending':'warn')}">${esc(r.status)}</span></td>
+          <td class="muted">${esc(r.justification||'—')}</td></tr>`).join('') || '<tr><td colspan="3" class="empty">No requests yet.</td></tr>'}</tbody></table></div></div>
+    <div class="card"><h2>API key</h2>
+      <p class="muted">${a.has_key?'A key is issued.':'No key yet.'} Minting shows it once — store it safely; it replaces any previous key.</p>
+      <div class="row"><button id="mintk" ${a.status!=='active'?'disabled':''}>${a.has_key?'Rotate key':'Mint key'}</button></div>
+      <div id="keybox"></div></div>`);
+  $('#mintk')?.addEventListener('click',async()=>{
+    try{const r=await api('/dashboard/my-key/rotate',{method:'POST'});
+      $('#keybox').innerHTML=`<div class="key">${esc(r.api_key)}</div>`;toast('Key minted — copy it now');
+    }catch(e){toast(e.message,true);}});
+
+  const box=$('#ra_cats');
+  const sections=categories.map(c=>{
+    const granted=grantedToolNames(c.backend), pending=pendingByBackend[c.backend]||new Set();
+    const available=c.tools.filter(t=>!granted.has(t.name));
+    if(!available.length) return '';
+    return `<details class="ra-cat" data-cat="${esc(c.id)}" data-backend="${esc(c.backend)}" style="margin-top:.5rem;border:1px solid var(--gray200);border-radius:var(--radius-sm);padding:.5rem .7rem">
+      <summary style="cursor:pointer;font-weight:600">${esc(c.display_name)} <span class="muted">(${available.length} available)</span></summary>
+      <div style="margin-top:.6rem;display:flex;flex-direction:column;gap:.5rem">
+        ${available.map(t=>`<label style="flex-direction:row;align-items:flex-start;gap:.5rem;font-weight:500;color:var(--text)">
+          <input type="checkbox" class="ra-tool" value="${esc(t.name)}" style="width:auto;margin-top:.2rem" ${pending.has(t.name)?'disabled':''}>
+          <span>${esc(t.description)}${pending.has(t.name)?' <span class="muted">(pending)</span>':''}</span>
+        </label>`).join('')}
+      </div></details>`;
+  }).filter(Boolean).join('');
+  box.innerHTML=sections || '<p class="empty">You already have every available tool.</p>';
+
+  $('#ra_send')?.addEventListener('click',async()=>{
+    const selections=[...document.querySelectorAll('#ra_cats details.ra-cat')].map(d=>({
+      category:d.dataset.cat,
+      tools:[...d.querySelectorAll('.ra-tool:checked')].map(i=>i.value),
+    })).filter(s=>s.tools.length);
+    if(!selections.length){toast('Pick at least one item',true);return;}
+    try{
+      await api('/dashboard/request-access',{method:'POST',
+        body:JSON.stringify({selections,justification:$('#ra_just').value})});
+      toast('Request submitted');
+      paint('access');
+    }catch(e){toast(e.message,true);}
+  });
+
+  // "Why was I denied?" -> one-click request, from this user's own denied attempts.
+  try{
+    const {denials}=await api('/dashboard/my-denials');
+    if(denials&&denials.length){
+      $('#ra_denials').innerHTML=`<div class="card"><h2>Recent denials</h2>
+        <p class="muted">Calls blocked because you don't have the grant yet — request it in one click.</p>
+        <div class="tbl-wrap" style="margin-top:.6rem"><table><thead><tr><th>What you tried to do</th><th>Attempts</th><th></th></tr></thead>
+          <tbody>${denials.map((d,i)=>`<tr><td><div>${esc(d.description)}</div><div class="muted mono" style="font-size:.72rem">${esc(d.tool)}</div></td>
+            <td class="num">${d.attempts}</td>
+            <td style="text-align:right">${d.category?`<button class="sm" data-rq="${i}">Request access</button>`:'<span class="muted" style="font-size:.72rem">no category</span>'}</td></tr>`).join('')}</tbody></table></div></div>`;
+      $('#ra_denials').querySelectorAll('button[data-rq]').forEach(b=>b.onclick=async()=>{
+        const d=denials[Number(b.dataset.rq)];
+        try{await api('/dashboard/request-access',{method:'POST',body:JSON.stringify({selections:[{category:d.category,tools:[d.canonical]}],justification:'Requested from a denied attempt'})});
+          toast('Request submitted');paint('access');}catch(e){toast(e.message,true);}
+      });
+    }
+  }catch(e){/* denials section is best-effort */}
+}
+
+function _fmtWhen(ts){return ts?new Date(ts*1000).toLocaleString():'—';}
+
+async function renderHistory(v){
+  v.innerHTML=wrap(`<div class="tbl-wrap"><table><thead><tr>
+      <th>Started</th><th>Last active</th><th>Status</th><th>Messages</th><th>Summary</th></tr></thead>
+    <tbody id="h_rows"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody></table></div>
+    <div id="h_detail"></div>`);
+  const {sessions}=await api('/dashboard/chat-history');
+  $('#h_rows').innerHTML=sessions.map(s=>`<tr class="hrow" data-sid="${esc(s.session_id)}" style="cursor:pointer">
+      <td>${_fmtWhen(s.created_at)}</td><td>${_fmtWhen(s.last_active_at)}</td>
+      <td><span class="pill ${s.status==='open'?'ok':''}">${esc(s.status)}</span></td>
+      <td>${s.message_count}</td>
+      <td class="muted">${esc(s.summary||(s.status==='open'?'(still active)':'—'))}</td></tr>`).join('')
+    || '<tr><td colspan="5" class="empty">No conversations yet — ask the assistant something.</td></tr>';
+  $('#h_rows').onclick=async(e)=>{
+    const tr=e.target.closest('.hrow'); if(!tr) return;
+    const sid=tr.dataset.sid;
+    let t;
+    try{ t=await api('/dashboard/chat-history/'+encodeURIComponent(sid)); }
+    catch(err){ toast('Could not open that conversation: '+err.message, true); return; }
+    $('#h_detail').innerHTML=`<div class="card"><h2>Conversation</h2>
+      <p class="muted">${esc(sid)} · ${esc(t.status)}${t.summary?' · '+esc(t.summary):''}</p>
+      <div class="chatlog" style="max-height:24rem;overflow-y:auto;margin-top:.6rem">
+        ${t.messages.map(m=>`<div class="msg ${m.role==='user'?'me':'bot'}">${m.role==='user'?esc(m.content):mdToHtml(m.content)}</div>`).join('')}
+      </div>
+      <div class="row" style="margin-top:.8rem"><button id="h_continue">Continue this conversation</button></div></div>`;
+    $('#h_detail').scrollIntoView({behavior:'smooth'});
+    $('#h_continue').onclick=async()=>{
+      try{
+        // Open sessions resume under their own id; a closed one is cloned into a
+        // fresh open session pre-seeded with these messages (server never
+        // reopens a closed id -- see chat_log.resume_session).
+        const r=await api('/dashboard/chat-history/'+encodeURIComponent(sid)+'/resume',{method:'POST'});
+        setActiveConv(r.conversation_id);
+        if(r.cloned) toast('Continuing as a new conversation (the old one stays closed)');
+        go('assistant');
+      }catch(e){toast(e.message,true);}
+    };
+  };
+}
+
+async function renderDepartments(v){
+  const cat=await api('/admin/catalog').catch(()=>CATALOG); CATALOG=cat;
+  v.innerHTML=wrap(`
+    <div class="card"><h2>Add / edit department</h2>
+      <p class="muted">A department is just a named set of categories. Members (users with this
+        department, incl. from self-signup) resolve whatever this department currently lists —
+        editing it here takes effect for every member on their next request, no resync needed.
+        Available categories: ${esc((cat.categories||[]).join(', '))}.</p>
+      <textarea id="dept_json" rows="6" style="margin-top:.5rem"></textarea>
+      <div class="row" style="margin-top:.6rem"><button id="dept_save">Save department</button></div></div>
+    <div class="tbl-wrap"><table><thead><tr><th>ID</th><th>Display name</th><th>Categories</th><th></th></tr></thead>
+      <tbody id="dept_rows"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody></table></div>`);
+  $('#dept_json').value=JSON.stringify({id:"",display_name:"",categories:[]},null,2);
+  async function load(){const {departments}=await api('/admin/departments');
+    $('#dept_rows').innerHTML=departments.map(d=>`<tr>
+      <td><b>${esc(d.id)}</b></td><td>${esc(d.display_name||'')}</td>
+      <td>${(d.categories||[]).map(c=>`<span class="pill">${esc(c)}</span>`).join(' ')||'—'}</td>
+      <td class="row"><button class="sm ghost" data-edit='${esc(JSON.stringify(d))}'>Edit</button>
+        <button class="sm danger" data-del="${esc(d.id)}">Delete</button></td></tr>`).join('')
+      || '<tr><td colspan="4" class="empty">No departments yet.</td></tr>';}
+  $('#dept_save').onclick=async()=>{try{await api('/admin/departments',{method:'POST',body:$('#dept_json').value});load();toast('Saved');}catch(e){toast(e.message,true);}};
+  $('#dept_rows').onclick=async(e)=>{const b=e.target.closest('button');if(!b)return;
+    if(b.dataset.edit){$('#dept_json').value=JSON.stringify(JSON.parse(b.dataset.edit),null,2);window.scrollTo({top:0,behavior:'smooth'});}
+    if(b.dataset.del){if(!confirm('Delete department '+b.dataset.del+'? Members keep their status but will resolve as if they have no department until reassigned.'))return;
+      try{await api(`/admin/departments/${b.dataset.del}`,{method:'DELETE'});load();toast('Deleted');}catch(err){toast(err.message,true);}}};
+  await load();
+}
+
+async function renderConsumers(v){
+  const cat=await api('/admin/catalog').catch(()=>CATALOG); CATALOG=cat;
+  v.innerHTML=wrap(`
+    <div class="card"><h2>New consumer</h2>
+      <div class="grid" style="margin-top:.7rem">
+        <label>Name<input id="c_name"></label>
+        <label>Categories<input id="c_cats" placeholder="${esc((cat.categories||[]).join(','))}"></label>
+        <label>Role<select id="c_role"><option>user</option><option>admin</option></select></label>
+        <label>Type<select id="c_type"><option>agent</option><option>user</option></select></label>
+        <label>Rate / hr<input id="c_rate" type="number" placeholder="(default)"></label>
+        <label>Login password<input id="c_pw" type="password" placeholder="(optional)"></label>
+      </div>
+      <div class="row" style="margin-top:.8rem"><button id="c_create">Create + issue key</button></div>
+      <div id="c_key"></div></div>
+    <div class="tbl-wrap"><table><thead><tr><th>Name</th><th>Categories</th><th>Role</th><th>Type</th><th>Rate</th><th>Status</th><th>Credential</th><th></th></tr></thead>
+      <tbody id="c_rows"><tr><td colspan="8" class="empty">Loading…</td></tr></tbody></table></div>`);
+  const _cats=s=>s.split(',').map(x=>x.trim()).filter(Boolean);
+  async function load(){
+    const {consumers}=await api('/admin/consumers');
+    $('#c_rows').innerHTML=consumers.map(c=>`<tr>
+      <td><b>${esc(c.full_name||c.name)}</b><div class="muted">${esc(c.name)}${c.department?(' · '+esc(c.department)):''}</div></td>
+      <td>${(c.categories||[]).length ? (c.categories||[]).map(x=>`<span class="pill">${esc(x)}</span>`).join(' ')
+          : (c.department ? `<span class="muted">via ${esc(c.department)} dept: ${esc((c.effective_backends||[]).join(', ')||'none')}</span>` : '—')}</td>
+      <td>${esc(c.role)}</td><td>${esc(c.type)}</td><td>${c.rate_limit_per_hour??'—'}</td>
+      <td><span class="pill ${c.status==='active'?'ok':'pending'}">${esc(c.status)}</span></td>
+      <td>${c.has_key?'🔑 key':(c.has_login?'🔒 login':'—')}</td>
+      <td class="row">
+        <button class="sm ghost" data-act="profile" data-id="${esc(c.consumer_id)}">Profile</button>
+        <button class="sm ghost" data-act="rotate" data-id="${esc(c.consumer_id)}">Rotate</button>
+        <button class="sm ghost" data-act="cats" data-id="${esc(c.consumer_id)}" data-cats="${esc((c.categories||[]).join(','))}">Categories</button>
+        <button class="sm danger" data-act="del" data-id="${esc(c.consumer_id)}">Delete</button></td></tr>`).join('')
+      || '<tr><td colspan="8" class="empty">No consumers yet.</td></tr>';
+  }
+  $('#c_create').onclick=async()=>{
+    try{const body={name:$('#c_name').value.trim(),categories:_cats($('#c_cats').value),role:$('#c_role').value,
+        type:$('#c_type').value,rate_limit_per_hour:$('#c_rate').value?Number($('#c_rate').value):null,password:$('#c_pw').value||null};
+      const r=await api('/admin/consumers',{method:'POST',body:JSON.stringify(body)});
+      $('#c_key').innerHTML=`<div class="key"><b>${esc(r.consumer.name)}</b> key (shown once): ${esc(r.api_key)}</div>`;
+      ['c_name','c_pw','c_rate','c_cats'].forEach(i=>$('#'+i).value=''); load();toast('Consumer created');
+    }catch(e){toast(e.message,true);}};
+  $('#c_rows').onclick=async(e)=>{const b=e.target.closest('button');if(!b)return;const id=b.dataset.id;
+    if(b.dataset.act==='profile'){openProfile(id);return;}
+    try{
+      if(b.dataset.act==='rotate'){const r=await api(`/admin/consumers/${id}/rotate-key`,{method:'POST'});
+        $('#c_key').innerHTML=`<div class="key">New key for <b>${esc(id)}</b> (shown once): ${esc(r.api_key)}</div>`;toast('Key rotated');}
+      if(b.dataset.act==='cats'){const d=prompt('Categories (comma-separated):',b.dataset.cats);if(d===null)return;
+        await api(`/admin/consumers/${id}`,{method:'PATCH',body:JSON.stringify({categories:_cats(d)})});load();toast('Updated');}
+      if(b.dataset.act==='del'){if(!confirm('Delete '+id+'?'))return;await api(`/admin/consumers/${id}`,{method:'DELETE'});load();toast('Deleted');}
+    }catch(err){toast(err.message,true);}};
+  await load();
+}
+
+
+async function renderApprovals(v){
+  v.innerHTML=wrap(`
+    <div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>Approval queue</h2>
+      <p class="muted">External sends and other high-impact actions wait here until an admin decides.</p></div>
+      <button class="ghost" id="ap_refresh">Refresh</button></div>
+      <div class="tbl-wrap" style="margin-top:.7rem"><table><thead><tr><th>Action</th><th>Requester</th><th>Risk</th><th>Artifacts</th><th>Created</th><th></th></tr></thead>
+        <tbody id="ap_rows"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody></table></div></div>`);
+  async function load(){
+    const r=await api('/approvals?all=1&include_decided=1');
+    $('#ap_rows').innerHTML=(r.approvals||[]).map(a=>`<tr>
+      <td><b>${esc(a.reason)}</b><div class="muted mono" style="font-size:.72rem">${esc(a.approvalId)} ${a.workflowRunId?(' ? '+esc(a.workflowRunId)):''}</div>${a.decisionNote?`<div class="muted" style="font-size:.76rem">Note: ${esc(a.decisionNote)}</div>`:''}</td>
+      <td>${esc(a.requestedBy)}</td>
+      <td><span class="pill ${a.riskLevel==='high'?'warn':'pending'}">${esc(a.riskLevel)}</span><div style="margin-top:.25rem"><span class="pill ${a.status==='approved'?'ok':(a.status==='denied'?'warn':'pending')}">${esc(a.status)}</span></div></td>
+      <td>${(a.artifactIds||[]).map(id=>`<a href="/artifacts/${encodeURIComponent(id)}/download">${esc(id)}</a>`).join('<br>')||'--'}</td>
+      <td class="muted num">${a.createdAt?_fmtWhen(a.createdAt):'--'}</td>
+      <td class="row">${a.status==='pending'?`<button class="sm" data-act="approve" data-id="${esc(a.approvalId)}">Approve</button><button class="sm danger" data-act="deny" data-id="${esc(a.approvalId)}">Deny</button>`:esc(a.approver||'')}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">No approvals yet.</td></tr>';
+  }
+  $('#ap_refresh').onclick=load;
+  $('#ap_rows').onclick=async(e)=>{
+    const b=e.target.closest('button'); if(!b)return;
+    const note=prompt((b.dataset.act==='approve'?'Approve':'Deny')+' note (optional):','');
+    if(note===null)return;
+    try{await api(`/approvals/${encodeURIComponent(b.dataset.id)}/${b.dataset.act}`,{method:'POST',body:JSON.stringify({note})});toast(b.dataset.act==='approve'?'Approved':'Denied');await load();}
+    catch(err){toast(err.message,true);}
+  };
+  await load();
+}
+
+async function renderRequests(v){
+  v.innerHTML=wrap(`
+    <div class="card"><h2>Pending requests</h2><p class="muted">Account signups and access asks.</p>
+      <div class="tbl-wrap" style="margin-top:.6rem"><table><thead><tr><th>Kind</th><th>Who</th><th>Detail</th><th></th></tr></thead>
+        <tbody id="r_rows"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody></table></div></div>
+    <div class="card"><h2>Access suggestions</h2><p class="muted">Aggregated from denied “not granted” attempts.</p>
+      <div class="tbl-wrap" style="margin-top:.6rem"><table><thead><tr><th>Consumer</th><th>Tool attempted</th><th>Attempts</th></tr></thead>
+        <tbody id="s_rows"></tbody></table></div></div>`);
+  async function load(){
+    const {requests}=await api('/admin/requests?status=pending');
+    $('#r_rows').innerHTML=(requests||[]).map(r=>`<tr>
+      <td><span class="pill">${esc(r.kind)}</span></td><td>${esc(r.username||r.consumer_id)}</td>
+      <td class="muted">${esc(r.selections?r.selections.map(s=>`${s.category}: ${s.tools.join(', ')}`).join(' | ')
+          :(r.categories?('categories: '+(r.categories.join(', ')||'—')):('backend: '+(r.backend||'—')+' · '+(r.tools||[]).join(', '))))} ${esc(r.justification||'')}</td>
+      <td class="row"><button class="sm" data-act="approve" data-id="${esc(r.id)}">Approve</button>
+        <button class="sm danger" data-act="deny" data-id="${esc(r.id)}">Deny</button></td></tr>`).join('')
+      || '<tr><td colspan="4" class="empty">No pending requests.</td></tr>';
+    const {suggestions}=await api('/admin/access-suggestions');
+    $('#s_rows').innerHTML=(suggestions||[]).map(s=>`<tr><td>${esc(s.consumer)}</td><td class="mono">${esc(s.tool)}</td><td>${s.attempts}</td></tr>`).join('')
+      || '<tr><td colspan="3" class="empty">None.</td></tr>';
+  }
+  $('#r_rows').onclick=async(e)=>{const b=e.target.closest('button');if(!b)return;
+    try{ if(b.dataset.act==='approve'){await api(`/admin/requests/${b.dataset.id}/approve`,{method:'POST',body:'{}'});toast('Approved');}
+      else{if(!confirm('Deny request?'))return;await api(`/admin/requests/${b.dataset.id}/deny`,{method:'POST',body:'{}'});toast('Denied');}
+      load();}catch(err){toast(err.message,true);}};
+  await load();
+}
+
+async function renderCategories(v){
+  const cat=await api('/admin/catalog').catch(()=>CATALOG); CATALOG=cat;
+  const firstB=Object.keys(cat.backends||{})[0]||'minierp_orders';
+  v.innerHTML=wrap(`
+    <div class="card"><h2>Add / edit category</h2>
+      <p class="muted">1 category = 1 data-domain backend. <b>tools</b>: list of that backend's tools or "*". <b>levels</b>: ${esc((cat.levels||[]).join(', '))}.</p>
+      <textarea id="d_json" rows="11" style="margin-top:.5rem"></textarea>
+      <div class="row" style="margin-top:.6rem"><button id="d_save">Save category</button>
+        <span class="muted">backends: ${esc(Object.keys(cat.backends||{}).join(', '))}</span></div></div>
+    <div class="tbl-wrap"><table><thead><tr><th>ID</th><th>Backend</th><th>Tools</th><th>Levels</th><th></th></tr></thead>
+      <tbody id="d_rows"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody></table></div>`);
+  $('#d_json').value=JSON.stringify({id:"",display_name:"",backend:firstB,tools:"*",levels:["PUBLIC","INTERNAL"],data_domains:[]},null,2);
+  async function load(){const {categories}=await api('/admin/categories');
+    $('#d_rows').innerHTML=categories.map(d=>`<tr>
+      <td><b>${esc(d.id)}</b><div class="muted">${esc(d.display_name||'')}</div></td><td>${esc(d.backend||'')}</td>
+      <td>${d.tools==='*'?'<span class="pill">all</span>':esc((d.tools||[]).length+' tools')}</td>
+      <td>${(d.levels||[]).map(l=>`<span class="pill ok">${esc(l)}</span>`).join(' ')}</td>
+      <td class="row"><button class="sm ghost" data-edit='${esc(JSON.stringify(d))}'>Edit</button>
+        <button class="sm danger" data-del="${esc(d.id)}">Delete</button></td></tr>`).join('');}
+  $('#d_save').onclick=async()=>{try{await api('/admin/categories',{method:'POST',body:$('#d_json').value});load();toast('Saved');}catch(e){toast(e.message,true);}};
+  $('#d_rows').onclick=async(e)=>{const b=e.target.closest('button');if(!b)return;
+    if(b.dataset.edit){$('#d_json').value=JSON.stringify(JSON.parse(b.dataset.edit),null,2);window.scrollTo({top:0,behavior:'smooth'});}
+    if(b.dataset.del){if(!confirm('Delete category '+b.dataset.del+'?'))return;
+      try{await api(`/admin/categories/${b.dataset.del}`,{method:'DELETE'});load();toast('Deleted');}catch(err){toast(err.message,true);}}};
+  await load();
+}
+
+async function renderWhitelist(v){
+  const {whitelist}=await api('/admin/whitelist');
+  v.innerHTML=wrap(`<div class="card"><h2>Global IP allowlist</h2>
+    <p class="muted">One CIDR per line. Empty = allow all. Enforced at the /mcp edge.</p>
+    <textarea id="w_text" rows="7" style="margin-top:.5rem">${esc((whitelist||[]).join('\n'))}</textarea>
+    <div class="row" style="margin-top:.6rem"><button id="w_save">Save allowlist</button></div></div>`);
+  $('#w_save').onclick=async()=>{try{const cidrs=$('#w_text').value.split('\n').map(s=>s.trim()).filter(Boolean);
+    await api('/admin/whitelist',{method:'PUT',body:JSON.stringify({cidrs})});toast('Saved');}catch(e){toast(e.message,true);}};
+}
+
+let MON_RANGE='24h';
+const _GREENS=['#2FC7BA','#2ab3a7','#73d6cc','#1b8478','#b3e6e0'];
+async function renderMonitor(v){
+  v.innerHTML=wrap(`
+    <div class="row" style="justify-content:space-between;align-items:flex-start">
+      <p class="muted" style="max-width:52ch">Safety is computed live from recent behavior — a flag is a signal to review, not a permanent verdict.</p>
+      <div class="seg" id="mon_range">${['1h','24h','7d','30d'].map(r=>`<button data-r="${r}" class="${r===MON_RANGE?'on':''}">${r}</button>`).join('')}</div>
+    </div>
+    <div id="mon_kpis" class="kpis"><div class="empty">Loading…</div></div>
+    <div class="section-head"><h2>Analysis</h2><span class="muted" id="mon_lbl"></span></div>
+    <div class="charts">
+      <div class="card span2"><div class="chart-t">Call volume</div><div class="chart-s">authorized / denied / error</div><div id="c_vol"></div>
+        <div class="row" style="gap:.9rem;margin-top:.5rem">
+          <span class="lg" style="display:flex;align-items:center;gap:.35rem;font-size:.72rem;color:var(--secondary-text)"><span class="sw" style="width:9px;height:9px;border-radius:2px;background:var(--highlight)"></span>Authorized</span>
+          <span class="lg" style="display:flex;align-items:center;gap:.35rem;font-size:.72rem;color:var(--secondary-text)"><span class="sw" style="width:9px;height:9px;border-radius:2px;background:var(--error)"></span>Denied</span>
+          <span class="lg" style="display:flex;align-items:center;gap:.35rem;font-size:.72rem;color:var(--secondary-text)"><span class="sw" style="width:9px;height:9px;border-radius:2px;background:#b26a00"></span>Error</span></div></div>
+      <div class="card"><div class="chart-t">Authorization</div><div class="chart-s">share allowed</div><div class="donut-row" id="c_auth"></div></div>
+      <div class="card"><div class="chart-t">By department</div><div class="chart-s">where demand is</div><div class="donut-row" id="c_dept"></div></div>
+      <div class="card span2"><div class="chart-t">Top tools</div><div class="chart-s">most-called governed tools</div><div id="c_tools"></div></div>
+      <div class="card span2"><div class="chart-t">Busiest principals</div><div class="chart-s">calls per consumer</div><div id="c_users"></div></div>
+      <div class="card" style="grid-column:1/-1"><div class="chart-t">Activity by hour</div><div class="chart-s">off-hours access stands out</div><div id="c_heat" style="margin-top:.55rem"></div></div>
+    </div>
+    <div class="section-head"><h2>Recent tool calls</h2><span class="muted">Click a row for full detail.</span></div>
+    <div class="row" style="margin-top:.4rem"><button class="ghost sm" id="mon_export">Export audit window</button><span class="muted" id="mon_export_out" style="font-size:.76rem"></span></div>
+    <div class="tbl-wrap" style="margin-top:.6rem"><table><thead><tr><th>When</th><th>User</th><th>Tool</th><th>Status</th><th>Rows</th><th>Latency</th><th>Safety</th></tr></thead>
+      <tbody id="m_rows"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody></table></div>
+    <div class="section-head"><h2>Policy changes</h2><span class="muted">Logins, key rotations, and policy edits.</span></div>
+    <div class="tbl-wrap" style="margin-top:.6rem"><table><thead><tr><th>Actor</th><th>Change</th><th>Detail</th></tr></thead>
+      <tbody id="p_rows"><tr><td colspan="3" class="empty">Loading…</td></tr></tbody></table></div>`);
+
+  $('#mon_range').onclick=(e)=>{const b=e.target.closest('button');if(!b)return;MON_RANGE=b.dataset.r;
+    $('#mon_range').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));loadOverview();};
+
+  async function loadOverview(){
+    const o=await api('/admin/overview?range='+MON_RANGE); const k=o.kpis;
+    $('#mon_lbl').textContent='last '+MON_RANGE;
+    const vol=o.series.map(s=>s.ok+s.denied+s.error);
+    const kpi=(lab,val,alert,spark)=>`<div class="kpi ${alert?'alert':''}"><div class="lab">${lab}</div><div class="val">${val}</div>${spark||''}</div>`;
+    $('#mon_kpis').innerHTML=
+      kpi('Calls',k.total,false,_spark(vol,'var(--highlight)'))+
+      kpi('Authorized',k.auth_rate+'<small>%</small>',false)+
+      kpi('Denied',k.denied,k.denied>0)+
+      kpi('Suspicious',k.suspicious,k.suspicious>0)+
+      kpi('Sensitive access',k.sensitive,false)+
+      kpi('Redactions',k.redactions,false)+
+      kpi('Rows returned',k.rows,false)+
+      kpi('Avg latency',k.avg_latency+'<small>ms</small>',false);
+    $('#c_vol').innerHTML=_stacked(o.series);
+    const authSegs=[{label:'Authorized',value:k.ok,color:'var(--highlight)'},{label:'Denied',value:k.denied,color:'var(--error)'},{label:'Error',value:k.error,color:'#b26a00'}];
+    $('#c_auth').innerHTML=_donut(authSegs,{center:{top:k.auth_rate+'%',sub:'allowed'}})+_legend(authSegs);
+    const dep=(o.by_department||[]).map((d,i)=>({label:d.k,value:d.n,color:_GREENS[i%_GREENS.length]}));
+    $('#c_dept').innerHTML=dep.length?_donut(dep)+_legend(dep):'<p class="empty">No data.</p>';
+    $('#c_tools').innerHTML=_hbars((o.by_tool||[]).map(t=>({k:t.k,n:t.n})));
+    $('#c_users').innerHTML=_hbars((o.by_user||[]).map(u=>({k:u.k,n:u.n})));
+    $('#c_heat').innerHTML=_heatmap(o.heatmap);
+  }
+  await loadOverview();
+
+  const {calls}=await api('/admin/calls?limit=200'); const rows=calls||[];
+  $('#m_rows').innerHTML=rows.map((c,i)=>`<tr class="mrow" data-i="${i}" style="cursor:pointer">
+      <td class="muted num">${c.ts?_fmtWhen(c.ts):'—'}</td><td>${esc(c.consumer)}</td><td class="mono" style="font-size:.8rem">${esc(c.tool)}</td>
+      <td><span class="pill ${c.status==='ok'?'ok':(c.status==='denied'?'warn':'')}">${esc(c.status)}</span></td>
+      <td class="num muted">${c.rows!=null?c.rows:'—'}</td>
+      <td class="num muted">${c.latency_ms!=null?Math.round(c.latency_ms)+'ms':'—'}</td>
+      <td><span class="pill ${c.suspicious?'warn':'ok'}" title="${esc((c.reasons||[]).join('; '))}">${c.suspicious?'⚠ Suspicious':'✓ Safe'}</span></td></tr>`).join('')
+    || '<tr><td colspan="7" class="empty">No calls yet.</td></tr>';
+  $('#m_rows').onclick=(e)=>{const tr=e.target.closest('.mrow');if(!tr)return;const c=rows[Number(tr.dataset.i)];if(c)showCallDrawer(c);};
+  $('#mon_export').onclick=async()=>{try{const out=$('#mon_export_out');out.textContent='Exporting...';const r=await api('/admin/audit-export',{method:'POST',body:JSON.stringify({hours:MON_RANGE==='24h'?24:(MON_RANGE==='7d'?168:720),type:'all',limit:5000})});out.innerHTML=`Audit artifact: <a href="${esc(r.artifact.downloadUrl)}">${esc(r.artifact.filename)}</a> (${esc(r.summary.total)} events)`;toast('Audit export created');}catch(e){toast(e.message,true);$('#mon_export_out').textContent='';}};
+
+  const {changes}=await api('/admin/policy-changes');
+  $('#p_rows').innerHTML=(changes||[]).map(c=>`<tr><td>${esc(c.consumer)}</td><td class="mono" style="font-size:.8rem">${esc(c.tool)}</td><td class="muted">${esc(c.detail||'')}</td></tr>`).join('')
+    || '<tr><td colspan="3" class="empty">None.</td></tr>';
+}
+
+function showCallDrawer(c){
+  const f=(k,val)=>`<div><div class="k">${esc(k)}</div><div class="v">${esc(val==null||val===''?'—':val)}</div></div>`;
+  openDrawer(`
+    <div class="dh"><div style="flex:1"><div class="klbl">Call detail</div>
+      <div class="mono" style="font-size:.9rem;margin-top:.15rem;word-break:break-all">${esc(c.tool)}</div></div>
+      <button class="ghost sm" onclick="closeDrawer()">✕</button></div>
+    <div class="db">
+      <div class="row"><span class="pill ${c.status==='ok'?'ok':(c.status==='denied'?'warn':'')}">${esc(c.status)}</span>
+        <span class="pill ${c.suspicious?'warn':'ok'}">${c.suspicious?'⚠ Suspicious':'✓ Safe'}</span></div>
+      ${c.suspicious?`<div class="err" style="min-height:auto">${esc((c.reasons||[]).join('; '))}</div>`:''}
+      <div class="kv">
+        ${f('User',c.consumer)}${f('When',c.ts?_fmtWhen(c.ts):'—')}
+        ${f('Rows returned',c.rows)}${f('Latency',c.latency_ms!=null?Math.round(c.latency_ms)+'ms':'—')}
+        ${f('Customer',c.customer_id)}${f('Session',c.session_id)}
+        ${f('Request',c.request_id)}${f('Client IP',c.client_ip)}
+      </div>
+      <div><div class="klbl" style="margin-bottom:.3rem">Arguments</div>
+        <pre class="mono" style="margin:0;background:var(--gray50);border:1px solid var(--gray200);border-radius:8px;padding:.6rem .8rem;font-size:.78rem;overflow-x:auto;white-space:pre-wrap">${esc(c.args||'(none)')}</pre></div>
+      ${c.detail?`<div>${f('Detail',c.detail)}</div>`:''}</div>`);
+}
+
+// ── Alerts / incidents ─────────────────────────────────────────────────────────
+async function renderAlerts(v){
+  v.innerHTML=wrap(`<div class="card">
+      <div class="row" style="justify-content:space-between"><div><h2>Security incidents</h2>
+        <p class="muted">Flagged behavior grouped per principal — enumeration, denial bursts, call bursts, repeated errors.</p></div>
+        <div class="seg" id="al_filter"><button class="on" data-f="open">Open</button><button data-f="all">All</button></div></div>
+      <div class="tbl-wrap" style="margin-top:.8rem"><table><thead><tr><th></th><th>Severity</th><th>Principal</th><th>Signal</th><th>Events</th><th>Last seen</th><th>Status</th><th></th></tr></thead>
+        <tbody id="al_rows"><tr><td colspan="8" class="empty">Loading…</td></tr></tbody></table></div></div>`);
+  const sevColor={critical:'var(--error)',high:'var(--notify)',medium:'#b26a00',low:'var(--gray400)'};
+  let showAll=false, cache=[];
+  async function load(){
+    const {alerts}=await api('/admin/alerts'); cache=alerts||[];
+    const rows=cache.filter(a=>showAll||a.status==='open');
+    $('#al_rows').innerHTML=rows.map(a=>`<tr class="arow" data-id="${esc(a.id)}" style="cursor:pointer">
+        <td style="width:4px;padding:.3rem 0"><div class="sevbar" style="background:${sevColor[a.severity]||'var(--gray400)'}"></div></td>
+        <td><span class="pill sev-${esc(a.severity)}">${esc(a.severity)}</span></td>
+        <td><b>${esc(a.consumer)}</b></td>
+        <td>${esc(a.reason)}</td>
+        <td class="num">${a.events}</td>
+        <td class="muted num">${_fmtWhen(a.last_ts)}</td>
+        <td><span class="pill ${a.status==='open'?'warn':(a.status==='resolved'?'ok':'')}">${esc(a.status)}</span></td>
+        <td class="row" style="flex-wrap:nowrap">${a.status!=='resolved'?`<button class="sm ghost" data-act="ack" data-id="${esc(a.id)}">Ack</button><button class="sm" data-act="resolve" data-id="${esc(a.id)}">Resolve</button>`:''}</td>
+      </tr>`).join('')||`<tr><td colspan="8" class="empty">No ${showAll?'':'open '}incidents.</td></tr>`;
+  }
+  $('#al_filter').onclick=(e)=>{const b=e.target.closest('button');if(!b)return;showAll=b.dataset.f==='all';
+    $('#al_filter').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));load();};
+  $('#al_rows').onclick=async(e)=>{
+    const btn=e.target.closest('button');
+    if(btn){e.stopPropagation();
+      try{await api(`/admin/alerts/${encodeURIComponent(btn.dataset.id)}/${btn.dataset.act}`,{method:'POST',body:'{}'});
+        toast(btn.dataset.act==='ack'?'Acknowledged':'Resolved');load();}catch(err){toast(err.message,true);}return;}
+    const tr=e.target.closest('.arow');if(!tr)return;
+    const a=cache.find(x=>x.id===tr.dataset.id);if(!a)return;
+    const f=(k,val)=>`<div><div class="k">${esc(k)}</div><div class="v">${esc(val==null?'—':val)}</div></div>`;
+    openDrawer(`<div class="dh"><div style="flex:1"><div class="klbl">Incident · ${esc(a.severity)}</div>
+        <h2 style="margin-top:.15rem">${esc(a.consumer)}</h2></div><button class="ghost sm" onclick="closeDrawer()">✕</button></div>
+      <div class="db"><div class="err" style="min-height:auto">${esc(a.reason)}</div>
+        <div class="kv">${f('Signal',a.type)}${f('Events',a.events)}${f('First seen',_fmtWhen(a.first_ts))}${f('Last seen',_fmtWhen(a.last_ts))}
+          ${f('Status',a.status)}${f('Handled by',a.handled_by)}</div>
+        <div><div class="klbl" style="margin-bottom:.3rem">Tools involved</div><div class="row">${(a.tools||[]).map(t=>`<span class="pill mono">${esc(t)}</span>`).join(' ')||'—'}</div></div>
+        <div><div class="klbl" style="margin-bottom:.3rem">Contain</div>
+          ${a.consumer_id?`<div class="row"><button class="danger" onclick="_contain('${esc(a.consumer_id)}','disable','${esc(a.id)}')">Disable principal</button>
+            <button class="ghost" onclick="_contain('${esc(a.consumer_id)}','rotate','${esc(a.id)}')">Rotate key</button></div>
+            <p class="muted" style="margin-top:.4rem;font-size:.72rem">Disable blocks this principal at the auth edge immediately; either action also resolves the incident.</p>`
+            :'<p class="muted" style="font-size:.72rem">No linked account found for this principal — contain manually.</p>'}</div>
+        ${a.status!=='resolved'?`<div class="row"><button class="ghost" onclick="_alertAct('${esc(a.id)}','ack')">Acknowledge</button><button onclick="_alertAct('${esc(a.id)}','resolve')">Resolve</button></div>`:''}</div>`);
+  };
+  window._alertAct=async(id,act)=>{try{await api(`/admin/alerts/${encodeURIComponent(id)}/${act}`,{method:'POST',body:'{}'});
+    toast(act==='ack'?'Acknowledged':'Resolved');closeDrawer();load();}catch(e){toast(e.message,true);}};
+  await load();
+}
+
+// ── Security: backend health + credential hygiene ──────────────────────────────
+async function renderSecurity(v){
+  v.innerHTML=wrap(`
+    <div class="card card-pad" id="ctrl_card"><div class="row" style="justify-content:space-between"><div><h2>Break-glass controls</h2>
+      <p class="muted" style="font-size:.82rem">Incident containment enforced on every governed call — takes effect immediately.</p></div>
+      <span id="ctrl_state"></span></div>
+      <div id="ctrl_body" style="margin-top:.8rem"><div class="empty">Loading…</div></div></div>
+    <div class="card"><h2>Backend health</h2>
+      <p class="muted">Live liveness probe per data-domain backend, combined with the recent-traffic error rate.</p>
+      <div id="bh" class="grid" style="margin-top:.8rem"><div class="empty">Probing backends…</div></div></div>
+    <div class="card"><h2>API-key hygiene</h2>
+      <p class="muted">Dormant, never-used, or overdue-for-rotation keys — derived from call history and rotation audit events.</p>
+      <div class="tbl-wrap" style="margin-top:.6rem"><table><thead><tr><th>Principal</th><th>Role</th><th>Last used</th><th>Key age</th><th>Flags</th></tr></thead>
+        <tbody id="ch_rows"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody></table></div></div>`);
+  const [ctrls,bh,ch]=await Promise.all([api('/admin/controls'),api('/admin/backends/health'),api('/admin/credential-hygiene')]);
+  function drawControls(c){
+    const paused=c.controls.paused_agents, pb=new Set(c.controls.paused_backends||[]);
+    $('#ctrl_state').innerHTML=(paused||pb.size)?'<span class="pill warn">⚠ containment active</span>':'<span class="pill ok">normal</span>';
+    $('#ctrl_body').innerHTML=`
+      <label class="row" style="gap:.55rem;font-weight:600;color:var(--text)"><input type="checkbox" id="ctrl_agents" ${paused?'checked':''} style="width:auto"> Pause all agents (API-key callers) — humans/admins unaffected</label>
+      <div style="margin-top:.8rem"><div class="klbl" style="margin-bottom:.45rem">Pause specific backends</div>
+        <div class="row" style="gap:.9rem">${(c.backends||[]).map(b=>`<label class="row" style="gap:.35rem;font-weight:500"><input type="checkbox" class="ctrl_be" value="${esc(b)}" ${pb.has(b)?'checked':''} style="width:auto"><span class="mono" style="font-size:.78rem">${esc(b)}</span></label>`).join('')}</div></div>
+      <div class="row" style="margin-top:.9rem"><button id="ctrl_save">Apply controls</button></div>`;
+    $('#ctrl_save').onclick=async()=>{
+      const body={paused_agents:$('#ctrl_agents').checked,paused_backends:[...document.querySelectorAll('.ctrl_be:checked')].map(x=>x.value)};
+      try{const r=await api('/admin/controls',{method:'PUT',body:JSON.stringify(body)});drawControls({controls:r.controls,backends:c.backends});toast('Controls applied');}
+      catch(e){toast(e.message,true);}
+    };
+  }
+  drawControls(ctrls);
+  const stPill={healthy:'ok',degraded:'pending',down:'warn',idle:''}, stMark={healthy:'● ',degraded:'▲ ',down:'✕ ',idle:'○ '};
+  $('#bh').innerHTML=(bh.backends||[]).map(b=>`<div class="card" style="margin:0">
+      <div class="row" style="justify-content:space-between"><b>${esc(b.backend)}</b><span class="pill ${stPill[b.status]||''}">${stMark[b.status]||''}${esc(b.status)}</span></div>
+      <div class="muted" style="margin-top:.4rem;font-size:.78rem">
+        ${b.probe_ok===false?`<span style="color:var(--error)">probe failed: ${esc(b.probe_error||'unreachable')}</span>`
+          :(b.probe_latency_ms!=null?`probe ${b.probe_latency_ms}ms`:'not probed')}<br>
+        ${b.calls} calls · ${(b.error_rate*100).toFixed(0)}% errors · last ok ${b.last_ok?_fmtWhen(b.last_ok):'—'}</div></div>`).join('')
+    || '<div class="empty">No backends.</div>';
+  $('#ch_rows').innerHTML=(ch.consumers||[]).map(c=>`<tr>
+      <td><b>${esc(c.name)}</b></td><td>${esc(c.role)}</td>
+      <td class="muted num">${c.last_used?_fmtWhen(c.last_used):'never'}</td>
+      <td class="num">${c.key_age_days!=null?c.key_age_days+'d':'—'}</td>
+      <td>${c.flags.length?c.flags.map(f=>`<span class="pill warn">${esc(f)}</span>`).join(' '):'<span class="pill ok">ok</span>'}</td></tr>`).join('')
+    || '<tr><td colspan="5" class="empty">No API-key consumers.</td></tr>';
+}
+
+// ── Consumer risk profile (drawer) ─────────────────────────────────────────────
+async function openProfile(cid){
+  openDrawer('<div class="db"><p class="empty">Loading…</p></div>');
+  try{
+    const p=await api('/admin/consumers/'+encodeURIComponent(cid)+'/profile'); const t=p.totals;
+    const f=(k,val)=>`<div><div class="k">${esc(k)}</div><div class="v">${esc(val==null?'—':val)}</div></div>`;
+    const unused=p.unused_grants||[];
+    const keyAge=p.last_key_rotation?Math.round((Date.now()/1000-p.last_key_rotation)/86400)+'d':'unknown';
+    openDrawer(`<div class="dh"><div style="flex:1"><div class="klbl">Risk profile</div>
+        <h2 style="margin-top:.15rem">${esc(p.full_name||p.name)}</h2>
+        <div class="muted mono" style="font-size:.78rem">${esc(p.name)}${p.department?' · '+esc(p.department):''}</div></div>
+        <button class="ghost sm" onclick="closeDrawer()">✕</button></div>
+      <div class="db">
+        <div class="row">${(p.reasons&&p.reasons.length)?`<span class="pill warn">⚠ ${p.reasons.length} active flag(s)</span>`:'<span class="pill ok">✓ no active flags</span>'}
+          <span class="pill">${esc(p.role)}</span><span class="pill">${esc(p.type)}</span><span class="pill ${p.status==='active'?'ok':'pending'}">${esc(p.status)}</span></div>
+        ${(p.reasons&&p.reasons.length)?`<div class="err" style="min-height:auto">${p.reasons.map(esc).join('<br>')}</div>`:''}
+        <div class="kv">
+          ${f('Calls (total)',t.total)}${f('Last 24h / 7d',t.last_24h+' / '+t.last_7d)}
+          ${f('Denied',t.denied)}${f('Errors',t.error)}
+          ${f('Distinct customers',p.distinct_customers)}${f('Rows returned',p.rows_returned)}
+          ${f('Sensitive-tool calls',p.sensitive_calls)}${f('Redactions applied',p.redactions)}
+          ${f('Rate limit / hr',p.rate_limit_per_hour)}${f('Last used',p.last_used?_fmtWhen(p.last_used):'never')}
+          ${f('Key age',keyAge)}${f('Source IPs',(p.ips||[]).length)}
+        </div>
+        <div><div class="klbl" style="margin-bottom:.35rem">Least privilege — granted but never used (${unused.length})</div>
+          ${unused.length?`<div class="row">${unused.slice(0,24).map(u=>`<span class="pill mono">${esc(u)}</span>`).join(' ')}</div><p class="muted" style="margin-top:.5rem">Candidates to revoke.</p>`
+            :'<p class="muted">Every granted tool has been used — no obvious over-provisioning.</p>'}</div>
+        ${(p.ips||[]).length?`<div><div class="klbl" style="margin-bottom:.35rem">Source IPs</div><div class="row">${p.ips.map(i=>`<span class="pill mono">${esc(i)}</span>`).join(' ')}</div></div>`:''}
+      </div>`);
+  }catch(e){openDrawer(`<div class="dh"><div class="klbl">Risk profile</div><button class="ghost sm" onclick="closeDrawer()">✕</button></div><div class="db"><p class="err">${esc(e.message)}</p></div>`);}
+}
+
+// ── one-click containment (from an alert) ──────────────────────────────────────
+async function _contain(cid,action,alertId){
+  const msg=action==='disable'
+    ? 'Disable this principal? It will be blocked at the auth edge immediately.'
+    : "Rotate this principal's key? Its current key stops working at once.";
+  if(!confirm(msg))return;
+  try{
+    if(action==='disable') await api('/admin/consumers/'+encodeURIComponent(cid),{method:'PATCH',body:JSON.stringify({status:'disabled'})});
+    else await api('/admin/consumers/'+encodeURIComponent(cid)+'/rotate-key',{method:'POST'});
+    await api('/admin/alerts/'+encodeURIComponent(alertId)+'/resolve',{method:'POST',body:'{}'}).catch(()=>{});
+    toast(action==='disable'?'Principal disabled · incident resolved':'Key rotated · incident resolved');
+    closeDrawer(); paint('alerts');
+  }catch(e){toast(e.message,true);}
+}
+
+// ── My Activity (user self-audit) ───────────────────────────────────────────────
+
+// Office workflows and generated files
+async function renderWorkflows(v){
+  v.innerHTML=wrap(`
+    <div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>Workflow catalog</h2>
+      <p class="muted">Executable office workflows turn governed data into files, review packets, and workbench artifacts.</p></div>
+      <button class="ghost" onclick="go('files')">View files</button></div>
+      <div id="wf_health"></div><div id="wf_cards" class="grid" style="margin-top:.8rem"><div class="empty">Loading...</div></div></div>
+    <div class="card"><h2>Run workflow</h2>
+      <p class="muted">Use sample data for local tests, or enter real identifiers to call MiniERP through governance.</p>
+      <div class="grid" style="margin-top:.8rem">
+        <label>Workflow<select id="wf_template"></select></label>
+        <label>Customer ID<input id="wf_customer" placeholder="SAMPLE100 or real customer id"></label>
+        <label>Vendor Code<input id="wf_vendor" placeholder="VEND100 or real vendor code"></label>
+        <label>Email recipient<input id="wf_recipient" placeholder="manager@example.com"></label>
+        <label>Email topic<input id="wf_topic" placeholder="renewal follow-up, shipment delay"></label>
+        <label>Start date<input id="wf_start" placeholder="YYYY-MM-DD"></label>
+        <label>End date<input id="wf_end" placeholder="YYYY-MM-DD"></label>
+        <label>Limit<input id="wf_limit" type="number" min="1" value="5"></label>
+      </div>
+      <div class="row" style="gap:1rem;margin-top:.7rem;align-items:center"><label class="row" style="gap:.45rem;font-weight:600;color:var(--text)"><input type="checkbox" id="wf_sample" checked style="width:auto"> Use sample data for local test</label><label class="row" style="gap:.45rem;font-weight:600;color:var(--text)"><input type="checkbox" id="wf_packet" checked style="width:auto"> Include PDF packet</label><label class="row" style="gap:.45rem;font-weight:600;color:var(--text)"><input type="checkbox" id="wf_send_approval" style="width:auto"> Request send approval</label><label class="row" style="gap:.45rem;font-weight:600;color:var(--text)"><input type="checkbox" id="wf_review_approval" style="width:auto"> Request review approval</label></div>
+      <div class="row" style="margin-top:.7rem"><button id="wf_preflight_btn" class="ghost">Check readiness</button><button id="wf_run">Run workflow</button></div>
+      <div id="wf_preflight" style="margin-top:.7rem"></div>
+      <div id="wf_out" style="margin-top:.8rem"></div></div>
+    <div class="card"><h2>Recent workflow runs</h2><div class="tbl-wrap" style="margin-top:.6rem"><table><thead><tr><th>Run</th><th>Template</th><th>Status</th><th>Artifacts</th><th>Approvals</th><th></th></tr></thead><tbody id="wf_runs"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody></table></div></div>`);
+  async function loadHealth(){
+    if(ME.role!=='admin')return;
+    try{
+      const h=await api('/admin/workflow-health');
+      const cls=h.health==='healthy'?'ok':(h.health==='unhealthy'?'warn':'pending');
+      const rows=(h.templates||[]).map(t=>`<tr><td><b>${esc(t.displayName)}</b><div class="muted mono" style="font-size:.72rem">${esc(t.templateId)}</div></td><td><span class="pill ${t.lastStatus==='completed'?'ok':(t.lastStatus==='failed'?'warn':'pending')}">${esc(t.lastStatus)}</span></td><td class="num muted">${esc(t.runs)}</td><td class="num muted">${esc(t.failureRate)}%</td><td class="num muted">${esc(t.artifactRate)}</td><td class="num muted">${esc(t.avgDurationSec)}s</td></tr>`).join('')||'<tr><td colspan="6" class="empty">No workflow templates.</td></tr>';
+      $('#wf_health').innerHTML=`<div class="card" style="margin:.8rem 0 0"><div class="row" style="justify-content:space-between"><div><h3>Workflow health</h3><p class="muted" style="font-size:.78rem">Run quality is derived from persisted workflow runs.</p></div><span class="pill ${cls}">${esc(h.health)}</span></div><div class="kpis" style="margin-top:.7rem"><div class="kpi"><div class="lab">Runs</div><div class="val">${esc(h.totalRuns)}</div></div><div class="kpi ${h.failedRuns?'alert':''}"><div class="lab">Failed</div><div class="val">${esc(h.failedRuns)}</div></div><div class="kpi"><div class="lab">Approval gate</div><div class="val">${esc(h.approvalRate)}<small>%</small></div></div><div class="kpi ${h.stuckRuns&&h.stuckRuns.length?'alert':''}"><div class="lab">Stuck</div><div class="val">${esc((h.stuckRuns||[]).length)}</div></div></div><div class="tbl-wrap" style="margin-top:.7rem"><table><thead><tr><th>Template</th><th>Last</th><th>Runs</th><th>Fail</th><th>Artifacts/run</th><th>Avg</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+    }catch(e){$('#wf_health').innerHTML=`<p class="err" style="margin-top:.6rem">${esc(e.message)}</p>`;}
+  }
+  const catalog=await api('/workflows');
+  const workflows=(catalog.workflows||[]);
+  const activeWorkflows=workflows.filter(w=>w.status==='active');
+  $('#wf_template').innerHTML=activeWorkflows.map(w=>`<option value="${esc(w.templateId)}">${esc(w.displayName)}</option>`).join('');
+  $('#wf_run').disabled=!activeWorkflows.length;
+  $('#wf_preflight_btn').disabled=!activeWorkflows.length;
+  function workflowInputBody(){
+    return {customer_id:$('#wf_customer').value.trim(),vendor_code:$('#wf_vendor').value.trim(),recipient:$('#wf_recipient').value.trim(),topic:$('#wf_topic').value.trim(),start_date:$('#wf_start').value.trim(),end_date:$('#wf_end').value.trim(),sample:$('#wf_sample').checked,include_packet:$('#wf_packet').checked,request_send_approval:$('#wf_send_approval').checked,request_approval:$('#wf_review_approval').checked,limit:Number($('#wf_limit').value||5)};
+  }
+  async function loadPreflight(){
+    const box=$('#wf_preflight');
+    const tid=$('#wf_template').value;
+    if(!tid){box.innerHTML='<p class="muted">No active workflow is available.</p>';return;}
+    box.innerHTML='<p class="muted">Checking readiness...</p>';
+    try{
+      const p=await api(`/workflows/${encodeURIComponent(tid)}/preflight`,{method:'POST',body:JSON.stringify(workflowInputBody())});
+      const blockers=(p.blockers||[]).map(x=>`<li>${esc(x)}</li>`).join('');
+      const warnings=(p.warnings||[]).map(x=>`<li>${esc(x)}</li>`).join('');
+      const gates=(p.approvalGates||[]).map(g=>`<span class="pill ${g.enabled?'pending':'ok'}">${esc(g.label)}: ${g.enabled?'requested':'off'}</span>`).join(' ');
+      const missing=(p.missingCategories||[]).map(x=>`<span class="pill warn">${esc(x)}</span>`).join(' ');
+      const connectors=(p.connectors||[]).map(c=>`<span class="pill ${c.configured&&!c.paused?'ok':'warn'}">${esc(c.backend||c.category)}${c.paused?' paused':''}</span>`).join(' ');
+      box.innerHTML=`<div class="card" style="margin:0"><div class="row" style="justify-content:space-between"><b>Run readiness</b><span class="pill ${p.ready?'ok':'warn'}">${p.ready?'Ready':'Needs attention'}</span></div>${blockers?`<div class="err" style="margin-top:.5rem"><b>Blockers</b><ul style="margin:.35rem 0 0 1rem">${blockers}</ul></div>`:''}${warnings?`<div class="muted" style="margin-top:.5rem"><b>Warnings</b><ul style="margin:.35rem 0 0 1rem">${warnings}</ul></div>`:''}<div class="row" style="margin-top:.55rem">${missing||'<span class="pill ok">Access OK</span>'}${gates}${connectors}</div></div>`;
+    }catch(e){box.innerHTML=`<p class="err">${esc(e.message)}</p>`;}
+  }
+  $('#wf_cards').innerHTML=workflows.map(w=>{
+    const active=w.status==='active';
+    const adminToggle=ME.role==='admin'?`<button class="sm ${active?'danger':'ghost'}" data-wf-toggle="${esc(w.templateId)}" data-action="${active?'disable':'enable'}">${active?'Disable':'Enable'}</button>`:'';
+    const reason=!active&&w.disabledReason?`<div class="muted" style="font-size:.72rem;margin-top:.35rem">Reason: ${esc(w.disabledReason)}</div>`:'';
+    return `<div class="card" style="margin:0"><div class="row" style="justify-content:space-between"><b>${esc(w.displayName)}</b><span class="pill ${active?'ok':'pending'}">${esc(w.status)}</span></div><p class="muted" style="font-size:.8rem;margin:.45rem 0">${esc(w.description)}</p><div class="row">${(w.requiredCategories||[]).map(c=>`<span class="pill">${esc(c)}</span>`).join('')}</div><div class="muted" style="font-size:.72rem;margin-top:.45rem">Outputs: ${(w.outputTypes||[]).map(esc).join(', ')}</div>${reason}<div class="row" style="margin-top:.6rem"><button class="sm ghost" data-wf="${esc(w.templateId)}" ${active?'':'disabled'}>Select</button>${adminToggle}</div></div>`;
+  }).join('')||'<p class="empty">No workflows.</p>';
+  async function loadRuns(){
+    const runs=await api('/workflow-runs');
+    $('#wf_runs').innerHTML=(runs.runs||[]).map(r=>{
+      const cls=r.status==='completed'?'ok':(r.status==='failed'||r.status==='cancelled'?'warn':'pending');
+      const actions=`<button class="sm ghost" data-run="${esc(r.runId)}">Inspect</button>${r.status==='approval_required'?`<button class="sm" data-resume="${esc(r.runId)}">Resume</button>`:''}${['running','approval_required'].includes(r.status)?`<button class="sm danger" data-cancel="${esc(r.runId)}">Cancel</button>`:''}`;
+      return `<tr><td class="mono" style="font-size:.78rem">${esc(r.runId)}</td><td>${esc(r.templateId)}</td><td><span class="pill ${cls}">${esc(r.status)}</span></td><td>${(r.artifactIds||[]).map(id=>`<button class="sm ghost" data-file="${esc(id)}">${esc(id)}</button>`).join('<br>')||'--'}</td><td>${(r.approvalIds||[]).map(id=>`<span class="pill pending">${esc(id)}</span>`).join(' ')||'--'}</td><td class="row">${actions}</td></tr>`;
+    }).join('')||'<tr><td colspan="6" class="empty">No runs yet.</td></tr>';
+  }
+  await loadHealth();
+  await loadRuns();
+  await loadPreflight();
+  $('#wf_cards').onclick=async(e)=>{
+    const toggle=e.target.closest('[data-wf-toggle]');
+    if(toggle){
+      const action=toggle.dataset.action;
+      const reason=action==='disable'?(prompt('Reason for disabling this workflow:', '')||''):'';
+      if(action==='disable'&&!reason.trim())return;
+      try{
+        await api(`/admin/workflows/${encodeURIComponent(toggle.dataset.wfToggle)}/${action}`,{method:'POST',body:JSON.stringify({reason})});
+        toast(action==='disable'?'Workflow disabled':'Workflow enabled');
+        renderWorkflows(v);
+      }catch(err){toast(err.message,true);}
+      return;
+    }
+    const b=e.target.closest('[data-wf]');
+    if(b&&!b.disabled){$('#wf_template').value=b.dataset.wf; $('#wf_out').innerHTML=''; await loadPreflight();}
+  };
+  $('#wf_preflight_btn').onclick=loadPreflight;
+  ['wf_template','wf_customer','wf_vendor','wf_recipient','wf_topic','wf_start','wf_end','wf_limit','wf_sample','wf_packet','wf_send_approval','wf_review_approval'].forEach(id=>{$('#'+id).addEventListener('change',loadPreflight);});
+  function showRunDetail(r){
+    const cls=r.status==='completed'?'ok':(r.status==='failed'||r.status==='cancelled'?'warn':'pending');
+    const steps=(r.steps||[]).map(s=>`<tr><td><b>${esc(s.title||s.stepId)}</b><div class="muted mono" style="font-size:.72rem">${esc(s.stepId||'')} ${s.tool?'| '+esc(s.tool):''}</div>${s.error?`<div class="err" style="font-size:.72rem">${esc(s.error)}</div>`:''}</td><td><span class="pill ${s.status==='completed'?'ok':(s.status==='failed'||s.status==='cancelled'?'warn':'pending')}">${esc(s.status)}</span></td></tr>`).join('')||'<tr><td colspan="2" class="empty">No steps recorded.</td></tr>';
+    const events=(r.timeline||[]).map(ev=>`<tr><td><span class="pill ${ev.kind==='audit'?'ok':(ev.kind==='approval'?'pending':'')}">${esc(ev.kind)}</span><div class="muted num" style="font-size:.72rem">${ev.ts?_fmtWhen(ev.ts):'--'}</div></td><td><b>${esc(ev.title||ev.tool||'event')}</b><div class="muted" style="font-size:.74rem">${esc(ev.status||'')}</div>${ev.detail?`<div class="muted" style="font-size:.72rem;margin-top:.2rem">${esc(ev.detail)}</div>`:''}</td></tr>`).join('')||'<tr><td colspan="2" class="empty">No timeline evidence yet.</td></tr>';
+    const artifacts=(r.artifactIds||[]).map(id=>`<button class="sm ghost" onclick="closeDrawer();go('files')">${esc(id)}</button>`).join(' ')||'--';
+    openDrawer(`<div class="dh"><div><div class="klbl">Workflow run</div><h2 style="margin-top:.15rem">${esc(r.templateId)}</h2><p class="muted mono" style="font-size:.76rem">${esc(r.runId)}</p></div><button class="ghost sm" onclick="closeDrawer()">Close</button></div><div class="db"><div class="card" style="margin:0"><div class="row" style="justify-content:space-between"><span class="pill ${cls}">${esc(r.status)}</span><span class="muted num">${r.createdAt?_fmtWhen(r.createdAt):'--'}</span></div><p class="muted" style="font-size:.78rem;margin-top:.5rem">Requested by ${esc(r.requestedBy||'--')}</p><p class="muted" style="font-size:.78rem;margin-top:.3rem">Artifacts: ${artifacts}</p><div class="row" style="margin-top:.6rem"><button class="sm ghost" id="wf_export_evidence">Export evidence</button></div><div id="wf_export_out"></div></div><div><h3>Steps</h3><div class="tbl-wrap"><table><tbody>${steps}</tbody></table></div></div><div><h3>Evidence timeline</h3><div class="tbl-wrap"><table><tbody>${events}</tbody></table></div></div></div>`);
+    $('#wf_export_evidence').onclick=async()=>{try{const out=$('#wf_export_out'); out.innerHTML='<p class="muted" style="font-size:.74rem;margin-top:.45rem">Exporting...</p>'; const x=await api(`/workflow-runs/${encodeURIComponent(r.runId)}/export-evidence`,{method:'POST'}); out.innerHTML=`<p class="muted" style="font-size:.74rem;margin-top:.45rem">Evidence artifact: <a href="${esc(x.artifact.downloadUrl)}">${esc(x.artifact.filename)}</a></p>`; toast('Evidence exported');}catch(e){toast(e.message,true);}};
+  }
+  $('#wf_runs').onclick=async(e)=>{
+    const file=e.target.closest('[data-file]'); if(file){go('files');return;}
+    const run=e.target.closest('[data-run]'); if(run){try{const r=await api(`/workflow-runs/${encodeURIComponent(run.dataset.run)}?timeline=1`); showRunDetail(r);}catch(err){toast(err.message,true);} return;}
+    const resume=e.target.closest('[data-resume]'); if(resume){const approval_id=prompt('Approved approval id:', ''); if(!approval_id)return; try{await api(`/workflow-runs/${encodeURIComponent(resume.dataset.resume)}/resume`,{method:'POST',body:JSON.stringify({approval_id})});toast('Workflow resumed');await loadRuns();}catch(err){toast(err.message,true);} return;}
+    const cancel=e.target.closest('[data-cancel]'); if(cancel){if(!confirm('Cancel workflow run?'))return; try{await api(`/workflow-runs/${encodeURIComponent(cancel.dataset.cancel)}/cancel`,{method:'POST',body:JSON.stringify({reason:'Cancelled from dashboard'})});toast('Workflow cancelled');await loadRuns();}catch(err){toast(err.message,true);} return;}
+  };
+  $('#wf_run').onclick=async()=>{
+    $('#wf_out').innerHTML='<p class="muted">Running workflow...</p>';
+    const tid=$('#wf_template').value;
+    const body=workflowInputBody();
+    try{
+      const r=await api(`/workflows/${encodeURIComponent(tid)}/run`,{method:'POST',body:JSON.stringify(body)});
+      $('#wf_out').innerHTML=`<div class="row"><span class="pill ${r.status==='approval_required'?'pending':'ok'}">${esc(r.status)}</span><span class="mono muted">${esc(r.runId)}</span></div>${r.approval?`<p class="muted" style="margin-top:.5rem">Approval requested: <span class="mono">${esc(r.approval.approvalId)}</span></p>`:''}<div class="grid" style="margin-top:.7rem">${(r.artifacts||[]).map(a=>`<div class="card" style="margin:0"><b>${esc(a.filename)}</b><div class="muted" style="font-size:.78rem">${esc((a.classification||[]).join(', '))}</div><div class="row" style="margin-top:.5rem"><a href="${esc(a.downloadUrl)}">Download</a><button class="sm ghost" onclick="go('files')">Inspect</button></div></div>`).join('')}</div>`;
+      await loadRuns();
+    }catch(e){$('#wf_out').innerHTML=`<p class="err">${esc(e.message)}</p>`;}
+  };
+}
+
+// ── My Workflow: hand-rolled drag/dot-connect graph builder (no external library,
+// consistent with this app having zero third-party JS dependencies anywhere else).
+// State is kept as plain {nodes, edges} matching the backend's GraphNode/GraphEdge
+// shape directly -- `edges` is never hand-edited, it's DERIVED from every node's
+// inputBindings at save/validate/redraw time, so there is exactly one source of
+// truth (a binding) for "what's connected to what," never two structures to keep
+// in sync. ──
+let MW = null;
+
+function mwNodeId(){return 'n_'+Math.random().toString(36).slice(2,9);}
+function mwEdgeId(){return 'e_'+Math.random().toString(36).slice(2,9);}
+
+function mwBlankState(){
+  return {graphId:'', displayName:'Untitled workflow', description:'', status:'draft', publishedVersion:0,
+    nodes:[{nodeId:'t1', kind:'trigger', title:'Trigger', config:{mode:'manual'}, inputBindings:{}, position:{x:30,y:40}}],
+    selected:'t1', catalog:[], catalogByTool:{}};
+}
+
+// One derived edge per (targetNode, argName) binding whose source is another
+// node -- this is what gets POSTed to the server and what the cycle-check walks.
+function mwDerivedEdges(nodes){
+  const edges=[]; const trigger=nodes.find(x=>x.kind==='trigger');
+  for(const n of nodes){
+    if(n.kind==='trigger')continue;
+    const nodeBindings=Object.values(n.inputBindings||{}).filter(b=>b && b.source==='node' && b.node_id);
+    if(nodeBindings.length){
+      nodeBindings.forEach(b=>edges.push({edgeId:mwEdgeId(),sourceNodeId:b.node_id,targetNodeId:n.nodeId}));
+    }else if(trigger){
+      // No data dependency on another step (every arg is literal or trigger-bound) --
+      // still needs to be connected/ordered in the graph, or it looks like an
+      // unreachable orphan to both this halo check and the server's validate_graph.
+      // Implicitly treat it as running right after the trigger.
+      edges.push({edgeId:mwEdgeId(),sourceNodeId:trigger.nodeId,targetNodeId:n.nodeId});
+    }
+  }
+  return edges;
+}
+
+function mwWouldCreateCycle(fromId,toId){
+  // Would adding an edge fromId -> toId create a cycle? True iff toId can already reach fromId.
+  if(fromId===toId) return true;
+  const edges=mwDerivedEdges(MW.nodes);
+  const out={}; edges.forEach(e=>{(out[e.sourceNodeId]=out[e.sourceNodeId]||[]).push(e.targetNodeId);});
+  const seen=new Set([toId]); const queue=[toId];
+  while(queue.length){const cur=queue.pop(); for(const nxt of (out[cur]||[])){if(nxt===fromId)return true; if(!seen.has(nxt)){seen.add(nxt);queue.push(nxt);}}}
+  return false;
+}
+
+function mwNodeById(id){return (MW.nodes||[]).find(n=>n.nodeId===id);}
+
+function mwNodeLabel(n){
+  if(n.kind==='trigger')return 'Trigger';
+  if(n.kind==='approval_gate')return n.title||'Approval gate';
+  if(n.kind==='llm_transform')return n.title||('AI: '+(n.config.kind||'summarize'));
+  const meta=MW.catalogByTool[n.tool];
+  return n.title||(meta?meta.description.split('.')[0].split(' -- ')[0].slice(0,40):n.tool);
+}
+
+function mwInputSlotsFor(n){
+  if(n.kind==='tool_call'){
+    const meta=MW.catalogByTool[n.tool];
+    const props=(meta&&meta.parameters&&meta.parameters.properties)||{};
+    return Object.keys(props).filter(k=>k!=='owner').map(k=>({name:k,label:k}));
+  }
+  if(n.kind==='llm_transform')return [{name:'input_text',label:'Input text'}];
+  return [];
+}
+
+function mwOutputPinsFor(n){
+  if(n.kind==='tool_call'){const meta=MW.catalogByTool[n.tool];return (meta&&meta.outputFields)||[];}
+  if(n.kind==='approval_gate')return ['approvalId'];
+  if(n.kind==='llm_transform')return ['text'];
+  return [];
+}
+
+function mwRiskPill(n){
+  if(n.kind!=='tool_call')return '';
+  const meta=MW.catalogByTool[n.tool]; if(!meta||!meta.riskLevel)return '';
+  const cls=meta.riskLevel==='send'?'warn':(meta.riskLevel==='export'?'pending':(meta.riskLevel==='read_sensitive'?'':'ok'));
+  return `<span class="pill ${cls}">${esc(meta.riskLevel)}</span>`;
+}
+
+// Cosmetic-only, simplified approximation of the server's real mandatory-gate-
+// before-send rule (governance_core/workflow_graph_store.py validate_graph) --
+// never trusted as the real check; Validate/Save always re-confirms server-side.
+function mwSendRiskNeedsGateHalo(n){
+  if(n.kind!=='tool_call')return false;
+  const meta=MW.catalogByTool[n.tool]; if(!meta||meta.riskLevel!=='send')return false;
+  const trigger=MW.nodes.find(x=>x.kind==='trigger'); if(!trigger)return true;
+  const withoutGates=new Set(MW.nodes.filter(x=>x.kind==='approval_gate').map(x=>x.nodeId));
+  // Reachable-from-trigger, walking forward, but never expanding PAST a gate node
+  // (the gate itself is still reachable -- just nothing downstream of it, via this
+  // path -- mirroring the server's "remove every gate node, recheck reachability" rule).
+  const fwd={}; mwDerivedEdges(MW.nodes).forEach(e=>{(fwd[e.sourceNodeId]=fwd[e.sourceNodeId]||[]).push(e.targetNodeId);});
+  const reach=new Set(); const q=[trigger.nodeId];
+  while(q.length){const cur=q.pop(); if(withoutGates.has(cur)&&cur!==trigger.nodeId)continue; for(const nxt of (fwd[cur]||[])){if(!reach.has(nxt)){reach.add(nxt);if(!withoutGates.has(nxt))q.push(nxt);}}}
+  return reach.has(n.nodeId);
+}
+
+async function renderMyWorkflows(v){
+  v.innerHTML=`<div class="content" style="max-width:none">
+    <div class="card"><div class="row" style="justify-content:space-between;align-items:center">
+      <div><h2>My Workflow</h2><p class="muted">Drag governed tools onto the canvas, connect their outputs to the next step's inputs, and add an approval gate before anything that sends or exports. No code required.</p></div>
+      <div class="row">
+        <select id="mw_select" style="min-width:180px"></select>
+        <button class="ghost sm" id="mw_new">New</button>
+        <button class="ghost sm" id="mw_validate">Validate</button>
+        <button class="ghost sm" id="mw_save">Save</button>
+        <button class="sm" id="mw_publish">Publish</button>
+        <button id="mw_run">Run</button>
+      </div></div>
+      <div id="mw_meta" class="row" style="margin-top:.6rem"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:230px 1fr 300px;gap:.75rem;height:66vh">
+      <div class="card" id="mw_palette" style="overflow-y:auto"><p class="muted">Loading tools...</p></div>
+      <div class="card wf-canvas-wrap" id="mw_canvas_wrap">
+        <svg class="wf-edges" id="mw_edges"></svg>
+        <div class="wf-canvas" id="mw_canvas" style="width:1400px;height:900px"></div>
+      </div>
+      <div class="card" id="mw_props" style="overflow-y:auto"><p class="muted">Select a node to edit it, or drag one in from the palette on the left.</p></div>
+    </div>
+    <div id="mw_validate_box" style="margin-top:.75rem"></div>
+    <div id="mw_run_box" style="margin-top:.75rem"></div>
+  </div>`;
+
+  MW = mwBlankState();
+
+  try{
+    const cat=await api('/dashboard/workflow-graph-catalog');
+    MW.catalog=cat.tools||[];
+    MW.catalogByTool={}; MW.catalog.forEach(t=>{MW.catalogByTool[t.canonical]=t;});
+  }catch(e){$('#mw_palette').innerHTML=`<p class="err">${esc(e.message)}</p>`;}
+
+  async function loadGraphList(){
+    const list=await api('/workflow-graphs');
+    const graphs=list.graphs||[];
+    $('#mw_select').innerHTML='<option value="">-- new workflow --</option>'+graphs.map(g=>`<option value="${esc(g.graphId)}">${esc(g.displayName)} (${esc(g.status)})</option>`).join('');
+    return graphs;
+  }
+
+  function paintMeta(){
+    $('#mw_meta').innerHTML=`<input id="mw_name" value="${esc(MW.displayName)}" style="max-width:260px" placeholder="Workflow name">
+      <span class="pill ${MW.status==='active'?'ok':(MW.status==='disabled'?'warn':'pending')}">${esc(MW.status)}</span>
+      ${MW.publishedVersion?`<span class="muted" style="font-size:.76rem">published v${esc(MW.publishedVersion)}</span>`:'<span class="muted" style="font-size:.76rem">never published</span>'}`;
+    $('#mw_name').onchange=()=>{MW.displayName=$('#mw_name').value.trim()||'Untitled workflow';};
+  }
+
+  function paintPalette(){
+    const byBackend={};
+    MW.catalog.forEach(t=>{(byBackend[t.backend||'other']=byBackend[t.backend||'other']||[]).push(t);});
+    let html='<div class="wf-pal-group">Flow control</div>'
+      +`<div class="wf-pal-item" draggable="true" data-kind="approval_gate"><div class="t">Approval gate</div><div class="d">Pause and require sign-off before continuing.</div></div>`
+      +`<div class="wf-pal-item" draggable="true" data-kind="llm_transform"><div class="t">AI step</div><div class="d">Summarize, draft, classify, or extract from an earlier step's output.</div></div>`;
+    for(const backend of Object.keys(byBackend).sort()){
+      html+=`<div class="wf-pal-group">${esc(backend)}</div>`;
+      html+=byBackend[backend].map(t=>`<div class="wf-pal-item ${t.granted?'':'locked'}" draggable="${t.granted}" data-kind="tool_call" data-tool="${esc(t.canonical)}" title="${t.granted?'':'You do not have access to this tool'}">
+        <div class="t">${esc(t.canonical)}${t.riskLevel?`<span class="pill" style="font-size:.62rem">${esc(t.riskLevel)}</span>`:''}</div>
+        <div class="d">${esc(t.description)}</div></div>`).join('');
+    }
+    $('#mw_palette').innerHTML=html;
+  }
+
+  function paintCanvas(){
+    const canvas=$('#mw_canvas');
+    canvas.innerHTML=MW.nodes.map(n=>{
+      const inputs=mwInputSlotsFor(n), outputs=mwOutputPinsFor(n);
+      const rows=Math.max(inputs.length,outputs.length,1);
+      const halo=mwSendRiskNeedsGateHalo(n);
+      return `<div class="wf-node ${n.nodeId===MW.selected?'selected':''} ${halo?'needs-gate':''}" data-node-id="${esc(n.nodeId)}"
+          style="left:${n.position.x||0}px;top:${n.position.y||0}px;min-height:${52+rows*16}px">
+        <div class="hd"><span>${esc(mwNodeLabel(n))}</span><span class="row" style="gap:.3rem">${mwRiskPill(n)}${n.kind==='trigger'?'':`<button class="wf-node-del" data-del="${esc(n.nodeId)}" title="Delete node">&times;</button>`}</span></div>
+        <div class="bd">${esc(n.kind==='tool_call'?n.tool:n.kind)}${halo?'<div class="err" style="font-size:.68rem;margin-top:.2rem">needs an approval gate before this</div>':''}</div>
+        ${inputs.map((s,i)=>`<div class="wf-port in" data-node="${esc(n.nodeId)}" data-pin="${esc(s.name)}" data-dir="in" style="top:${46+i*16}px" title="in: ${esc(s.label)}"></div>`).join('')}
+        ${outputs.map((name,i)=>`<div class="wf-port out" data-node="${esc(n.nodeId)}" data-pin="${esc(name)}" data-dir="out" style="top:${46+i*16}px" title="out: ${esc(name)}"></div>`).join('')}
+      </div>`;
+    }).join('');
+    mwRedrawEdges();
+  }
+
+  function mwPortEl(nodeId,pin,dir){return canvasQuerySafe(`.wf-port.${dir}[data-node="${cssEsc(nodeId)}"][data-pin="${cssEsc(pin)}"]`);}
+  function canvasQuerySafe(sel){try{return $('#mw_canvas').querySelector(sel);}catch(e){return null;}}
+  function cssEsc(s){return String(s).replace(/["\\]/g,'\\$&');}
+
+  function mwRedrawEdges(){
+    const svg=$('#mw_edges'); const wrapEl=$('#mw_canvas_wrap'); const wrapRect=wrapEl.getBoundingClientRect();
+    const canvas=$('#mw_canvas');
+    svg.setAttribute('width',canvas.style.width); svg.setAttribute('height',canvas.style.height);
+    const segs=[];
+    MW.nodes.forEach(n=>{
+      Object.entries(n.inputBindings||{}).forEach(([arg,b])=>{
+        if(!b||b.source!=='node')return;
+        const srcEl=mwPortEl(b.node_id,b.path,'out'); const dstEl=mwPortEl(n.nodeId,arg,'in');
+        if(!srcEl||!dstEl)return;
+        const sr=srcEl.getBoundingClientRect(), dr=dstEl.getBoundingClientRect();
+        const x1=sr.left-wrapRect.left+wrapEl.scrollLeft+5, y1=sr.top-wrapRect.top+wrapEl.scrollTop+5;
+        const x2=dr.left-wrapRect.left+wrapEl.scrollLeft+5, y2=dr.top-wrapRect.top+wrapEl.scrollTop+5;
+        const dx=Math.max(40,Math.abs(x2-x1)/2);
+        segs.push(`<path d="M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}" stroke="var(--highlight-darker)" stroke-width="2" fill="none"/>`);
+      });
+    });
+    svg.innerHTML=segs.join('');
+  }
+
+  function paintProps(){
+    const box=$('#mw_props'); const n=mwNodeById(MW.selected);
+    if(!n){box.innerHTML='<p class="muted">Select a node to edit it.</p>';return;}
+    let html=`<div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">${esc(mwNodeLabel(n))}</h3></div>`;
+    if(n.kind==='trigger'){
+      html+='<p class="muted" style="font-size:.78rem">Runs manually, or on a schedule via the Automations tab once published. Values used by downstream steps come from each step\'s own config, or type a JSON body when you click Run.</p>';
+    } else if(n.kind==='approval_gate'){
+      html+=mwFieldLiteral(n,'reason','Reason for review','textarea')+mwFieldLiteral(n,'risk_level','Risk level','select',['medium','high']);
+    } else if(n.kind==='llm_transform'){
+      html+=mwFieldLiteral(n,'kind','AI action','select',['summarize','draft_reply','classify','extract']);
+      html+=mwFieldLiteral(n,'instruction','Instruction','textarea');
+      html+=mwFieldBinding(n,'input_text','Input text (from an earlier step)');
+    } else if(n.kind==='tool_call'){
+      const meta=MW.catalogByTool[n.tool]||{};
+      if(!meta.granted)html+='<p class="err" style="font-size:.78rem">You do not currently have access to this tool -- saving will fail until an admin grants it, or you remove this step.</p>';
+      mwInputSlotsFor(n).forEach(s=>{html+=mwFieldBinding(n,s.name,s.label);});
+      if((meta.outputFields||[]).length)html+=`<p class="muted" style="font-size:.72rem;margin-top:.4rem">Outputs available to later steps: ${meta.outputFields.map(esc).join(', ')}</p>`;
+    }
+    box.innerHTML=html;
+  }
+
+  function mwFieldLiteral(n,key,label,kind,options){
+    const val=(n.config||{})[key]||'';
+    if(kind==='select')return `<div class="wf-prop-row"><label>${esc(label)}</label><select data-cfg="${esc(key)}">${(options||[]).map(o=>`<option value="${esc(o)}" ${o===val?'selected':''}>${esc(o)}</option>`).join('')}</select></div>`;
+    if(kind==='textarea')return `<div class="wf-prop-row"><label>${esc(label)}</label><textarea data-cfg="${esc(key)}" rows="3">${esc(val)}</textarea></div>`;
+    return `<div class="wf-prop-row"><label>${esc(label)}</label><input data-cfg="${esc(key)}" value="${esc(val)}"></div>`;
+  }
+
+  function mwFieldBinding(n,arg,label){
+    const b=(n.inputBindings||{})[arg];
+    if(b){
+      const desc=b.source==='node'?`${mwNodeById(b.node_id)?mwNodeLabel(mwNodeById(b.node_id)):b.node_id} -> ${b.path}`:(b.source==='trigger'?`trigger: ${b.path}`:`literal: ${b.value}`);
+      return `<div class="wf-prop-row"><label>${esc(label)}</label><div class="wf-bound-chip"><span>bound: ${esc(desc)}</span><button data-unbind="${esc(arg)}">unbind</button></div></div>`;
+    }
+    const val=(n.config||{})[arg]||'';
+    return `<div class="wf-prop-row"><label>${esc(label)}</label><input data-cfg="${esc(arg)}" value="${esc(val)}" placeholder="literal value, or drag a connection from an earlier step"></div>`;
+  }
+
+  paintMeta(); paintPalette(); paintCanvas(); paintProps();
+  await loadGraphList();
+
+  // ── palette drag-out ──
+  $('#mw_palette').addEventListener('dragstart',(e)=>{
+    const item=e.target.closest('[draggable="true"]'); if(!item)return;
+    if(item.classList.contains('locked')){e.preventDefault();return;}
+    e.dataTransfer.setData('text/plain', JSON.stringify({kind:item.dataset.kind, tool:item.dataset.tool||''}));
+  });
+
+  // ── canvas drop (new node) ──
+  const canvasWrap=$('#mw_canvas_wrap');
+  canvasWrap.addEventListener('dragover',(e)=>{e.preventDefault(); canvasWrap.querySelector('.wf-canvas').classList.add('dragover');});
+  canvasWrap.addEventListener('dragleave',()=>{canvasWrap.querySelector('.wf-canvas').classList.remove('dragover');});
+  canvasWrap.addEventListener('drop',(e)=>{
+    e.preventDefault(); canvasWrap.querySelector('.wf-canvas').classList.remove('dragover');
+    let payload; try{payload=JSON.parse(e.dataTransfer.getData('text/plain'));}catch(err){return;}
+    if(!payload.kind || payload.kind==='trigger')return; // there is exactly one trigger, seeded once, never offered in the palette
+    const canvas=$('#mw_canvas'); const rect=canvas.getBoundingClientRect();
+    const x=Math.max(0,e.clientX-rect.left-90), y=Math.max(0,e.clientY-rect.top-20);
+    const node={nodeId:mwNodeId(), kind:payload.kind, title:'', tool:payload.tool||'', config:{}, inputBindings:{}, position:{x,y}};
+    if(node.kind==='llm_transform')node.config={kind:'summarize',instruction:''};
+    if(node.kind==='approval_gate')node.config={reason:'Please review before continuing',risk_level:'medium'};
+    MW.nodes.push(node); MW.selected=node.nodeId;
+    paintCanvas(); paintProps();
+  });
+
+  // ── node select / drag / delete, and port connect ──
+  let dragNode=null, dragStart=null, dragged=false, pendingEdge=null;
+  const canvasEl=$('#mw_canvas');
+  canvasEl.addEventListener('mousedown',(e)=>{
+    const del=e.target.closest('[data-del]');
+    if(del){MW.nodes=MW.nodes.filter(n=>n.nodeId!==del.dataset.del);
+      MW.nodes.forEach(n=>{Object.keys(n.inputBindings||{}).forEach(arg=>{if(n.inputBindings[arg].node_id===del.dataset.del)delete n.inputBindings[arg];});});
+      if(MW.selected===del.dataset.del)MW.selected=null;
+      paintCanvas(); paintProps(); return;}
+    const port=e.target.closest('.wf-port');
+    if(port && port.dataset.dir==='out'){
+      pendingEdge={sourceNode:port.dataset.node, sourcePin:port.dataset.pin};
+      e.preventDefault(); return;
+    }
+    const nodeEl=e.target.closest('.wf-node');
+    if(nodeEl){
+      dragNode=nodeEl.dataset.nodeId; dragStart={x:e.clientX,y:e.clientY}; dragged=false;
+      e.preventDefault();
+    }
+  });
+  window.addEventListener('mousemove',(e)=>{
+    if(dragNode){
+      const dx=e.clientX-dragStart.x, dy=e.clientY-dragStart.y;
+      if(Math.abs(dx)>3||Math.abs(dy)>3)dragged=true;
+      if(dragged){
+        const n=mwNodeById(dragNode); if(n){n.position={x:Math.max(0,(n.position.x||0)+dx),y:Math.max(0,(n.position.y||0)+dy)};
+          const el=canvasEl.querySelector(`[data-node-id="${cssEsc(dragNode)}"]`); if(el){el.style.left=n.position.x+'px'; el.style.top=n.position.y+'px';}
+          mwRedrawEdges();}
+        dragStart={x:e.clientX,y:e.clientY};
+      }
+    }
+    if(pendingEdge){mwRedrawEdges();}
+  });
+  window.addEventListener('mouseup',(e)=>{
+    if(dragNode && !dragged){MW.selected=dragNode; paintCanvas(); paintProps();}
+    dragNode=null;
+    if(pendingEdge){
+      const port=e.target.closest && e.target.closest('.wf-port');
+      if(port && port.dataset.dir==='in'){
+        const targetNode=mwNodeById(port.dataset.node);
+        if(targetNode && !mwWouldCreateCycle(pendingEdge.sourceNode,targetNode.nodeId)){
+          targetNode.inputBindings=targetNode.inputBindings||{};
+          targetNode.inputBindings[port.dataset.pin]={source:'node',node_id:pendingEdge.sourceNode,path:pendingEdge.sourcePin};
+          delete (targetNode.config||{})[port.dataset.pin];
+        } else if(port.dataset.node){
+          toast('That connection would create a cycle',true);
+        }
+      }
+      pendingEdge=null; paintCanvas(); paintProps();
+    }
+  });
+
+  // ── properties panel edits (change = commit; avoids losing focus mid-keystroke) ──
+  $('#mw_props').addEventListener('change',(e)=>{
+    const n=mwNodeById(MW.selected); if(!n)return;
+    const cfg=e.target.closest('[data-cfg]');
+    if(cfg){n.config=n.config||{}; n.config[cfg.dataset.cfg]=e.target.value; paintCanvas(); return;}
+  });
+  $('#mw_props').addEventListener('click',(e)=>{
+    const unbind=e.target.closest('[data-unbind]'); if(!unbind)return;
+    const n=mwNodeById(MW.selected); if(!n)return;
+    delete n.inputBindings[unbind.dataset.unbind];
+    paintCanvas(); paintProps();
+  });
+
+  // ── toolbar ──
+  $('#mw_new').onclick=()=>{MW={...mwBlankState(),catalog:MW.catalog,catalogByTool:MW.catalogByTool}; $('#mw_select').value=''; paintMeta();paintCanvas();paintProps();$('#mw_validate_box').innerHTML='';$('#mw_run_box').innerHTML='';};
+  $('#mw_select').onchange=async()=>{
+    const gid=$('#mw_select').value;
+    if(!gid){$('#mw_new').onclick();return;}
+    try{
+      const g=await api(`/workflow-graphs/${encodeURIComponent(gid)}`);
+      MW={...MW, graphId:g.graphId, displayName:g.displayName, description:g.description||'', status:g.status, publishedVersion:g.publishedVersion,
+        nodes:(g.nodes||[]).map(n=>({nodeId:n.nodeId,kind:n.kind,title:n.title,tool:n.tool,config:n.config||{},inputBindings:n.inputBindings||{},position:n.position||{x:30,y:40}})),
+        selected:null};
+      paintMeta(); paintCanvas(); paintProps(); $('#mw_validate_box').innerHTML=''; $('#mw_run_box').innerHTML='';
+    }catch(e){toast(e.message,true);}
+  };
+  function mwPayload(){return {displayName:MW.displayName, description:MW.description, nodes:MW.nodes, edges:mwDerivedEdges(MW.nodes)};}
+  function renderValidateResult(r){
+    const blockers=(r.blockers||[]).map(x=>`<li>${esc(x)}</li>`).join('');
+    $('#mw_validate_box').innerHTML=`<div class="card" style="margin:0"><div class="row" style="justify-content:space-between"><b>Readiness</b><span class="pill ${r.ready?'ok':'warn'}">${r.ready?'Ready':'Needs attention'}</span></div>${blockers?`<div class="err" style="margin-top:.5rem"><ul style="margin:.35rem 0 0 1rem">${blockers}</ul></div>`:''}</div>`;
+  }
+  $('#mw_validate').onclick=async()=>{
+    if(!MW.graphId){toast('Save the workflow first',true);return;}
+    try{const r=await api(`/workflow-graphs/${encodeURIComponent(MW.graphId)}/validate`,{method:'POST',body:JSON.stringify(mwPayload())}); renderValidateResult(r);}
+    catch(e){toast(e.message,true);}
+  };
+  $('#mw_save').onclick=async()=>{
+    try{
+      if(!MW.graphId){
+        const r=await api('/workflow-graphs',{method:'POST',body:JSON.stringify(mwPayload())});
+        MW.graphId=r.graphId; MW.status=r.status; MW.publishedVersion=r.publishedVersion;
+        toast('Workflow saved as a new draft');
+      }else{
+        const r=await api(`/workflow-graphs/${encodeURIComponent(MW.graphId)}/versions`,{method:'POST',body:JSON.stringify(mwPayload())});
+        MW.status=r.status; MW.publishedVersion=r.publishedVersion;
+        toast('New draft version saved');
+      }
+      paintMeta(); await loadGraphList(); $('#mw_select').value=MW.graphId;
+    }catch(e){renderValidateResult({ready:false,blockers:[e.message]});toast(e.message,true);}
+  };
+  $('#mw_publish').onclick=async()=>{
+    if(!MW.graphId){toast('Save the workflow first',true);return;}
+    try{const r=await api(`/workflow-graphs/${encodeURIComponent(MW.graphId)}/publish`,{method:'POST',body:JSON.stringify({})});
+      MW.status=r.status; MW.publishedVersion=r.publishedVersion; paintMeta(); toast('Published v'+r.publishedVersion); await loadGraphList(); $('#mw_select').value=MW.graphId;
+    }catch(e){toast(e.message,true);}
+  };
+  $('#mw_run').onclick=async()=>{
+    if(!MW.graphId){toast('Save and publish the workflow first',true);return;}
+    if(MW.status!=='active'){toast('Publish the workflow before running it',true);return;}
+    const raw=prompt('Run inputs as JSON (leave as {} for none):','{}'); if(raw===null)return;
+    let body; try{body=JSON.parse(raw||'{}');}catch(e){toast('Inputs must be valid JSON',true);return;}
+    $('#mw_run_box').innerHTML='<p class="muted">Running...</p>';
+    try{
+      const r=await api(`/workflows/${encodeURIComponent(MW.graphId)}/run`,{method:'POST',body:JSON.stringify(body)});
+      $('#mw_run_box').innerHTML=`<div class="card" style="margin:0"><div class="row"><span class="pill ${r.status==='approval_required'?'pending':'ok'}">${esc(r.status)}</span><span class="mono muted">${esc(r.runId)}</span></div>${r.approval?`<p class="muted" style="margin-top:.5rem">Approval requested: <span class="mono">${esc(r.approval.approvalId)}</span> -- approve it, then Resume from the Workflows tab.</p>`:''}<div class="grid" style="margin-top:.7rem">${(r.artifacts||[]).map(a=>`<div class="card" style="margin:0"><b>${esc(a.filename||a.title||'artifact')}</b>${a.downloadUrl?`<div class="row" style="margin-top:.4rem"><a href="${esc(a.downloadUrl)}">Download</a></div>`:''}</div>`).join('')}</div></div>`;
+    }catch(e){$('#mw_run_box').innerHTML=`<p class="err">${esc(e.message)}</p>`;}
+  };
+}
+
+
+
+async function renderAutomations(v){
+  v.innerHTML=wrap(`<div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>Create automation</h2><p class="muted">Schedule any active workflow. Local testing uses Run due now; production can call the same endpoint from a timer.</p></div>${ME.role==='admin'?'<button class="ghost" id="au_due">Run due now</button>':''}</div><div class="grid" style="margin-top:.8rem"><label>Workflow<select id="au_template"></select></label><label>Name<input id="au_name" placeholder="Daily Customer 360"></label><label>Interval minutes<input id="au_interval" type="number" min="1" value="1440"></label>${ME.role==='admin'?'<label>Run as agent<select id="au_agent"><option value="">Current admin/user</option></select></label>':''}</div><label style="margin-top:.6rem">Inputs JSON<textarea id="au_inputs" rows="5">{"sample":true,"customer_id":"SAMPLE100"}</textarea></label><div class="row" style="margin-top:.6rem"><button id="au_create">Create automation</button><button class="ghost" id="au_refresh">Refresh</button></div></div><div class="card"><h2>Schedules</h2><div class="tbl-wrap" style="margin-top:.7rem"><table><thead><tr><th>Name</th><th>Workflow</th><th>Next Run</th><th>Last Run</th><th>Status</th><th></th></tr></thead><tbody id="au_rows"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody></table></div></div>`);
+  const catalog=await api('/workflows');
+  const workflows=(catalog.workflows||[]).filter(w=>w.status==='active');
+  $('#au_template').innerHTML=workflows.map(w=>`<option value="${esc(w.templateId)}">${esc(w.displayName)}</option>`).join('');
+  if(ME.role==='admin'){try{const ag=await api('/admin/agents?includeDisabled=0'); $('#au_agent').innerHTML='<option value="">Current admin/user</option>'+((ag.agents||[]).map(a=>`<option value="${esc(a.agentId)}">${esc(a.displayName)} (${esc(a.consumerId)})</option>`).join(''));}catch(e){}}
+  function starter(tid){
+    if(tid==='vendor_ap_summary')return '{"sample":true,"vendor_code":"VEND100"}';
+    return '{"sample":true,"customer_id":"SAMPLE100"}';
+  }
+  $('#au_template').onchange=()=>{$('#au_inputs').value=starter($('#au_template').value);};
+  async function load(){
+    const r=await api('/automations');
+    $('#au_rows').innerHTML=(r.automations||[]).map(a=>`<tr><td><b>${esc(a.displayName)}</b><div class="muted mono" style="font-size:.72rem">${esc(a.automationId)}</div></td><td>${esc(a.templateId)}<div class="muted" style="font-size:.72rem">${a.actorType==='agent'?'agent: '+esc(a.agentId):'user-owned'}</div></td><td class="muted num">${a.nextRunAt?_fmtWhen(a.nextRunAt):'--'}</td><td>${a.lastRunId?`<span class="mono" style="font-size:.76rem">${esc(a.lastRunId)}</span>`:'--'}<div class="muted" style="font-size:.72rem">${esc(a.lastStatus||'never_run')}</div></td><td><span class="pill ${a.status==='active'?'ok':'pending'}">${esc(a.status)}</span></td><td><button class="sm danger" data-del="${esc(a.automationId)}">Delete</button></td></tr>`).join('')||'<tr><td colspan="6" class="empty">No automations yet.</td></tr>';
+  }
+  $('#au_create').onclick=async()=>{
+    try{const inputs=JSON.parse($('#au_inputs').value||'{}'); const body={template_id:$('#au_template').value,display_name:$('#au_name').value.trim()||$('#au_template').value,interval_sec:Math.max(60,Number($('#au_interval').value||1440)*60),next_run_at:Math.floor(Date.now()/1000),inputs}; if(ME.role==='admin'&&$('#au_agent')&&$('#au_agent').value)body.agent_id=$('#au_agent').value; await api('/automations',{method:'POST',body:JSON.stringify(body)});toast('Automation created');await load();}
+    catch(e){toast(e.message,true);}
+  };
+  const due=$('#au_due'); if(due)due.onclick=async()=>{try{const r=await api('/automations/run-due',{method:'POST',body:JSON.stringify({now:Math.floor(Date.now()/1000)})});toast(`Ran ${r.ran} automation(s)`);await load();}catch(e){toast(e.message,true);}};
+  $('#au_refresh').onclick=load;
+  $('#au_rows').onclick=async(e)=>{const b=e.target.closest('[data-del]'); if(!b)return; if(!confirm('Delete automation?'))return; try{await api(`/automations/${encodeURIComponent(b.dataset.del)}`,{method:'DELETE'});toast('Deleted');await load();}catch(err){toast(err.message,true);}};
+  await load();
+}
+
+
+async function renderKnowledge(v){
+  v.innerHTML=wrap(`<div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>Knowledge base</h2><p class="muted">Index local text or office files, then search and answer from retrieved chunks. Document contents are treated as untrusted source material.</p></div><button class="ghost" id="kb_refresh">Refresh</button></div>
+    <div class="grid" style="margin-top:.8rem"><div><h3>Ingest text</h3><label>Title<input id="kb_title" placeholder="Customer policy notes"></label><label style="margin-top:.6rem">Text<textarea id="kb_text" rows="7" placeholder="Paste trusted reference text here"></textarea></label><div class="row" style="margin-top:.6rem"><button id="kb_ingest_text">Index text</button></div></div>
+    <div><h3>Ingest file</h3><label>Title<input id="kb_file_title" placeholder="Source document title"></label><label style="margin-top:.6rem">File<input id="kb_file" type="file" accept=".txt,.md,.csv,.json,.docx,.pptx,.xlsx,.pdf"></label><p class="muted" style="font-size:.78rem;margin-top:.45rem">Local parser supports text, DOCX, PPTX, XLSX, and rough PDF text extraction.</p><div class="row" style="margin-top:.6rem"><button id="kb_ingest_file">Index file</button></div></div></div></div>
+    <div class="card"><h2>Ask documents</h2><div class="grid" style="margin-top:.7rem"><label>Question<input id="kb_query" placeholder="What are the renewal escalation steps?"></label><label>Limit<input id="kb_limit" type="number" min="1" max="10" value="5"></label></div><div class="row" style="margin-top:.6rem"><button id="kb_answer">Answer</button><button class="ghost" id="kb_search">Search only</button></div><div id="kb_result" style="margin-top:.8rem"></div></div>
+    <div class="card"><h2>Indexed documents</h2><div class="tbl-wrap" style="margin-top:.7rem"><table><thead><tr><th>Title</th><th>Type</th><th>Chunks</th><th>Classification</th><th>Created</th><th></th></tr></thead><tbody id="kb_rows"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody></table></div></div>`);
+  async function load(){
+    const r=await api('/knowledge/documents');
+    $('#kb_rows').innerHTML=(r.documents||[]).map(d=>`<tr><td><b>${esc(d.title)}</b><div class="muted mono" style="font-size:.72rem">${esc(d.documentId)} | ${esc(d.filename)}</div></td><td>${esc(d.sourceType)}</td><td class="num muted">${esc(d.chunkCount)}</td><td>${(d.classification||[]).map(c=>`<span class="pill">${esc(c)}</span>`).join(' ')}</td><td class="muted num">${d.createdAt?_fmtWhen(d.createdAt):'--'}</td><td><button class="sm danger" data-kb-del="${esc(d.documentId)}">Delete</button></td></tr>`).join('')||'<tr><td colspan="6" class="empty">No indexed documents yet.</td></tr>';
+  }
+  function showAnswer(r){
+    const cites=(r.citations||[]).map(c=>`<span class="pill">${esc(c.documentTitle||c.documentId)} #${esc(c.chunkId||'')}</span>`).join(' ');
+    $('#kb_result').innerHTML=`<div class="card" style="margin:0"><pre class="mono" style="white-space:pre-wrap;background:var(--gray50);border:1px solid var(--gray200);border-radius:8px;padding:.7rem;font-size:.8rem">${esc(r.answer||'')}</pre><div class="row" style="margin-top:.6rem">${cites||'<span class="muted">No citations</span>'}</div></div>`;
+  }
+  function showSearch(r){
+    $('#kb_result').innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>Source</th><th>Score</th><th>Snippet</th></tr></thead><tbody>${(r.results||[]).map(x=>`<tr><td><b>${esc(x.documentTitle)}</b><div class="muted mono" style="font-size:.72rem">${esc(x.chunkId)}</div></td><td class="num muted">${esc(x.score)}</td><td>${esc(x.text)}</td></tr>`).join('')||'<tr><td colspan="3" class="empty">No matches.</td></tr>'}</tbody></table></div>`;
+  }
+  $('#kb_refresh').onclick=load;
+  $('#kb_ingest_text').onclick=async()=>{try{await api('/knowledge/documents',{method:'POST',body:JSON.stringify({title:$('#kb_title').value.trim()||'Knowledge note',text:$('#kb_text').value,classification:['INTERNAL']})});toast('Text indexed');$('#kb_text').value='';await load();}catch(e){toast(e.message,true);}};
+  $('#kb_ingest_file').onclick=async()=>{const f=$('#kb_file').files[0]; if(!f){toast('Choose a file first',true);return;} try{const buf=await f.arrayBuffer(); const bytes=new Uint8Array(buf); let bin=''; for(let i=0;i<bytes.length;i++)bin+=String.fromCharCode(bytes[i]); await api('/knowledge/documents',{method:'POST',body:JSON.stringify({title:$('#kb_file_title').value.trim()||f.name,filename:f.name,content_base64:btoa(bin),classification:['INTERNAL']})});toast('File indexed');$('#kb_file').value='';await load();}catch(e){toast(e.message,true);}};
+  $('#kb_answer').onclick=async()=>{try{const r=await api('/knowledge/answer',{method:'POST',body:JSON.stringify({query:$('#kb_query').value,limit:Number($('#kb_limit').value||5)})});showAnswer(r);}catch(e){toast(e.message,true);}};
+  $('#kb_search').onclick=async()=>{try{const r=await api('/knowledge/search',{method:'POST',body:JSON.stringify({query:$('#kb_query').value,limit:Number($('#kb_limit').value||5)})});showSearch(r);}catch(e){toast(e.message,true);}};
+  $('#kb_rows').onclick=async(e)=>{const b=e.target.closest('[data-kb-del]'); if(!b)return; if(!confirm('Delete document from index?'))return; try{await api(`/knowledge/documents/${encodeURIComponent(b.dataset.kbDel)}`,{method:'DELETE'});toast('Deleted');await load();}catch(err){toast(err.message,true);}};
+  await load();
+}
+
+async function renderFiles(v){
+  v.innerHTML=wrap(`<div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>File workbench</h2><p class="muted">Upload, inspect, share, delete, and request review for governed office artifacts. Access and downloads are audited.</p></div><button class="ghost" id="fl_refresh">Refresh</button></div>
+    <div class="grid" style="margin-top:.8rem"><label>Title<input id="fl_title" placeholder="Quarterly customer note"></label><label>File<input id="fl_file" type="file"></label><label>Classification<select id="fl_class"><option>INTERNAL</option><option>SENSITIVE</option><option>CONFIDENTIAL</option><option>PII</option></select></label></div>
+    <label style="margin-top:.6rem">Or paste text<textarea id="fl_text" rows="4" placeholder="Paste a note, CSV, Markdown, or report text"></textarea></label><div class="row" style="margin-top:.6rem"><button id="fl_upload">Upload artifact</button><span class="muted" style="font-size:.78rem">Retention is assigned from classification unless a workflow sets it explicitly.</span></div>
+    <div class="tbl-wrap" style="margin-top:.9rem"><table><thead><tr><th>Name</th><th>Type</th><th>Classification</th><th>Size</th><th>Expires</th><th></th></tr></thead><tbody id="fl_rows"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody></table></div></div><div id="fl_detail"></div>`);
+  let selectedFile=null;
+  async function inspect(id){
+    $('#fl_detail').innerHTML='<div class="card"><p class="muted">Inspecting artifact...</p></div>';
+    try{
+      const w=await api(`/artifacts/${encodeURIComponent(id)}/workbench`), a=w.artifact||{}, p=w.preview||{}, oo=w.onlyoffice;
+      selectedFile=a.artifactId;
+      const sig=Object.entries(p.signals||{}).map(([k,val])=>`<tr><td class="mono">${esc(k)}</td><td>${esc(val)}</td></tr>`).join('')||'<tr><td colspan="2" class="empty">No preview signals.</td></tr>';
+      const shareRows=(w.shares||[]).map(x=>`<tr><td>${esc(x.sharedWith)}</td><td>${esc((x.permissions||[]).join(', '))}</td><td><span class="pill ${x.status==='active'?'ok':'warn'}">${esc(x.status)}</span></td><td>${x.status==='active'?`<button class="sm ghost" data-revoke="${esc(x.shareId)}">Revoke</button>`:''}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">No shares yet.</td></tr>';
+      const versionRows=(w.versions||[]).slice().reverse().map(v=>`<tr><td><b>v${esc(v.versionNumber)}</b><div class="muted mono" style="font-size:.72rem">${esc(v.versionId)} | ${esc(v.filename)}</div></td><td class="num muted">${Math.round((v.sizeBytes||0)/1024)} KB</td><td>${esc(v.createdBy||'--')}<div class="muted" style="font-size:.72rem">${v.createdAt?_fmtWhen(v.createdAt):'--'}</div></td><td>${esc(v.note||'')}</td><td><a href="${esc(v.downloadUrl)}">Download</a></td></tr>`).join('')||'<tr><td colspan="5" class="empty">No versions yet.</td></tr>';
+      const reviewRows=(w.reviews||[]).map(r=>`<tr><td><b>${esc(r.reason||'Document review')}</b><div class="muted mono" style="font-size:.72rem">${esc(r.reviewId)} | ${esc(r.provider)} | ${esc(r.artifactVersionId)}</div><div class="muted" style="font-size:.72rem">${(r.comments||[]).map(c=>esc(c.author+': '+c.body)).join('<br>')}</div></td><td><span class="pill ${r.status==='approved'?'ok':(r.status==='changes_requested'?'warn':'pending')}">${esc(r.status)}</span></td><td>${esc(r.requestedBy)}<div class="muted" style="font-size:.72rem">${r.updatedAt?_fmtWhen(r.updatedAt):'--'}</div></td><td class="row"><button class="sm ghost" data-review-comment="${esc(r.reviewId)}">Comment</button>${ME.role==='admin'&&r.status==='open'?`<button class="sm" data-review-approve="${esc(r.reviewId)}">Approve</button><button class="sm ghost" data-review-changes="${esc(r.reviewId)}">Changes</button>`:''}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">No document reviews yet.</td></tr>';
+      $('#fl_detail').innerHTML=`<div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>${esc(a.title||a.filename)}</h2><p class="muted mono">${esc(a.artifactId)} | ${esc(a.filename)}${a.shared?' | shared with me':''}</p></div><div class="row"><a href="${esc(a.downloadUrl)}">Download latest</a><button class="ghost" id="fl_version">New version</button><button class="ghost" id="fl_share">Share</button><button class="ghost" id="fl_doc_review">Start doc review</button><button class="ghost" id="fl_review">Request approval</button><button class="ghost" id="fl_delete">Delete</button>${a.type==='email_draft'?'<button class="ghost" id="fl_send">Queue send</button>':(a.type==='calendar_invite'?'<button class="ghost" id="fl_cal_send">Queue invite</button>':'')}</div></div>
+        <div class="grid" style="margin-top:.8rem"><div><h3>Preview</h3><p class="muted">${esc((p.summary||[]).join(' ')||p.error||'No preview available.')}</p><div class="tbl-wrap" style="margin-top:.5rem"><table><tbody>${sig}</tbody></table></div></div>
+        <div><h3>Governance</h3><p>${(a.classification||[]).map(c=>`<span class="pill">${esc(c)}</span>`).join(' ')}</p><p class="muted mono" style="font-size:.76rem;margin-top:.5rem">${esc(a.checksum||'')}</p><p class="muted" style="font-size:.78rem">Retention: ${esc(a.retentionDays||'--')} days</p><p class="muted" style="font-size:.78rem">Version: v${esc(a.currentVersion||1)} of ${esc(a.versionCount||1)}</p><p class="muted" style="font-size:.78rem">Expires: ${a.expiresAt?_fmtWhen(a.expiresAt):'--'}</p><p class="muted" style="font-size:.78rem">Workflow: ${esc(a.sourceWorkflowRunId||'--')}</p><p class="muted" style="font-size:.78rem">Tools: ${esc((a.sourceToolCalls||[]).join(', ')||'--')}</p></div></div>
+        <div class="grid" style="margin-top:.8rem"><div><h3>Editor handoff</h3>${oo?`<p class="muted">ONLYOFFICE is configured for ${esc(oo.documentType)} in ${esc(oo.config.editorConfig.mode)} mode.</p><pre class="mono" style="white-space:pre-wrap;background:var(--gray50);border:1px solid var(--gray200);border-radius:8px;padding:.6rem;font-size:.72rem;max-height:220px;overflow:auto">${esc(JSON.stringify(oo.config,null,2))}</pre>`:'<p class="muted">Set ONLYOFFICE_DOCUMENT_SERVER_URL to enable embedded editor handoff config.</p>'}</div>
+        <div><h3>Shares</h3><div class="tbl-wrap"><table><tbody id="fl_share_rows">${shareRows}</tbody></table></div></div></div>
+        <div style="margin-top:.8rem"><h3>Versions</h3><div class="tbl-wrap"><table><thead><tr><th>Version</th><th>Size</th><th>Created</th><th>Note</th><th></th></tr></thead><tbody>${versionRows}</tbody></table></div></div>
+        <div class="grid" style="margin-top:.8rem"><div><h3>Document reviews</h3><div class="tbl-wrap"><table><thead><tr><th>Review</th><th>Status</th><th>Requested</th><th></th></tr></thead><tbody id="fl_review_rows">${reviewRows}</tbody></table></div></div><div><h3>Approvals</h3>${(w.approvals||[]).length?`<div class="tbl-wrap"><table><tbody>${w.approvals.map(x=>`<tr><td>${esc(x.reason)}</td><td><span class="pill ${x.status==='approved'?'ok':(x.status==='denied'?'warn':'pending')}">${esc(x.status)}</span></td></tr>`).join('')}</tbody></table></div>`:'<p class="muted">No approval records for this artifact yet.</p>'}</div></div>
+        <div style="margin-top:.8rem"><h3>Lifecycle</h3><p class="muted">Owner and admin actions are audited. Shared users can inspect or download only when a share grant allows it.</p></div></div>`;
+      $('#fl_doc_review').onclick=async()=>{
+        const reason=prompt('Document review reason:',`Review ${a.filename}`); if(reason===null)return;
+        const provider=oo?'onlyoffice':'local';
+        try{await api(`/artifacts/${encodeURIComponent(a.artifactId)}/reviews`,{method:'POST',body:JSON.stringify({reason,provider})});toast('Document review started');await inspect(a.artifactId);}catch(e){toast(e.message,true);}
+      };
+      $('#fl_review').onclick=async()=>{
+        const reason=prompt('Approval request reason:',`Approve ${a.filename}`); if(reason===null)return;
+        try{await api(`/artifacts/${encodeURIComponent(a.artifactId)}/request-approval`,{method:'POST',body:JSON.stringify({reason,risk_level:'medium'})});toast('Approval requested');await inspect(a.artifactId);}catch(e){toast(e.message,true);}
+      };
+      $('#fl_version').onclick=async()=>{
+        const text=prompt('Paste replacement text for the new version:', ''); if(text===null)return;
+        const note=prompt('Version note:', 'Edited in workbench')||'';
+        try{await api(`/artifacts/${encodeURIComponent(a.artifactId)}/versions`,{method:'POST',body:JSON.stringify({filename:a.filename,text,note,mime_type:a.mimeType||'text/plain; charset=utf-8'})});toast('Version created');await load();await inspect(a.artifactId);}catch(e){toast(e.message,true);}
+      };
+      $('#fl_share').onclick=async()=>{
+        const shared_with=prompt('Share with username:',''); if(!shared_with)return;
+        const perms=confirm('Allow downloads too?')?['view','download']:['view'];
+        try{await api(`/artifacts/${encodeURIComponent(a.artifactId)}/shares`,{method:'POST',body:JSON.stringify({shared_with,permissions:perms,expires_in_days:14})});toast('Artifact shared');await inspect(a.artifactId);}catch(e){toast(e.message,true);}
+      };
+      $('#fl_delete').onclick=async()=>{
+        if(!confirm(`Delete ${a.filename}?`))return;
+        try{await api(`/artifacts/${encodeURIComponent(a.artifactId)}`,{method:'DELETE'});toast('Artifact deleted');$('#fl_detail').innerHTML='';await load();}catch(e){toast(e.message,true);}
+      };
+      $('#fl_share_rows').onclick=async(e)=>{const b=e.target.closest('[data-revoke]'); if(!b)return; try{await api(`/artifacts/${encodeURIComponent(a.artifactId)}/shares/${encodeURIComponent(b.dataset.revoke)}/revoke`,{method:'POST'});toast('Share revoked');await inspect(a.artifactId);}catch(err){toast(err.message,true);}};
+      $('#fl_review_rows').onclick=async(e)=>{
+        const c=e.target.closest('[data-review-comment]');
+        if(c){const body=prompt('Review comment:',''); if(!body)return; try{await api(`/artifacts/${encodeURIComponent(a.artifactId)}/reviews/${encodeURIComponent(c.dataset.reviewComment)}/comments`,{method:'POST',body:JSON.stringify({body})});toast('Comment added');await inspect(a.artifactId);}catch(err){toast(err.message,true);} return;}
+        const ap=e.target.closest('[data-review-approve]');
+        if(ap){const decision=prompt('Decision note:','Approved for delivery')||''; try{await api(`/artifacts/${encodeURIComponent(a.artifactId)}/reviews/${encodeURIComponent(ap.dataset.reviewApprove)}/approve`,{method:'POST',body:JSON.stringify({decision})});toast('Review approved');await inspect(a.artifactId);}catch(err){toast(err.message,true);} return;}
+        const ch=e.target.closest('[data-review-changes]');
+        if(ch){const decision=prompt('Requested changes:','Please revise before delivery')||''; try{await api(`/artifacts/${encodeURIComponent(a.artifactId)}/reviews/${encodeURIComponent(ch.dataset.reviewChanges)}/changes`,{method:'POST',body:JSON.stringify({decision})});toast('Changes requested');await inspect(a.artifactId);}catch(err){toast(err.message,true);} return;}
+      };
+      const sendBtn=$('#fl_send');
+      if(sendBtn)sendBtn.onclick=async()=>{
+        const approval_id=prompt('Approved approval id for this draft:',''); if(!approval_id)return;
+        try{const r=await api('/dashboard/try-tool',{method:'POST',body:JSON.stringify({tool:'send_email_draft',args:{draft_id:a.artifactId,approval_id}})}); const res=r.result||{}; toast(res.sendStatus||res.status||'Queued'); go('sends');}
+        catch(e){toast(e.message,true);}
+      };
+      const calBtn=$('#fl_cal_send');
+      if(calBtn)calBtn.onclick=async()=>{
+        const approval_id=prompt('Approved approval id for this invite:',''); if(!approval_id)return;
+        try{const r=await api('/dashboard/try-tool',{method:'POST',body:JSON.stringify({tool:'send_calendar_invite',args:{draft_id:a.artifactId,approval_id}})}); const res=r.result||{}; toast(res.sendStatus||res.status||'Queued'); go('calendar');}
+        catch(e){toast(e.message,true);}
+      };
+    }catch(e){$('#fl_detail').innerHTML=`<div class="card"><p class="err">${esc(e.message)}</p></div>`;}
+  }
+  async function upload(){
+    const f=$('#fl_file').files[0], text=$('#fl_text').value;
+    const body={title:$('#fl_title').value.trim()||(f?f.name:'Uploaded note'),classification:[$('#fl_class').value]};
+    if(f){const buf=await f.arrayBuffer(); const bytes=new Uint8Array(buf); let bin=''; for(let i=0;i<bytes.length;i++)bin+=String.fromCharCode(bytes[i]); body.filename=f.name; body.content_base64=btoa(bin); body.mime_type=f.type||'application/octet-stream';}
+    else if(text.trim()){body.filename=(body.title||'uploaded-note').replace(/[^A-Za-z0-9_.-]+/g,'_')+'.txt'; body.text=text; body.mime_type='text/plain; charset=utf-8';}
+    else{toast('Choose a file or paste text first',true);return;}
+    try{const r=await api('/artifacts',{method:'POST',body:JSON.stringify(body)});toast('Artifact uploaded');$('#fl_file').value='';$('#fl_text').value='';await load();await inspect(r.artifactId);}catch(e){toast(e.message,true);}
+  }
+  async function load(){
+    const r=await api('/artifacts');
+    $('#fl_rows').innerHTML=(r.artifacts||[]).map(a=>`<tr><td><b>${esc(a.title)}</b><div class="muted mono" style="font-size:.72rem">${esc(a.filename)}${a.shared?' | shared':''}</div></td><td>${esc(a.type)}</td><td>${(a.classification||[]).map(c=>`<span class="pill">${esc(c)}</span>`).join(' ')}</td><td class="num muted">${Math.round((a.sizeBytes||0)/1024)} KB</td><td class="muted num">${a.expiresAt?_fmtWhen(a.expiresAt):'--'}</td><td class="row"><button class="sm ghost" data-inspect="${esc(a.artifactId)}">Inspect</button><a href="${esc(a.downloadUrl)}">Download</a></td></tr>`).join('')||'<tr><td colspan="6" class="empty">No files yet.</td></tr>';
+  }
+  $('#fl_refresh').onclick=load;
+  $('#fl_upload').onclick=upload;
+  $('#fl_rows').onclick=(e)=>{const b=e.target.closest('[data-inspect]'); if(b)inspect(b.dataset.inspect);};
+  await load();
+}
+
+
+
+
+
+async function renderAgents(v){
+  v.innerHTML=wrap(`<div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>Create agent</h2><p class="muted">Agents are governed identities for scheduled office workflows. Each agent has categories and an explicit allowed-template list.</p></div><button class="ghost" id="ag_refresh">Refresh</button></div>
+    <div class="grid" style="margin-top:.8rem"><label>Name<input id="ag_name" placeholder="Weekly brief agent"></label><label>Consumer id<input id="ag_consumer" placeholder="agent_weekly_brief"></label><label>Categories<input id="ag_categories" value="office,files"></label></div>
+    <label style="margin-top:.6rem">Allowed workflow templates<select id="ag_templates" multiple size="5"></select></label><label style="margin-top:.6rem">Description<textarea id="ag_desc" rows="3" placeholder="Runs approved weekly office reports on a schedule."></textarea></label><div class="row" style="margin-top:.6rem"><button id="ag_create">Create agent</button></div></div>
+    <div class="card"><h2>Agent profiles</h2><div class="tbl-wrap" style="margin-top:.7rem"><table><thead><tr><th>Agent</th><th>Consumer</th><th>Allowed Workflows</th><th>Runs</th><th>Status</th><th></th></tr></thead><tbody id="ag_rows"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody></table></div></div>`);
+  const catalog=await api('/workflows');
+  const active=(catalog.workflows||[]).filter(w=>w.status==='active');
+  $('#ag_templates').innerHTML=active.map(w=>`<option value="${esc(w.templateId)}">${esc(w.displayName)}</option>`).join('');
+  async function load(){
+    const r=await api('/admin/agents');
+    $('#ag_rows').innerHTML=(r.agents||[]).map(a=>`<tr><td><b>${esc(a.displayName)}</b><div class="muted mono" style="font-size:.72rem">${esc(a.agentId)}</div><div class="muted" style="font-size:.72rem">${esc((a.categories||[]).join(', ')||'no categories')}</div></td><td class="mono">${esc(a.consumerId)}</td><td>${(a.allowedTemplateIds||[]).map(t=>`<span class="pill">${esc(t)}</span>`).join(' ')||'<span class="muted">None</span>'}</td><td>${esc(a.runCount||0)}<div class="muted mono" style="font-size:.72rem">${esc(a.lastRunId||'')}</div></td><td><span class="pill ${a.status==='active'?'ok':'warn'}">${esc(a.status)}</span></td><td><button class="sm ghost" data-toggle="${esc(a.agentId)}" data-status="${esc(a.status)}">${a.status==='active'?'Disable':'Enable'}</button></td></tr>`).join('')||'<tr><td colspan="6" class="empty">No agents yet.</td></tr>';
+  }
+  $('#ag_create').onclick=async()=>{
+    const selected=Array.from($('#ag_templates').selectedOptions).map(o=>o.value);
+    const name=$('#ag_name').value.trim()||'Office automation agent';
+    const consumer=$('#ag_consumer').value.trim()||name.toLowerCase().replace(/[^a-z0-9_]+/g,'_');
+    const body={display_name:name,consumer_id:consumer,categories:$('#ag_categories').value.split(',').map(x=>x.trim()).filter(Boolean),allowed_template_ids:selected,description:$('#ag_desc').value.trim()};
+    try{const r=await api('/admin/agents',{method:'POST',body:JSON.stringify(body)});toast('Agent created');await load();}
+    catch(e){toast(e.message,true);}
+  };
+  $('#ag_rows').onclick=async(e)=>{const b=e.target.closest('[data-toggle]'); if(!b)return; const next=b.dataset.status==='active'?'disabled':'active'; try{await api(`/admin/agents/${encodeURIComponent(b.dataset.toggle)}`,{method:'PATCH',body:JSON.stringify({status:next})});toast(next==='active'?'Agent enabled':'Agent disabled');await load();}catch(err){toast(err.message,true);}};
+  $('#ag_refresh').onclick=load;
+  await load();
+}
+
+async function renderCodePlans(v){
+  v.innerHTML=wrap(`<div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>Code planning</h2><p class="muted">Read-only opencode planning for repo changes, reviews, and governed workflow template drafts. This page captures plans only; edits and shell runs need a separate approval path.</p></div><button class="ghost" id="cp_refresh">Refresh</button></div>
+    <div class="grid" style="margin-top:.8rem"><label>Mode<select id="cp_mode"><option value="opencode_plan_change">Plan change</option><option value="opencode_review_repo">Review repo</option><option value="opencode_generate_template">Generate template</option></select></label><label>Target / type<input id="cp_target" placeholder="workflow, gateway, template, approval"></label><label>Risk<select id="cp_risk"><option>medium</option><option>low</option><option>high</option></select></label></div>
+    <label style="margin-top:.6rem">Request<textarea id="cp_request" rows="5">Add a governed workflow that generates a monthly customer report with Excel and PowerPoint outputs.</textarea></label><div class="row" style="margin-top:.6rem"><button id="cp_run">Create plan</button><button class="ghost" id="cp_review">Governance review</button></div><div id="cp_out" style="margin-top:.8rem"></div></div>
+    <div class="card"><h2>Plan history</h2><div class="tbl-wrap" style="margin-top:.7rem"><table><thead><tr><th>Plan</th><th>Type</th><th>Risk</th><th>Owner</th><th>Created</th><th></th></tr></thead><tbody id="cp_rows"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody></table></div></div><div id="cp_detail"></div>`);
+  async function load(){
+    const r=await api('/code-plans?all=1');
+    $('#cp_rows').innerHTML=(r.plans||[]).map(p=>`<tr><td><b>${esc(p.summary||p.request)}</b><div class="muted mono" style="font-size:.72rem">${esc(p.planId)}</div><div class="muted" style="font-size:.76rem">${esc((p.request||'').slice(0,160))}</div></td><td>${esc(p.planType)}</td><td><span class="pill ${p.riskLevel==='high'?'warn':(p.riskLevel==='low'?'ok':'pending')}">${esc(p.riskLevel)}</span></td><td>${esc(p.owner)}</td><td class="muted num">${p.createdAt?_fmtWhen(p.createdAt):'--'}</td><td><button class="sm ghost" data-cp="${esc(p.planId)}">Inspect</button></td></tr>`).join('')||'<tr><td colspan="6" class="empty">No code plans yet.</td></tr>';
+  }
+  async function inspect(id){
+    const p=await api(`/code-plans/${encodeURIComponent(id)}`);
+    const files=(p.proposedFiles||[]).map(f=>`<li class="mono">${esc(f)}</li>`).join('')||'<li class="muted">No files proposed.</li>';
+    const cmds=(p.proposedCommands||[]).map(c=>`<li class="mono">${esc(c)}</li>`).join('')||'<li class="muted">No commands proposed.</li>';
+    const findings=(p.findings||[]).map(f=>`<li>${esc(f)}</li>`).join('')||'<li class="muted">No findings recorded.</li>';
+    const draft=p.templateDraft?`<h3>Template draft</h3><pre class="mono" style="white-space:pre-wrap;background:var(--gray50);border:1px solid var(--gray200);border-radius:8px;padding:.7rem;font-size:.78rem;max-height:300px;overflow:auto">${esc(JSON.stringify(p.templateDraft,null,2))}</pre>`:'';
+    $('#cp_detail').innerHTML=`<div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>${esc(p.summary||p.request)}</h2><p class="muted mono">${esc(p.planId)} | ${esc(p.planType)} | ${esc(p.status)}</p></div><button class="ghost" id="cp_approval">Request approval</button></div><p class="muted">${esc(p.request||'')}</p><div class="grid" style="margin-top:.8rem"><div><h3>Proposed files</h3><ul>${files}</ul></div><div><h3>Verification commands</h3><ul>${cmds}</ul></div></div><h3 style="margin-top:.8rem">Findings</h3><ul>${findings}</ul>${draft}</div>`;
+    $('#cp_approval').onclick=async()=>{try{const reason=prompt('Approval reason:',`Approve code plan ${p.planId}`); if(reason===null)return; const r=await api(`/code-plans/${encodeURIComponent(p.planId)}/request-approval`,{method:'POST',body:JSON.stringify({reason})});toast('Approval requested');go('approvals');}catch(e){toast(e.message,true);}};
+  }
+  async function run(mode){
+    const request=$('#cp_request').value.trim();
+    const target=$('#cp_target').value.trim();
+    if(!request && mode!=='opencode_review_repo'){toast('Describe the request first',true);return;}
+    let args={};
+    if(mode==='opencode_plan_change')args={request,target_area:target,risk_level:$('#cp_risk').value};
+    else if(mode==='opencode_review_repo')args={focus:request||target||'governance assistant review',paths:[]};
+    else args={goal:request,template_type:target||'workflow'};
+    $('#cp_out').innerHTML='<p class="muted">Creating read-only plan...</p>';
+    try{const r=await api('/dashboard/try-tool',{method:'POST',body:JSON.stringify({tool:mode,args})}); const res=r.result||{}; $('#cp_out').innerHTML=`<div class="card" style="margin:0"><b>${esc(res.summary||'Plan created')}</b><div class="muted mono" style="font-size:.74rem">${esc(res.planId||'')}</div><p class="muted" style="font-size:.78rem;margin-top:.45rem">${esc(res.message||'Captured')}</p></div>`;toast('Plan captured');await load();if(res.planId)await inspect(res.planId);}catch(e){$('#cp_out').innerHTML=`<p class="err">${esc(e.message)}</p>`;toast(e.message,true);}
+  }
+  $('#cp_refresh').onclick=load;
+  $('#cp_rows').onclick=(e)=>{const b=e.target.closest('[data-cp]'); if(b)inspect(b.dataset.cp);};
+  $('#cp_run').onclick=()=>run($('#cp_mode').value);
+  $('#cp_review').onclick=()=>run('opencode_review_repo');
+  await load();
+}
+
+async function renderTemplates(v){
+  const admin = ME.role === 'admin';
+  v.innerHTML=wrap(`<div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>Template library</h2><p class="muted">Versioned reusable templates for governed office workflows and generated artifacts.</p></div><button class="ghost" id="tp_refresh">Refresh</button></div>${admin?`<div class="grid" style="margin-top:.8rem"><label>Name<input id="tp_name" placeholder="Quarterly Account Review"></label><label>Type<select id="tp_type"><option>powerpoint</option><option>excel</option><option>word</option><option>email</option><option>calendar</option><option>workflow</option><option>prompt</option><option>generic</option></select></label><label>Tags<input id="tp_tags" placeholder="customer, qbr"></label><label>Workflows<input id="tp_wfs" placeholder="customer_360_report"></label></div><label style="margin-top:.6rem">Description<input id="tp_desc" placeholder="Template purpose and intended use"></label><label style="margin-top:.6rem">Content JSON<textarea id="tp_content" rows="8">{"sections":[{"heading":"Executive Summary","bullets":["Current position","Risks","Next actions"]}]}</textarea></label><div class="row" style="margin-top:.6rem"><button id="tp_create">Create template</button></div>`:''}</div>
+    <div class="card"><h2>Templates</h2><div class="tbl-wrap" style="margin-top:.7rem"><table><thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Version</th><th>Tags</th><th></th></tr></thead><tbody id="tp_rows"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody></table></div></div><div id="tp_detail"></div>`);
+  async function load(){
+    const r=await api('/templates'+(admin?'?include_disabled=1':''));
+    $('#tp_rows').innerHTML=(r.templates||[]).map(t=>`<tr><td><b>${esc(t.displayName)}</b><div class="muted mono" style="font-size:.72rem">${esc(t.templateId)}</div><div class="muted" style="font-size:.76rem">${esc(t.description||'')}</div></td><td>${esc(t.templateType)}</td><td><span class="pill ${t.status==='active'?'ok':(t.status==='disabled'?'warn':'pending')}">${esc(t.status)}</span></td><td class="num muted">v${esc(t.currentVersion)}</td><td>${(t.tags||[]).map(x=>`<span class="pill">${esc(x)}</span>`).join(' ')}</td><td><button class="sm ghost" data-tp="${esc(t.templateId)}">Inspect</button></td></tr>`).join('')||'<tr><td colspan="6" class="empty">No templates yet.</td></tr>';
+  }
+  async function inspect(id){
+    const t=await api(`/templates/${encodeURIComponent(id)}?content=1`);
+    const latest=(t.versions||[]).find(v=>v.version===t.currentVersion)||{};
+    $('#tp_detail').innerHTML=`<div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>${esc(t.displayName)}</h2><p class="muted mono">${esc(t.templateId)} | ${esc(t.templateType)} | v${esc(t.currentVersion)}</p></div>${admin?`<div class="row"><button class="ghost" id="tp_addver">Add version</button><button class="danger" id="tp_disable">Disable</button></div>`:''}</div><p class="muted">${esc(t.description||'')}</p><div class="grid" style="margin-top:.7rem"><div><h3>Content</h3><pre class="mono" style="white-space:pre-wrap;background:var(--gray50);border:1px solid var(--gray200);border-radius:8px;padding:.7rem;font-size:.78rem;max-height:340px;overflow:auto">${esc(JSON.stringify(latest.content||t.content||{},null,2))}</pre></div><div><h3>Versions</h3><div class="tbl-wrap"><table><tbody>${(t.versions||[]).map(v=>`<tr><td>v${esc(v.version)}</td><td>${esc(v.createdBy)}</td><td class="muted num">${v.createdAt?_fmtWhen(v.createdAt):'--'}</td><td>${esc(v.notes||'')}</td></tr>`).join('')}</tbody></table></div></div></div></div>`;
+    if(admin){
+      $('#tp_addver').onclick=async()=>{const raw=prompt('New content JSON:',JSON.stringify(latest.content||t.content||{},null,2)); if(raw===null)return; try{const content=JSON.parse(raw); await api(`/templates/${encodeURIComponent(id)}/versions`,{method:'POST',body:JSON.stringify({content,notes:'Dashboard version'})});toast('Version added');await inspect(id);await load();}catch(e){toast(e.message,true);}};
+      $('#tp_disable').onclick=async()=>{if(!confirm('Disable this template?'))return; try{await api(`/templates/${encodeURIComponent(id)}/disable`,{method:'POST'});toast('Template disabled');await inspect(id);await load();}catch(e){toast(e.message,true);}};
+    }
+  }
+  $('#tp_refresh').onclick=load;
+  $('#tp_rows').onclick=(e)=>{const b=e.target.closest('[data-tp]'); if(b)inspect(b.dataset.tp);};
+  if(admin){
+    $('#tp_type').onchange=()=>{const type=$('#tp_type').value; $('#tp_content').value=type==='workflow'?'{"goal":"Generate a monthly customer report","inputs":["customer_id","date_range"],"steps":[{"tool":"get_customer_overview"},{"tool":"create_excel_report"}],"outputs":["xlsx"]}':(type==='email'?'{"subject":"Follow-up","bodyMarkdown":"Hello,\\n\\nPlease review the attached packet."}':'{"sections":[{"heading":"Executive Summary","bullets":["Current position","Risks","Next actions"]}]}');};
+    $('#tp_create').onclick=async()=>{try{const content=JSON.parse($('#tp_content').value||'{}'); const body={display_name:$('#tp_name').value.trim()||'Template',template_type:$('#tp_type').value,description:$('#tp_desc').value.trim(),tags:$('#tp_tags').value.split(',').map(x=>x.trim()).filter(Boolean),allowed_workflow_ids:$('#tp_wfs').value.split(',').map(x=>x.trim()).filter(Boolean),classification:['INTERNAL'],content,notes:'Initial dashboard version'}; const r=await api('/templates',{method:'POST',body:JSON.stringify(body)});toast('Template created');await load();await inspect(r.templateId);}catch(e){toast(e.message,true);}};
+  }
+  await load();
+}
+
+async function renderCalendar(v){
+  v.innerHTML=wrap(`<div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>Calendar invites</h2><p class="muted">Create .ics invite drafts, route them for approval, then queue external calendar creation for Outlook/Google/Graph adapters.</p></div><button class="ghost" id="ca_refresh">Refresh queue</button></div>
+    <div class="grid" style="margin-top:.8rem"><label>Title<input id="ca_title" placeholder="Customer renewal review"></label><label>Attendees<input id="ca_attendees" placeholder="manager@example.com, ae@example.com"></label><label>Start<input id="ca_start" placeholder="2026-07-23T14:00:00-04:00"></label><label>End<input id="ca_end" placeholder="2026-07-23T14:30:00-04:00"></label><label>Timezone<input id="ca_tz" value="America/Toronto"></label><label>Location<input id="ca_location" placeholder="Teams / Boardroom"></label></div>
+    <label style="margin-top:.6rem">Description<textarea id="ca_desc" rows="5">Agenda:\n- Review generated account packet\n- Confirm follow-up owner\n- Decide escalation path</textarea></label><div class="row" style="margin-top:.6rem"><button id="ca_draft">Create invite draft</button><button class="ghost" onclick="go('files')">View files</button></div><div id="ca_out" style="margin-top:.8rem"></div></div>
+    <div class="card"><h2>Calendar connector queue</h2><div class="tbl-wrap" style="margin-top:.7rem"><table><thead><tr><th>Invite</th><th>Status</th><th>Provider</th><th>Approval</th><th>Attendees</th><th>Created</th></tr></thead><tbody id="ca_rows"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody></table></div></div>`);
+  async function load(){
+    const r=await api('/calendar-sends');
+    $('#ca_rows').innerHTML=(r.sends||[]).map(s=>`<tr><td><b>${esc(s.title||'Invite')}</b><div class="muted mono" style="font-size:.72rem">${esc(s.sendId)} | draft ${esc(s.draftArtifactId)}</div><div class="muted" style="font-size:.76rem">${esc(s.start||'')} - ${esc(s.end||'')} ${esc(s.timezone||'')}</div><div class="muted" style="font-size:.76rem">${esc(s.message||'')}</div></td><td><span class="pill ${s.status==='sent'?'ok':'pending'}">${esc(s.status)}</span></td><td>${esc(s.provider)}</td><td class="mono" style="font-size:.78rem">${esc(s.approvalId)}</td><td>${esc((s.attendees||[]).join(', ')||'--')}</td><td class="muted num">${s.createdAt?_fmtWhen(s.createdAt):'--'}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">No queued calendar sends yet.</td></tr>';
+  }
+  $('#ca_draft').onclick=async()=>{
+    const attendees=$('#ca_attendees').value.split(',').map(x=>x.trim()).filter(Boolean);
+    const args={title:$('#ca_title').value.trim()||'Calendar invite',attendees,start:$('#ca_start').value.trim(),end:$('#ca_end').value.trim(),timezone_name:$('#ca_tz').value.trim()||'UTC',location:$('#ca_location').value.trim(),description:$('#ca_desc').value,classification:['INTERNAL','PII']};
+    $('#ca_out').innerHTML='<p class="muted">Creating invite draft...</p>';
+    try{const r=await api('/dashboard/try-tool',{method:'POST',body:JSON.stringify({tool:'draft_calendar_invite',args})}); const res=r.result||{}; if(res.status!=='success')throw new Error(res.message||res.errorCode||res.status||'draft failed'); $('#ca_out').innerHTML=`<div class="card" style="margin:0"><b>${esc(res.filename)}</b><div class="muted mono" style="font-size:.74rem">${esc(res.draftId||res.artifactId)}</div><div class="row" style="margin-top:.55rem"><a href="${esc(res.downloadUrl)}">Download .ics</a><button class="sm ghost" onclick="go('files')">Inspect</button></div><p class="muted" style="font-size:.78rem;margin-top:.55rem">Request approval from Files, then queue creation with the approved approval id.</p></div>`;toast('Invite draft created');}
+    catch(e){$('#ca_out').innerHTML=`<p class="err">${esc(e.message)}</p>`;}
+  };
+  $('#ca_refresh').onclick=load;
+  await load();
+}
+
+async function renderSends(v){
+  v.innerHTML=wrap(`<div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>Email send queue</h2><p class="muted">Approved drafts land here for connector-backed delivery. Local mode queues without external delivery.</p></div><button class="ghost" id="sq_refresh">Refresh</button></div><div class="tbl-wrap" style="margin-top:.7rem"><table><thead><tr><th>Subject</th><th>Status</th><th>Provider</th><th>Approval</th><th>Recipients</th><th>Created</th></tr></thead><tbody id="sq_rows"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody></table></div></div>`);
+  async function load(){
+    const r=await api('/email-sends');
+    $('#sq_rows').innerHTML=(r.sends||[]).map(s=>`<tr><td><b>${esc(s.subject||'Email')}</b><div class="muted mono" style="font-size:.72rem">${esc(s.sendId)} ? draft ${esc(s.draftArtifactId)}</div><div class="muted" style="font-size:.76rem">${esc(s.message||'')}</div></td><td><span class="pill ${s.status==='sent'?'ok':'pending'}">${esc(s.status)}</span></td><td>${esc(s.provider)}</td><td class="mono" style="font-size:.78rem">${esc(s.approvalId)}</td><td>${esc([...(s.to||[]),...(s.cc||[])].join(', ')||'--')}</td><td class="muted num">${s.createdAt?_fmtWhen(s.createdAt):'--'}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">No queued sends yet.</td></tr>';
+  }
+  $('#sq_refresh').onclick=load;
+  await load();
+}
+
+async function renderActivity(v){
+  v.innerHTML=wrap(`<div id="act_kpis" class="kpis"><div class="empty">Loading…</div></div>
+    <div class="card card-pad"><div class="between"><div><h2>Rate limit</h2>
+      <div class="muted" style="font-size:.82rem">Your usage in the current hour window.</div></div><div id="act_rl" style="text-align:right"></div></div></div>
+    <div class="section-head"><h2>Your recent calls</h2><span class="muted">Everything you've accessed and what was redacted.</span></div>
+    <div class="tbl-wrap" style="margin-top:.6rem"><table><thead><tr><th>When</th><th>Tool</th><th>Status</th><th>Customer</th><th>Rows</th><th>Redaction</th></tr></thead>
+      <tbody id="act_rows"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody></table></div>`);
+  const a=await api('/dashboard/my-activity'); const s=a.summary||{}; const rows=a.calls||[];
+  const kpi=(lab,val,alert)=>`<div class="kpi ${alert?'alert':''}"><div class="lab">${lab}</div><div class="val">${val}</div></div>`;
+  $('#act_kpis').innerHTML=kpi('Calls',s.total||0)+kpi('Denied',s.denied||0,(s.denied||0)>0)+kpi('Redactions',s.redactions||0)+kpi('Rows returned',s.rows||0);
+  const rl=a.rate_limit;
+  $('#act_rl').innerHTML=rl?`<div class="num" style="font-size:1.15rem;font-weight:600">${rl.used}<span class="muted" style="font-size:.8rem">/${rl.limit}</span></div><div class="muted" style="font-size:.72rem">resets in ${Math.round((rl.window_resets_in_sec||0)/60)}m</div>`:'<span class="muted">no usage this hour</span>';
+  $('#act_rows').innerHTML=rows.map(c=>`<tr>
+      <td class="muted num">${c.ts?_fmtWhen(c.ts):'—'}</td><td class="mono" style="font-size:.8rem">${esc(c.tool)}</td>
+      <td><span class="pill ${c.status==='ok'?'ok':(c.status==='denied'?'warn':'')}">${esc(c.status)}</span></td>
+      <td class="mono muted" style="font-size:.78rem">${esc(c.customer_id||'—')}</td>
+      <td class="num muted">${c.rows!=null?c.rows:'—'}</td>
+      <td class="muted" style="font-size:.78rem">${String(c.detail||'').startsWith('redacted:')?esc(c.detail):'—'}</td></tr>`).join('')
+    || '<tr><td colspan="6" class="empty">No calls yet — try the Assistant or the Developer playground.</td></tr>';
+}
+
+// ── Developer console (agent self-service) ──────────────────────────────────────
+async function renderDeveloper(v){
+  const a=await api('/dashboard/my-access');
+  const access=a.access||{}; const tools=[];
+  Object.entries(access).forEach(([b,g])=>(g.tools||[]).forEach(t=>tools.push({backend:b,name:(t.name||t),desc:(t.description||t.name||t)})));
+  const snippet=`# Governance MCP endpoint\n${location.origin}/mcp\n\n# Authenticate with your API key (mint below):\nAuthorization: Bearer <YOUR_API_KEY>`;
+  v.innerHTML=wrap(`
+    <div class="card"><h2>API key</h2>
+      <p class="muted">${a.has_key?'A key is issued.':'No key yet.'} Minting shows it once — store it safely; it replaces any previous key.</p>
+      <div class="row"><button id="dv_mint" ${a.status!=='active'?'disabled':''}>${a.has_key?'Rotate key':'Mint key'}</button></div>
+      <div id="dv_key"></div></div>
+    <div class="card"><h2>Connect an MCP client</h2>
+      <p class="muted">Point any MCP client at the gateway with your key as a bearer token.</p>
+      <pre class="mono" id="dv_snip" style="margin:.5rem 0 0;background:var(--gray50);border:1px solid var(--gray200);border-radius:8px;padding:.7rem .85rem;font-size:.8rem;overflow-x:auto;white-space:pre-wrap">${esc(snippet)}</pre>
+      <div class="row" style="margin-top:.5rem"><button class="ghost sm" id="dv_copy">Copy snippet</button></div></div>
+    <div class="card"><h2>Tool playground</h2>
+      <p class="muted">Run a governed tool as yourself — full policy, scope, and redaction apply, exactly as an agent would see it.</p>
+      ${tools.length?`<div class="grid" style="margin-top:.7rem">
+        <label>Tool<select id="pg_tool">${tools.map((t,i)=>`<option value="${i}">${esc(t.name)}</option>`).join('')}</select></label>
+        <label>Customer ID <span class="muted" style="font-weight:400;text-transform:none">(if account-scoped)</span><input id="pg_cust" placeholder="optional"></label>
+      </div>
+      <div class="muted" id="pg_desc" style="margin-top:.4rem;font-size:.8rem"></div>
+      <label style="margin-top:.6rem">Arguments (JSON)<textarea id="pg_args" rows="3">{}</textarea></label>
+      <div class="row" style="margin-top:.6rem"><button id="pg_run">Run tool</button></div>
+      <div id="pg_out"></div>`
+      :'<p class="empty">You have no granted tools yet — request access under My Access first.</p>'}</div>`);
+  $('#dv_mint')?.addEventListener('click',async()=>{try{const r=await api('/dashboard/my-key/rotate',{method:'POST'});
+    $('#dv_key').innerHTML=`<div class="key">${esc(r.api_key)}</div>`;toast('Key minted — copy it now');}catch(e){toast(e.message,true);}});
+  $('#dv_copy')?.addEventListener('click',()=>{navigator.clipboard&&navigator.clipboard.writeText($('#dv_snip').textContent);toast('Copied');});
+  const showDesc=()=>{const t=tools[Number($('#pg_tool').value)];if(t)$('#pg_desc').textContent=t.desc;};
+  $('#pg_tool')?.addEventListener('change',showDesc); showDesc();
+  $('#pg_run')?.addEventListener('click',async()=>{
+    const t=tools[Number($('#pg_tool').value)]; let args;
+    try{args=JSON.parse($('#pg_args').value||'{}');}catch(e){toast('Arguments must be valid JSON',true);return;}
+    $('#pg_out').innerHTML='<p class="muted" style="margin-top:.6rem">Running…</p>';
+    try{const r=await api('/dashboard/try-tool',{method:'POST',body:JSON.stringify({tool:t.name,args,customer_id:$('#pg_cust').value})});
+      $('#pg_out').innerHTML=`<div class="klbl" style="margin:.7rem 0 .3rem">Result (governed & redacted for you)</div><pre class="mono" style="margin:0;background:var(--gray50);border:1px solid var(--gray200);border-radius:8px;padding:.7rem .85rem;font-size:.8rem;overflow-x:auto;white-space:pre-wrap">${esc(JSON.stringify(r.result,null,2))}</pre>`;
+    }catch(e){$('#pg_out').innerHTML=`<p class="err" style="margin-top:.6rem">${esc(e.message)}</p>`;}});
+}
+
+// ── chart + drawer primitives ──────────────────────────────────────────────────
+function _donut(segs,opts){opts=opts||{};const size=opts.size||120,thick=opts.thick||18,r=(size-thick)/2,cx=size/2,c=2*Math.PI*r;
+  const total=segs.reduce((a,s)=>a+s.value,0)||1;let off=0;
+  const arcs=segs.map(s=>{const len=s.value/total*c;const el=`<circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="${s.color}" stroke-width="${thick}" stroke-dasharray="${len.toFixed(2)} ${(c-len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 ${cx} ${cx})"/>`;off+=len;return el;}).join('');
+  const ctr=opts.center?`<text x="${cx}" y="${cx-1}" text-anchor="middle" dominant-baseline="middle" class="dn" font-size="21" font-weight="700" fill="var(--text)">${esc(opts.center.top)}</text><text x="${cx}" y="${cx+15}" text-anchor="middle" font-size="8" fill="var(--gray700)" letter-spacing="1">${esc(String(opts.center.sub).toUpperCase())}</text>`:'';
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}"><circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="var(--gray100)" stroke-width="${thick}"/>${arcs}${ctr}</svg>`;}
+function _legend(items){return `<div class="legend">${items.map(i=>`<span class="lg"><span class="sw" style="background:${i.color}"></span><span class="nm">${esc(i.label)}</span><b>${i.value}</b></span>`).join('')}</div>`;}
+function _hbars(items){if(!items||!items.length)return '<p class="empty">No data.</p>';const max=Math.max(1,...items.map(i=>i.n));
+  return `<div class="hbars">${items.map(i=>`<div class="hbar"><span class="hl mono" style="font-size:.72rem" title="${esc(i.k)}">${esc(i.k)}</span><div class="trk"><div class="fil" style="width:${(i.n/max*100).toFixed(1)}%"></div></div><span class="hv">${i.n}</span></div>`).join('')}</div>`;}
+function _stacked(data){const W=520,H=150,padB=22,padT=14,padL=6,rows=(data||[]),n=rows.length||1;
+  const max=Math.max(1,...rows.map(d=>d.ok+d.denied+d.error));
+  const bw=Math.min(42,(W-padL*2)/n-10),gap=n>1?((W-padL*2)-bw*n)/(n-1):0,scale=(H-padB-padT)/max;
+  const step=Math.ceil(n/8);let x=padL;  // show ~8 axis labels max so they don't overlap
+  const cols=rows.map((d,i)=>{const tot=d.ok+d.denied+d.error,h=tot*scale;let y=H-padB;
+    const seg=(vv,col)=>{const hh=vv*scale;y-=hh;return hh>0?`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${hh.toFixed(1)}" fill="${col}"><title>${esc(d.label)}: ${vv}</title></rect>`:'';};
+    const bars=seg(d.ok,'var(--highlight)')+seg(d.denied,'var(--error)')+seg(d.error,'#b26a00');
+    const lab=(i%step===0)?`<text x="${(x+bw/2).toFixed(1)}" y="${H-7}" text-anchor="middle" font-size="9">${esc(d.label)}</text>`:'';
+    const tt=tot?`<text x="${(x+bw/2).toFixed(1)}" y="${(H-padB-h-4).toFixed(1)}" text-anchor="middle" class="dn" font-size="9">${tot}</text>`:'';
+    x+=bw+gap;return bars+lab+tt;}).join('');
+  return `<svg class="barchart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet"><line x1="${padL}" y1="${H-padB}" x2="${W-padL}" y2="${H-padB}" stroke="var(--gray200)"/>${cols}</svg>`;}
+function _heatmap(hm){if(!hm||!hm.grid)return '<p class="empty">No data.</p>';const days=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],mx=hm.max||1;
+  const cell=(vv)=>`<div class="cell" title="${vv} calls"${vv?` style="background:var(--highlight);opacity:${(0.14+0.86*vv/mx).toFixed(2)}"`:''}></div>`;
+  let html='<div class="heat"><div></div>';
+  for(let h=0;h<24;h++)html+=`<div class="hd">${h%3===0?h:''}</div>`;
+  hm.grid.forEach((row,d)=>{html+=`<div class="rl">${days[d]}</div>`+row.map(cell).join('');});
+  return html+'</div>';}
+function _spark(data,color){if(!data||!data.length)return '';const w=64,h=26,max=Math.max(...data),min=Math.min(...data),rng=(max-min)||1;
+  const pts=data.map((d,i)=>[i/((data.length-1)||1)*w,h-2-((d-min)/rng)*(h-6)]);
+  const line=pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><path d="${line}" fill="none" stroke="${color}" stroke-width="1.5"/></svg>`;}
+function openDrawer(html){$('#drawer').innerHTML=html;$('#drawer').classList.add('open');$('#backdrop').classList.add('open');}
+function closeDrawer(){$('#drawer').classList.remove('open');$('#backdrop').classList.remove('open');}
+addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer();});
+
+// ── boot ─────────────────────────────────────────────────────────────────────
+(async function(){
+  try{ ME = await api('/dashboard/me'); }catch(e){ location='/dashboard'; return; }
+  $('#who-name').textContent=ME.name; $('#who-role').textContent=ME.role;
+  $('#avatar').textContent=(ME.name||'?').slice(0,1).toUpperCase();
+  // Brand label + tab title: users see "Frontier Dental · MCP" with no "Governance"
+  // wording anywhere; admins keep the Governance identity.
+  const _isAdmin = ME.role==='admin';
+  $('#brand-sub').textContent = _isAdmin ? 'Governance' : 'MCP';
+  document.title = _isAdmin ? 'Frontier Governance' : 'Frontier Dental · MCP';
+  buildNav();
+  paint(currentKey());
+})();
+</script>
+</body>
+</html>

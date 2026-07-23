@@ -1,3 +1,0 @@
-# Tells Azure/Oryx to run the build (pip install -r requirements.txt) during deploy.
-[config]
-SCM_DO_BUILD_DURING_DEPLOYMENT=true

@@ -1,3 +1,0 @@
-mcp
-uvicorn
-python-dotenv

@@ -1,0 +1,7 @@
+# Force LF regardless of core.autocrlf. startup.sh is executed directly by
+# bash inside the Linux App Service container -- a CRLF line ending leaves a
+# stray \r at the end of every line, which breaks every `cd` (path becomes
+# "...\r", which doesn't exist) and every other command in the script. This bit
+# a real deploy (2026-07-23): core.autocrlf=true on Windows silently
+# re-introduced CRLF on checkout with no override in place.
+*.sh text eol=lf

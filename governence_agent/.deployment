@@ -1,0 +1,3 @@
+[config]
+; Build on the server (Oryx runs pip install -r requirements.txt) during zip deploy.
+SCM_DO_BUILD_DURING_DEPLOYMENT=true

@@ -1,0 +1,106 @@
+"""User-buildable workflow graph records ("My Workflow" — the no-code automation builder).
+
+A WorkflowGraphDefinition projects into the SAME dict shape as the hardcoded
+WorkflowTemplate records in gateway/workflows.py (see workflows.get_template /
+_graph_template_dict), so the existing /workflows, /workflow-runs, and
+automation-scheduling routes work identically for both without any changes to
+those routes. GraphNode.node_id becomes a WorkflowStep.step_id 1:1 at run time
+(see gateway/workflow_graph_interpreter.py) -- there is deliberately no
+separate "run context" structure; a node's resolved output IS its matching
+WorkflowStep.outputs, looked up directly, which is what makes resuming a
+paused run replay-safe without any new WorkflowRun field.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class GraphNode:
+    node_id: str
+    kind: str                                          # "trigger" | "tool_call" | "approval_gate" | "llm_transform"
+    title: str = ""
+    tool: str = ""                                      # canonical tool name; required iff kind == "tool_call"
+    config: dict = field(default_factory=dict)          # literal arg values / node-kind-specific settings
+    input_bindings: dict = field(default_factory=dict)  # {arg_name: {"source": "node"|"trigger"|"literal", ...}}
+    position: dict = field(default_factory=dict)        # UI-only {x, y}; ignored by the interpreter
+
+    def public_dict(self) -> dict:
+        return {
+            "nodeId": self.node_id,
+            "kind": self.kind,
+            "title": self.title,
+            "tool": self.tool,
+            "config": dict(self.config),
+            "inputBindings": dict(self.input_bindings),
+            "position": dict(self.position),
+        }
+
+
+@dataclass(frozen=True)
+class GraphEdge:
+    edge_id: str
+    source_node_id: str
+    target_node_id: str
+    # Topology only -- no per-edge field metadata. The bound field name lives in
+    # the TARGET node's input_bindings, so there is exactly one source of truth
+    # for "what is wired to what," not a split between edge and node.
+
+    def public_dict(self) -> dict:
+        return {"edgeId": self.edge_id, "sourceNodeId": self.source_node_id, "targetNodeId": self.target_node_id}
+
+
+@dataclass(frozen=True)
+class WorkflowGraphVersion:
+    version: int
+    created_by: str
+    created_at: float
+    nodes: list[GraphNode] = field(default_factory=list)
+    edges: list[GraphEdge] = field(default_factory=list)
+    notes: str = ""
+
+    def public_dict(self) -> dict:
+        return {
+            "version": self.version,
+            "createdBy": self.created_by,
+            "createdAt": self.created_at,
+            "nodes": [n.public_dict() for n in self.nodes],
+            "edges": [e.public_dict() for e in self.edges],
+            "notes": self.notes,
+        }
+
+
+@dataclass(frozen=True)
+class WorkflowGraphDefinition:
+    graph_id: str                       # this IS the template_id used everywhere downstream (workflows.py, automations, agents)
+    display_name: str
+    description: str = ""
+    owner: str = ""                     # builder's consumer name -- used for build-time grant checks
+    status: str = "draft"               # draft|active|disabled -- same vocabulary as WorkflowTemplate.status
+    published_version: int = 0          # 0 = never published; new runs always pin to this version
+    current_version: int = 1            # latest saved (possibly still-draft) version being edited
+    versions: list[WorkflowGraphVersion] = field(default_factory=list)
+    created_at: float = 0.0
+    updated_at: float = 0.0
+
+    def version_record(self, version: int | None = None) -> WorkflowGraphVersion | None:
+        target = version if version is not None else self.current_version
+        return next((v for v in self.versions if v.version == target), None)
+
+    def public_dict(self, include_nodes: bool = False) -> dict:
+        data = {
+            "graphId": self.graph_id,
+            "displayName": self.display_name,
+            "description": self.description,
+            "owner": self.owner,
+            "status": self.status,
+            "publishedVersion": self.published_version,
+            "currentVersion": self.current_version,
+            "createdAt": self.created_at,
+            "updatedAt": self.updated_at,
+        }
+        if include_nodes:
+            latest = self.version_record()
+            data["nodes"] = [n.public_dict() for n in latest.nodes] if latest else []
+            data["edges"] = [e.public_dict() for e in latest.edges] if latest else []
+        return data

@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+.env.local
+minierp.env
+
+# Local persistent store + durable audit (GOVERNANCE_STORE_FILE / AUDIT_FILE
+# default under ./data). Holds hashed creds + audit -- never commit.
+data/
+*.jsonl
+policy.json
+*.tmp
+_smoke/.local-run/
+
+# Real, filled App Service settings (secrets). The committed
+# appservice.settings.json is a placeholder template; this one has live values.
+appservice.settings.local.json

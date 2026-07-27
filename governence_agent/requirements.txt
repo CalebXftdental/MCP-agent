@@ -22,6 +22,10 @@ python-dotenv
 # OpenAI-compatible). Imported lazily; chat degrades gracefully if unset.
 openai>=1.40.0
 
+# Backup chat LLM (Claude Sonnet via an Anthropic-compatible endpoint), used
+# when USE_LOCAL_LLM=false. Imported lazily.
+anthropic>=0.40.0
+
 # Cosmos DB (Core/SQL API) policy store -- durable, multi-instance per-user policy
 # + category scope. Imported lazily by get_store() only when GOVERNANCE_COSMOS_* is
 # set; file/local store need no extra deps.

@@ -139,6 +139,7 @@
   .kpi .val small{font-size:.8rem;color:var(--gray700);font-weight:500}
   .kpi.alert .val{color:var(--error)} .kpi.alert .lab{color:var(--error)}
   .kpi .spark{position:absolute;right:6px;bottom:6px;width:64px;height:26px;opacity:.85}
+  .fl-oo-fullscreen{position:fixed!important;inset:0;width:100vw!important;height:100vh!important;z-index:1000;border-radius:0!important;background:var(--bg)}
   .section-head{display:flex;align-items:baseline;gap:.5rem;margin:1.5rem 0 0}
   .section-head h2{font-size:1rem} .section-head .muted{font-size:.78rem}
   .charts{display:grid;grid-template-columns:repeat(4,1fr);gap:.75rem;margin-top:.7rem}
@@ -1902,10 +1903,10 @@ async function renderKnowledge(v){
 }
 
 async function renderFiles(v){
-  v.innerHTML=wrap(`<div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>File workbench</h2><p class="muted">Upload, inspect, share, delete, and request review for governed office artifacts. Access and downloads are audited.</p></div><button class="ghost" id="fl_refresh">Refresh</button></div>
+  v.innerHTML=`<div class="content" style="max-width:1600px"><div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>File workbench</h2><p class="muted">Upload, inspect, share, delete, and request review for governed office artifacts. Access and downloads are audited.</p></div><button class="ghost" id="fl_refresh">Refresh</button></div>
     <div class="grid" style="margin-top:.8rem"><label>Title<input id="fl_title" placeholder="Quarterly customer note"></label><label>File<input id="fl_file" type="file"></label><label>Classification<select id="fl_class"><option>INTERNAL</option><option>SENSITIVE</option><option>CONFIDENTIAL</option><option>PII</option></select></label></div>
     <label style="margin-top:.6rem">Or paste text<textarea id="fl_text" rows="4" placeholder="Paste a note, CSV, Markdown, or report text"></textarea></label><div class="row" style="margin-top:.6rem"><button id="fl_upload">Upload artifact</button><span class="muted" style="font-size:.78rem">Retention is assigned from classification unless a workflow sets it explicitly.</span></div>
-    <div class="tbl-wrap" style="margin-top:.9rem"><table><thead><tr><th>Name</th><th>Type</th><th>Classification</th><th>Size</th><th>Expires</th><th></th></tr></thead><tbody id="fl_rows"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody></table></div></div><div id="fl_detail"></div>`);
+    <div class="tbl-wrap" style="margin-top:.9rem"><table><thead><tr><th>Name</th><th>Type</th><th>Classification</th><th>Size</th><th>Expires</th><th></th></tr></thead><tbody id="fl_rows"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody></table></div></div><div id="fl_detail"></div></div>`;
   let selectedFile=null;
   let ooEditor=null;
   async function inspect(id){
@@ -1921,7 +1922,7 @@ async function renderFiles(v){
       $('#fl_detail').innerHTML=`<div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>${esc(a.title||a.filename)}</h2><p class="muted mono">${esc(a.artifactId)} | ${esc(a.filename)}${a.shared?' | shared with me':''}</p></div><div class="row"><a href="${esc(a.downloadUrl)}">Download latest</a><button class="ghost" id="fl_version">New version</button><button class="ghost" id="fl_share">Share</button><button class="ghost" id="fl_doc_review">Start doc review</button><button class="ghost" id="fl_review">Request approval</button><button class="ghost" id="fl_delete">Delete</button>${a.type==='email_draft'?'<button class="ghost" id="fl_send">Queue send</button>':(a.type==='calendar_invite'?'<button class="ghost" id="fl_cal_send">Queue invite</button>':'')}</div></div>
         <div class="grid" style="margin-top:.8rem"><div><h3>Preview</h3><p class="muted">${esc((p.summary||[]).join(' ')||p.error||'No preview available.')}</p><div class="tbl-wrap" style="margin-top:.5rem"><table><tbody>${sig}</tbody></table></div></div>
         <div><h3>Governance</h3><p>${(a.classification||[]).map(c=>`<span class="pill">${esc(c)}</span>`).join(' ')}</p><p class="muted mono" style="font-size:.76rem;margin-top:.5rem">${esc(a.checksum||'')}</p><p class="muted" style="font-size:.78rem">Retention: ${esc(a.retentionDays||'--')} days</p><p class="muted" style="font-size:.78rem">Version: v${esc(a.currentVersion||1)} of ${esc(a.versionCount||1)}</p><p class="muted" style="font-size:.78rem">Expires: ${a.expiresAt?_fmtWhen(a.expiresAt):'--'}</p><p class="muted" style="font-size:.78rem">Workflow: ${esc(a.sourceWorkflowRunId||'--')}</p><p class="muted" style="font-size:.78rem">Tools: ${esc((a.sourceToolCalls||[]).join(', ')||'--')}</p></div></div>
-        <div style="margin-top:.8rem"><h3>Document editor</h3>${oo?`<p class="muted">ONLYOFFICE ${esc(oo.config.editorConfig.mode)} mode -- ${oo.config.editorConfig.mode==='edit'?'edits are saved as a new artifact version automatically.':'read-only preview.'}</p><div id="fl_oo_editor" style="height:70vh;border:1px solid var(--gray200);border-radius:8px;overflow:hidden"></div>`:'<p class="muted">Set ONLYOFFICE_DOCUMENT_SERVER_URL to enable an embedded preview/editor for this file type.</p>'}</div>
+        <div style="margin-top:.8rem"><div class="row" style="justify-content:space-between;align-items:baseline"><h3>Document editor</h3>${oo?'<button class="sm ghost" id="fl_oo_toggle">Expand</button>':''}</div>${oo?`<p class="muted">ONLYOFFICE ${esc(oo.config.editorConfig.mode)} mode -- ${oo.config.editorConfig.mode==='edit'?'edits are saved as a new artifact version automatically.':'read-only preview.'}</p><div id="fl_oo_wrap" style="height:85vh;border:1px solid var(--gray200);border-radius:8px"><div id="fl_oo_editor" style="width:100%;height:100%"></div></div>`:'<p class="muted">Set ONLYOFFICE_DOCUMENT_SERVER_URL to enable an embedded preview/editor for this file type.</p>'}</div>
         <div class="grid" style="margin-top:.8rem"><div><h3>Shares</h3><div class="tbl-wrap"><table><tbody id="fl_share_rows">${shareRows}</tbody></table></div></div></div>
         <div style="margin-top:.8rem"><h3>Versions</h3><div class="tbl-wrap"><table><thead><tr><th>Version</th><th>Size</th><th>Created</th><th>Note</th><th></th></tr></thead><tbody>${versionRows}</tbody></table></div></div>
         <div class="grid" style="margin-top:.8rem"><div><h3>Document reviews</h3><div class="tbl-wrap"><table><thead><tr><th>Review</th><th>Status</th><th>Requested</th><th></th></tr></thead><tbody id="fl_review_rows">${reviewRows}</tbody></table></div></div><div><h3>Approvals</h3>${(w.approvals||[]).length?`<div class="tbl-wrap"><table><tbody>${w.approvals.map(x=>`<tr><td>${esc(x.reason)}</td><td><span class="pill ${x.status==='approved'?'ok':(x.status==='denied'?'warn':'pending')}">${esc(x.status)}</span></td></tr>`).join('')}</tbody></table></div>`:'<p class="muted">No approval records for this artifact yet.</p>'}</div></div>
@@ -1931,6 +1932,20 @@ async function renderFiles(v){
           if(selectedFile!==a.artifactId)return; // navigated away before the script finished loading
           ooEditor=new DocsAPI.DocEditor('fl_oo_editor',oo.config);
         }).catch(e=>{const el=$('#fl_oo_editor'); if(el)el.innerHTML=`<p class="err" style="padding:.6rem">${esc(e.message)}</p>`;});
+        const ooToggle=$('#fl_oo_toggle');
+        if(ooToggle)ooToggle.onclick=()=>{
+          // Toggle the STABLE outer wrapper, not #fl_oo_editor itself -- DocEditor
+          // replaces/rebuilds its mount target on load, so that id may no longer
+          // point at a real element by the time this fires.
+          const wrap=$('#fl_oo_wrap');
+          if(!wrap)return;
+          const expanded=wrap.classList.toggle('fl-oo-fullscreen');
+          ooToggle.textContent=expanded?'Collapse':'Expand';
+          // The editor only redraws on the browser window resizing, not on its
+          // container being resized by a CSS class -- fire a synthetic resize
+          // once the new layout has settled so it actually redraws to fit.
+          setTimeout(()=>window.dispatchEvent(new Event('resize')),50);
+        };
       }
       $('#fl_doc_review').onclick=async()=>{
         const reason=prompt('Document review reason:',`Review ${a.filename}`); if(reason===null)return;

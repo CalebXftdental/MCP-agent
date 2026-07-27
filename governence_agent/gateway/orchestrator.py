@@ -219,15 +219,36 @@ def _strip_tool_calls(content: str) -> str:
 
 # ── LLM client (injectable; OpenAI-compatible, incl. self-hosted sglang) ──────
 
+def _use_local_llm() -> bool:
+    """USE_LOCAL_LLM toggle (default on). false -> route to the Anthropic
+    (Claude Sonnet) backend instead of the local Qwen/Azure OpenAI ones."""
+    return os.getenv("USE_LOCAL_LLM", "true").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _not_configured_message() -> str:
+    if _use_local_llm():
+        return ("The assistant model is not configured. Set GOVERNANCE_CHAT_BASE_URL, "
+                 "GOVERNANCE_CHAT_API_KEY, and GOVERNANCE_CHAT_MODEL (or the AZURE_OPENAI_* vars), "
+                 "or set USE_LOCAL_LLM=false to use the Anthropic backend instead.")
+    return ("The assistant model is not configured. Set GOVERNANCE_ANTHROPIC_ENDPOINT, "
+            "GOVERNANCE_ANTHROPIC_API_KEY, and GOVERNANCE_ANTHROPIC_MODEL, or set "
+            "USE_LOCAL_LLM=true to use the local/Azure OpenAI backend instead.")
+
+
 def default_llm_complete() -> Callable | None:
     """Build a chat-completion callable from env, or None if not configured.
 
-    Preferred: a generic OpenAI-compatible endpoint (our self-hosted Qwen via
-    sglang) — GOVERNANCE_CHAT_BASE_URL + GOVERNANCE_CHAT_API_KEY + GOVERNANCE_CHAT_MODEL.
-    Fallback: Azure OpenAI (AZURE_OPENAI_*).
+    USE_LOCAL_LLM=true (default): a generic OpenAI-compatible endpoint (our
+    self-hosted Qwen via sglang) — GOVERNANCE_CHAT_BASE_URL + GOVERNANCE_CHAT_API_KEY
+    + GOVERNANCE_CHAT_MODEL, falling back to Azure OpenAI (AZURE_OPENAI_*).
+    USE_LOCAL_LLM=false: Claude Sonnet via GOVERNANCE_ANTHROPIC_* (see
+    _anthropic_complete).
     Signature: complete(messages, tools) -> response.choices[0].message
     """
     max_tokens = int(os.getenv("GOVERNANCE_CHAT_MAX_TOKENS", "1024"))
+
+    if not _use_local_llm():
+        return _anthropic_complete(max_tokens)
 
     base_url = os.getenv("GOVERNANCE_CHAT_BASE_URL")
     model = os.getenv("GOVERNANCE_CHAT_MODEL")
@@ -276,6 +297,156 @@ def default_llm_complete() -> Callable | None:
     return None
 
 
+# ── Anthropic (Claude Sonnet) backend, used when USE_LOCAL_LLM=false ─────────
+#
+# The rest of the orchestrator loop (run_chat / run_chat_stream) is written
+# against OpenAI's message/tool-call shapes. Rather than branch the loop
+# itself, we translate in both directions at the edge:
+#   - _messages_to_anthropic: the running OpenAI-shaped transcript -> Anthropic
+#     (system, messages), merging consecutive `tool` turns into one Anthropic
+#     user turn with multiple tool_result blocks (Anthropic requires strict
+#     user/assistant alternation).
+#   - _ShimMessage/_ShimDelta: wrap Anthropic responses in objects exposing the
+#     same .content / .tool_calls / .function.name / .function.arguments shape
+#     the loop already reads via getattr(), so no other code needs to change.
+
+class _ShimFn:
+    __slots__ = ("name", "arguments")
+
+    def __init__(self, name, arguments):
+        self.name = name
+        self.arguments = arguments
+
+
+class _ShimToolCall:
+    __slots__ = ("id", "function", "index")
+
+    def __init__(self, id, name, arguments, index=0):
+        self.id = id
+        self.function = _ShimFn(name, arguments)
+        self.index = index
+
+
+class _ShimMessage:
+    __slots__ = ("content", "tool_calls")
+
+    def __init__(self, content, tool_calls):
+        self.content = content
+        self.tool_calls = tool_calls
+
+
+def _messages_to_anthropic(messages: list[dict]) -> tuple[str, list[dict]]:
+    system = ""
+    out: list[dict] = []
+    for m in messages:
+        role = m.get("role")
+        if role == "system":
+            piece = m.get("content") or ""
+            system = f"{system}\n{piece}" if system else piece
+        elif role == "tool":
+            block = {"type": "tool_result", "tool_use_id": m.get("tool_call_id"),
+                      "content": m.get("content") or ""}
+            if out and out[-1]["role"] == "user" and isinstance(out[-1]["content"], list):
+                out[-1]["content"].append(block)
+            else:
+                out.append({"role": "user", "content": [block]})
+        elif role == "assistant":
+            blocks = []
+            if m.get("content"):
+                blocks.append({"type": "text", "text": m["content"]})
+            for tc in m.get("tool_calls") or []:
+                blocks.append({
+                    "type": "tool_use", "id": tc["id"], "name": tc["function"]["name"],
+                    "input": _safe_json(tc["function"]["arguments"]),
+                })
+            out.append({"role": "assistant", "content": blocks or ""})
+        else:
+            out.append({"role": "user", "content": m.get("content") or ""})
+    return system, out
+
+
+def _tools_to_anthropic(specs: list[dict] | None) -> list[dict] | None:
+    if not specs:
+        return None
+    out = []
+    for s in specs:
+        fn = s.get("function", s)
+        out.append({
+            "name": fn["name"],
+            "description": fn.get("description", ""),
+            "input_schema": fn.get("parameters") or {"type": "object", "properties": {}},
+        })
+    return out
+
+
+def _anthropic_client():
+    endpoint = os.getenv("GOVERNANCE_ANTHROPIC_ENDPOINT")
+    api_key = os.getenv("GOVERNANCE_ANTHROPIC_API_KEY")
+    model = os.getenv("GOVERNANCE_ANTHROPIC_MODEL")
+    if not (endpoint and api_key and model):
+        return None, None
+    try:
+        from anthropic import Anthropic
+    except ImportError:
+        return None, None
+    return Anthropic(base_url=endpoint, api_key=api_key), model
+
+
+def _anthropic_complete(max_tokens: int) -> Callable | None:
+    """Claude Sonnet via an Anthropic-compatible endpoint (Azure AI Foundry) —
+    GOVERNANCE_ANTHROPIC_ENDPOINT + GOVERNANCE_ANTHROPIC_API_KEY + GOVERNANCE_ANTHROPIC_MODEL."""
+    client, model = _anthropic_client()
+    if client is None:
+        return None
+
+    def complete(messages, tools):
+        system, anthro_messages = _messages_to_anthropic(messages)
+        resp = client.messages.create(
+            model=model, system=system or "", messages=anthro_messages,
+            tools=_tools_to_anthropic(tools) or [], max_tokens=max_tokens, temperature=0,
+        )
+        text = "".join(b.text for b in resp.content if b.type == "text")
+        tool_blocks = [b for b in resp.content if b.type == "tool_use"]
+        calls = [_ShimToolCall(b.id, b.name, json.dumps(b.input), i) for i, b in enumerate(tool_blocks)]
+        return _ShimMessage(text, calls)
+
+    return complete
+
+
+class _ShimDelta:
+    __slots__ = ("content", "tool_calls")
+
+    def __init__(self, content=None, tool_calls=None):
+        self.content = content
+        self.tool_calls = tool_calls
+
+
+def _anthropic_stream(max_tokens: int) -> Callable | None:
+    client, model = _anthropic_client()
+    if client is None:
+        return None
+
+    def stream(messages, tools):
+        system, anthro_messages = _messages_to_anthropic(messages)
+        with client.messages.stream(
+            model=model, system=system or "", messages=anthro_messages,
+            tools=_tools_to_anthropic(tools) or [], max_tokens=max_tokens, temperature=0,
+        ) as s:
+            for event in s:
+                et = event.type
+                if et == "content_block_start" and event.content_block.type == "tool_use":
+                    cb = event.content_block
+                    yield _ShimDelta(tool_calls=[_ShimToolCall(cb.id, cb.name, "", event.index)])
+                elif et == "content_block_delta":
+                    d = event.delta
+                    if d.type == "text_delta":
+                        yield _ShimDelta(content=d.text)
+                    elif d.type == "input_json_delta":
+                        yield _ShimDelta(tool_calls=[_ShimToolCall(None, "", d.partial_json, event.index)])
+
+    return stream
+
+
 # ── The loop ──────────────────────────────────────────────────────────────────
 
 async def run_chat(mcp, message: str, session_id: str, record, *,
@@ -291,11 +462,7 @@ async def run_chat(mcp, message: str, session_id: str, record, *,
     if llm_complete is None:
         llm_complete = default_llm_complete()
     if llm_complete is None:
-        return {
-            "reply": "The assistant model is not configured. Set GOVERNANCE_CHAT_BASE_URL, "
-                     "GOVERNANCE_CHAT_API_KEY, and GOVERNANCE_CHAT_MODEL (or the AZURE_OPENAI_* vars).",
-            "tool_calls": [], "configured": False,
-        }
+        return {"reply": _not_configured_message(), "tool_calls": [], "configured": False}
 
     messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(history or [])
@@ -351,6 +518,10 @@ def default_llm_stream() -> Callable | None:
     """Like default_llm_complete, but streaming. Yields OpenAI-style delta objects
     (each with `.content` and/or `.tool_calls`). None if not configured."""
     max_tokens = int(os.getenv("GOVERNANCE_CHAT_MAX_TOKENS", "1024"))
+
+    if not _use_local_llm():
+        return _anthropic_stream(max_tokens)
+
     base_url = os.getenv("GOVERNANCE_CHAT_BASE_URL")
     model = os.getenv("GOVERNANCE_CHAT_MODEL")
     if base_url and model:

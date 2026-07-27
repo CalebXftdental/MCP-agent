@@ -29,6 +29,11 @@
   { "name": "GOVERNANCE_CHAT_MAX_TOKENS", "value": "2048", "slotSetting": false },
   { "name": "GOVERNANCE_CHAT_THINKING", "value": "off", "slotSetting": false },
 
+  { "name": "USE_LOCAL_LLM", "value": "true", "slotSetting": false },
+  { "name": "GOVERNANCE_ANTHROPIC_ENDPOINT", "value": "https://<resource>.services.ai.azure.com/anthropic", "slotSetting": false },
+  { "name": "GOVERNANCE_ANTHROPIC_API_KEY", "value": "<Anthropic-compatible endpoint key - Key Vault ref>", "slotSetting": false },
+  { "name": "GOVERNANCE_ANTHROPIC_MODEL", "value": "claude-sonnet-4-6", "slotSetting": false },
+
   { "name": "AZURE_SEARCH_SERVICE_ENDPOINT", "value": "<AraTestEnvBE's Azure AI Search endpoint, e.g. https://<service>.search.windows.net>", "slotSetting": false },
   { "name": "AZURE_SEARCH_API_KEY", "value": "<Azure AI Search key - Key Vault ref RECOMMENDED; use a query-only key once one is provisioned, not the shared admin key>", "slotSetting": false },
   { "name": "AZURE_SEARCH_INDEX_NAME", "value": "ara-prod", "slotSetting": false },

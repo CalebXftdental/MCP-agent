@@ -14,3 +14,7 @@ python-dotenv
 # LLM client for the Stage-1 governed chat orchestrator (Azure OpenAI). Imported
 # lazily; the gateway runs without it (chat returns "not configured").
 openai>=1.40.0
+
+# Backup chat LLM (Claude Sonnet via an Anthropic-compatible endpoint), used
+# when USE_LOCAL_LLM=false. Imported lazily.
+anthropic>=0.40.0

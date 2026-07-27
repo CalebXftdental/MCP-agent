@@ -75,6 +75,10 @@ az webapp config set -g frontier-gov-rg -n frontier-governance --health-check-pa
 | `GOVERNANCE_CHAT_API_KEY` | ✅🔑 | Qwen endpoint key (from `Qwen3.6_27B/localllm.env`). |
 | `GOVERNANCE_CHAT_MAX_TOKENS` | rec | `2048`. |
 | `GOVERNANCE_CHAT_THINKING` | rec | `off` (faster/cheaper for tool routing). |
+| `USE_LOCAL_LLM` | ✅ | `true` (default) uses the Qwen backend above; set to `false` to switch the chat orchestrator to the Claude Sonnet backup below (e.g. if the Qwen VM is down). |
+| `GOVERNANCE_ANTHROPIC_ENDPOINT` | opt¹ | Anthropic-compatible endpoint, e.g. Azure AI Foundry's `https://<resource>.services.ai.azure.com/anthropic`. ¹Only read when `USE_LOCAL_LLM=false`. |
+| `GOVERNANCE_ANTHROPIC_API_KEY` | opt¹🔑 | Key for the endpoint above — Key Vault ref. |
+| `GOVERNANCE_ANTHROPIC_MODEL` | opt¹ | Deployment/model name, e.g. `claude-sonnet-4-6`. |
 | `MINIERP_GRAPHQL_URL` / `MINIERP_AUTH_URL` | opt | Default to the prod db-api endpoints; override only if they change. |
 | `GOVERNANCE_KEY_PEPPER` | rec🔑 | Extra secret mixed into API-key hashes. |
 | `GOVERNANCE_DEFAULT_RATE_LIMIT_PER_HOUR` | rec | e.g. `1000`. |

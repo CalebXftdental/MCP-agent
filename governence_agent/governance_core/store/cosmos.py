@@ -104,12 +104,21 @@ class CosmosPolicyStore(PolicyStore):
         self._refresh(force=True)
         if not self._consumers and not self._categories:
             self._seed()
-        elif not self._departments:
-            # departments (departments.py) was added after this store already had
-            # consumers/categories -- the "empty store" seed gate above never fires
-            # for an already-populated deployment, so back-fill just this piece.
-            for department in dept_seed.DEPARTMENTS.values():
-                self.upsert_department(department)
+        else:
+            if not self._departments:
+                # departments (departments.py) was added after this store already had
+                # consumers/categories -- the "empty store" seed gate above never fires
+                # for an already-populated deployment, so back-fill just this piece.
+                for department in dept_seed.DEPARTMENTS.values():
+                    self.upsert_department(department)
+            # Per-category backfill (not gated on "categories empty"): new categories
+            # (e.g. "office", added for artifact editing) get defined in code after
+            # deployments already have a populated store, so an all-or-nothing seed
+            # gate like departments' would never add them. Only fill in IDs missing
+            # entirely -- never overwrite a category an admin has already edited.
+            for cat in cat_seed.CATEGORIES.values():
+                if cat.id not in self._categories:
+                    self.upsert_category(cat)
 
     # ── cache ───────────────────────────────────────────────────────────────
     def _refresh(self, force: bool = False) -> None:

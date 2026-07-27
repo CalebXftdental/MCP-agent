@@ -538,6 +538,22 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
             "sizeBytes": INTERNAL,
         },
     ),
+    "edit_office_document": ToolPolicy(
+        backend="office",
+        intent="edit_office_document",
+        account_scoped=False,
+        risk=EXPORT,
+        max_rows_without_approval=100,
+        description="Applies a small whitelisted set of edits (e.g. set a cell, replace text) to an existing governed XLSX/DOCX artifact via ONLYOFFICE Document Builder, saved as a new version.",
+        fields={
+            "artifactId": INTERNAL,
+            "filename": INTERNAL,
+            "downloadUrl": INTERNAL,
+            "versionId": INTERNAL,
+            "classification": INTERNAL,
+            "sizeBytes": INTERNAL,
+        },
+    ),
     "extract_tables_from_document": ToolPolicy(
         backend="office",
         intent="extract_tables_from_document",

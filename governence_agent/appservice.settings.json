@@ -31,5 +31,10 @@
 
   { "name": "AZURE_SEARCH_SERVICE_ENDPOINT", "value": "<AraTestEnvBE's Azure AI Search endpoint, e.g. https://<service>.search.windows.net>", "slotSetting": false },
   { "name": "AZURE_SEARCH_API_KEY", "value": "<Azure AI Search key - Key Vault ref RECOMMENDED; use a query-only key once one is provisioned, not the shared admin key>", "slotSetting": false },
-  { "name": "AZURE_SEARCH_INDEX_NAME", "value": "ara-prod", "slotSetting": false }
+  { "name": "AZURE_SEARCH_INDEX_NAME", "value": "ara-prod", "slotSetting": false },
+
+  { "name": "ONLYOFFICE_DOCUMENT_SERVER_URL", "value": "<Document Server's public HTTPS URL - see ONLYOFFICE.md; omit entirely to leave artifact preview/edit disabled>", "slotSetting": false },
+  { "name": "ONLYOFFICE_JWT_SECRET", "value": "<RANDOM 32+ bytes - Key Vault ref; MUST exactly match the JWT_SECRET env var set on the Document Server resource itself>", "slotSetting": false },
+  { "name": "ONLYOFFICE_EDIT_MODE", "value": "edit", "slotSetting": false },
+  { "name": "GATEWAY_PUBLIC_URL", "value": "<this App Service's own https://<app>.azurewebsites.net URL>", "slotSetting": false }
 ]

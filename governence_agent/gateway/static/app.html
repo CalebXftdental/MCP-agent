@@ -491,6 +491,7 @@ const ROUTES = {
   history:{title:'History',desc:'Your past assistant conversations — each closes and gets summarized after 1h idle.',icon:'🕘',render:renderHistory},
   consumers:{title:'Consumers',desc:'Principals (people & agents), their categories, and API keys.',icon:'👥',admin:true,render:renderConsumers},
   requests:{title:'Access Requests',desc:'Approve signups and access asks; review denied-attempt suggestions.',icon:'📥',admin:true,render:renderRequests},
+  approvals:{title:'Approvals',desc:'External sends and other high-impact actions, waiting for an admin decision.',icon:'✅',admin:true,render:renderApprovals},
   categories:{title:'Categories',desc:'Data-domain templates: which backend, tools, and sensitivity levels each grants.',icon:'🗂️',admin:true,render:renderCategories},
   'department-admin':{title:'Departments',desc:'Org-unit groupings of categories, used by self-signup. Editing a department’s categories updates every member’s access immediately — no per-user resync.',icon:'🏢',admin:true,render:renderDepartments},
   whitelist:{title:'IP Allowlist',desc:'Global CIDR allowlist enforced at the MCP edge.',icon:'🛡️',admin:true,render:renderWhitelist},
@@ -507,10 +508,19 @@ function buildNav(){
   const nav=$('#nav'); nav.innerHTML='';
   const mk=(k)=>{const r=ROUTES[k];const a=el(`<a class="item" data-k="${k}"><span class="ic">${r.icon}</span>${r.title}</a>`);
     a.onclick=(e)=>{e.preventDefault();go(k);}; a.href='/dashboard/'+k; return a;};
-  ['home','assistant','playground','workflows','my_workflows','automations','knowledge','files','sends','calendar','templates','code-plans','access','activity','developer','history'].forEach(k=>nav.appendChild(mk(k)));
+  const section=(label,keys)=>{
+    if(label) nav.appendChild(el(`<div class="group">${label}</div>`));
+    keys.forEach(k=>nav.appendChild(mk(k)));
+  };
+  section(null,['home']);
+  section('Ask & Automate',['assistant','playground','workflows','automations','my_workflows']);
+  section('Content',['knowledge','files','templates','sends','calendar']);
+  section('My Account',['access','activity','developer','history']);
   if(ME.role==='admin'){
-    nav.appendChild(el('<div class="group">Administration</div>'));
-    ['alerts','monitor','security','agents','consumers','requests','approvals','categories','department-admin','whitelist'].forEach(k=>nav.appendChild(mk(k)));
+    section('Access Control',['consumers','categories','department-admin']);
+    section('Requests & Approvals',['requests','approvals']);
+    section('Automation Admin',['agents','code-plans']);
+    section('Monitoring & Security',['monitor','alerts','security','whitelist']);
   }
 }
 function go(key){
@@ -859,6 +869,21 @@ async function renderAccess(v){
 }
 
 function _fmtWhen(ts){return ts?new Date(ts*1000).toLocaleString():'—';}
+
+// Loads ONLYOFFICE's DocsAPI script once per document-server origin (Document
+// Server serves its own versioned api.js -- caching by src avoids re-injecting
+// the same script tag on every artifact inspect).
+const _ooApiLoads={};
+function _loadOnlyofficeApi(base){
+  const src=base+'/web-apps/apps/api/documents/api.js';
+  if(window.DocsAPI && _ooApiLoads[src])return _ooApiLoads[src];
+  _ooApiLoads[src]=new Promise((resolve,reject)=>{
+    const s=document.createElement('script');
+    s.src=src; s.onload=()=>resolve(window.DocsAPI); s.onerror=()=>reject(new Error('Could not reach ONLYOFFICE Document Server at '+base));
+    document.head.appendChild(s);
+  });
+  return _ooApiLoads[src];
+}
 
 async function renderHistory(v){
   v.innerHTML=wrap(`<div class="tbl-wrap"><table><thead><tr>
@@ -1882,7 +1907,9 @@ async function renderFiles(v){
     <label style="margin-top:.6rem">Or paste text<textarea id="fl_text" rows="4" placeholder="Paste a note, CSV, Markdown, or report text"></textarea></label><div class="row" style="margin-top:.6rem"><button id="fl_upload">Upload artifact</button><span class="muted" style="font-size:.78rem">Retention is assigned from classification unless a workflow sets it explicitly.</span></div>
     <div class="tbl-wrap" style="margin-top:.9rem"><table><thead><tr><th>Name</th><th>Type</th><th>Classification</th><th>Size</th><th>Expires</th><th></th></tr></thead><tbody id="fl_rows"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody></table></div></div><div id="fl_detail"></div>`);
   let selectedFile=null;
+  let ooEditor=null;
   async function inspect(id){
+    if(ooEditor){try{ooEditor.destroyEditor();}catch(e){} ooEditor=null;}
     $('#fl_detail').innerHTML='<div class="card"><p class="muted">Inspecting artifact...</p></div>';
     try{
       const w=await api(`/artifacts/${encodeURIComponent(id)}/workbench`), a=w.artifact||{}, p=w.preview||{}, oo=w.onlyoffice;
@@ -1890,15 +1917,21 @@ async function renderFiles(v){
       const sig=Object.entries(p.signals||{}).map(([k,val])=>`<tr><td class="mono">${esc(k)}</td><td>${esc(val)}</td></tr>`).join('')||'<tr><td colspan="2" class="empty">No preview signals.</td></tr>';
       const shareRows=(w.shares||[]).map(x=>`<tr><td>${esc(x.sharedWith)}</td><td>${esc((x.permissions||[]).join(', '))}</td><td><span class="pill ${x.status==='active'?'ok':'warn'}">${esc(x.status)}</span></td><td>${x.status==='active'?`<button class="sm ghost" data-revoke="${esc(x.shareId)}">Revoke</button>`:''}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">No shares yet.</td></tr>';
       const versionRows=(w.versions||[]).slice().reverse().map(v=>`<tr><td><b>v${esc(v.versionNumber)}</b><div class="muted mono" style="font-size:.72rem">${esc(v.versionId)} | ${esc(v.filename)}</div></td><td class="num muted">${Math.round((v.sizeBytes||0)/1024)} KB</td><td>${esc(v.createdBy||'--')}<div class="muted" style="font-size:.72rem">${v.createdAt?_fmtWhen(v.createdAt):'--'}</div></td><td>${esc(v.note||'')}</td><td><a href="${esc(v.downloadUrl)}">Download</a></td></tr>`).join('')||'<tr><td colspan="5" class="empty">No versions yet.</td></tr>';
-      const reviewRows=(w.reviews||[]).map(r=>`<tr><td><b>${esc(r.reason||'Document review')}</b><div class="muted mono" style="font-size:.72rem">${esc(r.reviewId)} | ${esc(r.provider)} | ${esc(r.artifactVersionId)}</div><div class="muted" style="font-size:.72rem">${(r.comments||[]).map(c=>esc(c.author+': '+c.body)).join('<br>')}</div></td><td><span class="pill ${r.status==='approved'?'ok':(r.status==='changes_requested'?'warn':'pending')}">${esc(r.status)}</span></td><td>${esc(r.requestedBy)}<div class="muted" style="font-size:.72rem">${r.updatedAt?_fmtWhen(r.updatedAt):'--'}</div></td><td class="row"><button class="sm ghost" data-review-comment="${esc(r.reviewId)}">Comment</button>${ME.role==='admin'&&r.status==='open'?`<button class="sm" data-review-approve="${esc(r.reviewId)}">Approve</button><button class="sm ghost" data-review-changes="${esc(r.reviewId)}">Changes</button>`:''}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">No document reviews yet.</td></tr>';
+      const reviewRows=(w.reviews||[]).map(r=>`<tr><td><b>${esc(r.reason||'Document review')}</b><div class="muted mono" style="font-size:.72rem">${esc(r.reviewId)} | ${esc(r.provider)} | ${esc(r.artifactVersionId)}</div><div style="font-size:.72rem;margin-top:.25rem">${(r.comments||[]).map(c=>`<div class="row" style="justify-content:space-between;gap:.4rem;margin-top:.15rem"><span class="muted">${esc(c.author+': '+c.body)}</span><button class="sm ghost" data-apply-comment="${esc(a.artifactId)}" data-comment-body="${esc(c.body)}">Ask AI to apply this</button></div>`).join('')}</div></td><td><span class="pill ${r.status==='approved'?'ok':(r.status==='changes_requested'?'warn':'pending')}">${esc(r.status)}</span></td><td>${esc(r.requestedBy)}<div class="muted" style="font-size:.72rem">${r.updatedAt?_fmtWhen(r.updatedAt):'--'}</div></td><td class="row"><button class="sm ghost" data-review-comment="${esc(r.reviewId)}">Comment</button>${ME.role==='admin'&&r.status==='open'?`<button class="sm" data-review-approve="${esc(r.reviewId)}">Approve</button><button class="sm ghost" data-review-changes="${esc(r.reviewId)}">Changes</button>`:''}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">No document reviews yet.</td></tr>';
       $('#fl_detail').innerHTML=`<div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2>${esc(a.title||a.filename)}</h2><p class="muted mono">${esc(a.artifactId)} | ${esc(a.filename)}${a.shared?' | shared with me':''}</p></div><div class="row"><a href="${esc(a.downloadUrl)}">Download latest</a><button class="ghost" id="fl_version">New version</button><button class="ghost" id="fl_share">Share</button><button class="ghost" id="fl_doc_review">Start doc review</button><button class="ghost" id="fl_review">Request approval</button><button class="ghost" id="fl_delete">Delete</button>${a.type==='email_draft'?'<button class="ghost" id="fl_send">Queue send</button>':(a.type==='calendar_invite'?'<button class="ghost" id="fl_cal_send">Queue invite</button>':'')}</div></div>
         <div class="grid" style="margin-top:.8rem"><div><h3>Preview</h3><p class="muted">${esc((p.summary||[]).join(' ')||p.error||'No preview available.')}</p><div class="tbl-wrap" style="margin-top:.5rem"><table><tbody>${sig}</tbody></table></div></div>
         <div><h3>Governance</h3><p>${(a.classification||[]).map(c=>`<span class="pill">${esc(c)}</span>`).join(' ')}</p><p class="muted mono" style="font-size:.76rem;margin-top:.5rem">${esc(a.checksum||'')}</p><p class="muted" style="font-size:.78rem">Retention: ${esc(a.retentionDays||'--')} days</p><p class="muted" style="font-size:.78rem">Version: v${esc(a.currentVersion||1)} of ${esc(a.versionCount||1)}</p><p class="muted" style="font-size:.78rem">Expires: ${a.expiresAt?_fmtWhen(a.expiresAt):'--'}</p><p class="muted" style="font-size:.78rem">Workflow: ${esc(a.sourceWorkflowRunId||'--')}</p><p class="muted" style="font-size:.78rem">Tools: ${esc((a.sourceToolCalls||[]).join(', ')||'--')}</p></div></div>
-        <div class="grid" style="margin-top:.8rem"><div><h3>Editor handoff</h3>${oo?`<p class="muted">ONLYOFFICE is configured for ${esc(oo.documentType)} in ${esc(oo.config.editorConfig.mode)} mode.</p><pre class="mono" style="white-space:pre-wrap;background:var(--gray50);border:1px solid var(--gray200);border-radius:8px;padding:.6rem;font-size:.72rem;max-height:220px;overflow:auto">${esc(JSON.stringify(oo.config,null,2))}</pre>`:'<p class="muted">Set ONLYOFFICE_DOCUMENT_SERVER_URL to enable embedded editor handoff config.</p>'}</div>
-        <div><h3>Shares</h3><div class="tbl-wrap"><table><tbody id="fl_share_rows">${shareRows}</tbody></table></div></div></div>
+        <div style="margin-top:.8rem"><h3>Document editor</h3>${oo?`<p class="muted">ONLYOFFICE ${esc(oo.config.editorConfig.mode)} mode -- ${oo.config.editorConfig.mode==='edit'?'edits are saved as a new artifact version automatically.':'read-only preview.'}</p><div id="fl_oo_editor" style="height:70vh;border:1px solid var(--gray200);border-radius:8px;overflow:hidden"></div>`:'<p class="muted">Set ONLYOFFICE_DOCUMENT_SERVER_URL to enable an embedded preview/editor for this file type.</p>'}</div>
+        <div class="grid" style="margin-top:.8rem"><div><h3>Shares</h3><div class="tbl-wrap"><table><tbody id="fl_share_rows">${shareRows}</tbody></table></div></div></div>
         <div style="margin-top:.8rem"><h3>Versions</h3><div class="tbl-wrap"><table><thead><tr><th>Version</th><th>Size</th><th>Created</th><th>Note</th><th></th></tr></thead><tbody>${versionRows}</tbody></table></div></div>
         <div class="grid" style="margin-top:.8rem"><div><h3>Document reviews</h3><div class="tbl-wrap"><table><thead><tr><th>Review</th><th>Status</th><th>Requested</th><th></th></tr></thead><tbody id="fl_review_rows">${reviewRows}</tbody></table></div></div><div><h3>Approvals</h3>${(w.approvals||[]).length?`<div class="tbl-wrap"><table><tbody>${w.approvals.map(x=>`<tr><td>${esc(x.reason)}</td><td><span class="pill ${x.status==='approved'?'ok':(x.status==='denied'?'warn':'pending')}">${esc(x.status)}</span></td></tr>`).join('')}</tbody></table></div>`:'<p class="muted">No approval records for this artifact yet.</p>'}</div></div>
         <div style="margin-top:.8rem"><h3>Lifecycle</h3><p class="muted">Owner and admin actions are audited. Shared users can inspect or download only when a share grant allows it.</p></div></div>`;
+      if(oo && oo.enabled){
+        _loadOnlyofficeApi(oo.documentServerUrl).then(DocsAPI=>{
+          if(selectedFile!==a.artifactId)return; // navigated away before the script finished loading
+          ooEditor=new DocsAPI.DocEditor('fl_oo_editor',oo.config);
+        }).catch(e=>{const el=$('#fl_oo_editor'); if(el)el.innerHTML=`<p class="err" style="padding:.6rem">${esc(e.message)}</p>`;});
+      }
       $('#fl_doc_review').onclick=async()=>{
         const reason=prompt('Document review reason:',`Review ${a.filename}`); if(reason===null)return;
         const provider=oo?'onlyoffice':'local';
@@ -1924,6 +1957,8 @@ async function renderFiles(v){
       };
       $('#fl_share_rows').onclick=async(e)=>{const b=e.target.closest('[data-revoke]'); if(!b)return; try{await api(`/artifacts/${encodeURIComponent(a.artifactId)}/shares/${encodeURIComponent(b.dataset.revoke)}/revoke`,{method:'POST'});toast('Share revoked');await inspect(a.artifactId);}catch(err){toast(err.message,true);}};
       $('#fl_review_rows').onclick=async(e)=>{
+        const apply=e.target.closest('[data-apply-comment]');
+        if(apply){askAssistant(`Apply this requested change to artifact ${apply.dataset.applyComment} (${a.filename}): "${apply.dataset.commentBody}"`); return;}
         const c=e.target.closest('[data-review-comment]');
         if(c){const body=prompt('Review comment:',''); if(!body)return; try{await api(`/artifacts/${encodeURIComponent(a.artifactId)}/reviews/${encodeURIComponent(c.dataset.reviewComment)}/comments`,{method:'POST',body:JSON.stringify({body})});toast('Comment added');await inspect(a.artifactId);}catch(err){toast(err.message,true);} return;}
         const ap=e.target.closest('[data-review-approve]');

@@ -44,6 +44,7 @@ _CORE_DIR = str((Path(__file__).parent.parent / "governance_core").resolve())
 if _CORE_DIR not in sys.path:
     sys.path.insert(0, _CORE_DIR)
 
+import httpx
 import uvicorn
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
@@ -74,6 +75,7 @@ import scope_store
 import backends
 import orchestrator
 from auth import lockout
+from auth import onlyoffice_jwt
 from auth.passwords import hash_password, verify_password
 from auth.session import issue_session, login_enabled, verify_session
 from store import get_store
@@ -2881,29 +2883,40 @@ def _artifact_preview(record) -> dict:
     return preview
 
 
-def _onlyoffice_config(record, claims) -> dict | None:
+def _onlyoffice_config(record, claims, request) -> dict | None:
     base = (os.getenv("ONLYOFFICE_DOCUMENT_SERVER_URL") or os.getenv("ONLYOFFICE_DOCSERVER_URL") or "").rstrip("/")
     if not base or record.type not in ("docx", "xlsx", "pptx"):
         return None
     ext = record.type
     mode = "view" if str(os.getenv("ONLYOFFICE_EDIT_MODE") or "view").lower() != "edit" else "edit"
+    # Document Server fetches/posts these URLs itself (it's a separate service, not
+    # the browser) so they must be absolute -- request.base_url reflects whatever
+    # host the caller actually used, same as the TrustedHostMiddleware host guard.
+    gateway_base = str(request.base_url).rstrip("/")
+    editor_config = {
+        "mode": mode,
+        "user": {"id": claims.get("sub", claims.get("name", "user")), "name": claims.get("name", "user")},
+    }
+    if mode == "edit":
+        editor_config["callbackUrl"] = f"{gateway_base}/artifacts/{record.artifact_id}/onlyoffice/callback"
+    config = {
+        "document": {
+            "fileType": ext,
+            "key": f"{record.artifact_id}-{record.checksum[-16:]}",
+            "title": record.filename,
+            "url": onlyoffice_jwt.scoped_download_url(gateway_base, record.artifact_id),
+            "permissions": {"download": True, "edit": mode == "edit", "print": True},
+        },
+        "editorConfig": editor_config,
+    }
+    token = onlyoffice_jwt.sign(config)
+    if token:
+        config["token"] = token
     return {
         "enabled": True,
         "documentServerUrl": base,
         "documentType": {"docx": "word", "xlsx": "cell", "pptx": "slide"}.get(ext, "word"),
-        "config": {
-            "document": {
-                "fileType": ext,
-                "key": f"{record.artifact_id}-{record.checksum[-16:]}",
-                "title": record.filename,
-                "url": f"/artifacts/{record.artifact_id}/download",
-                "permissions": {"download": True, "edit": mode == "edit", "print": True},
-            },
-            "editorConfig": {
-                "mode": mode,
-                "user": {"id": claims.get("sub", claims.get("name", "user")), "name": claims.get("name", "user")},
-            },
-        },
+        "config": config,
     }
 
 def _decode_artifact_payload(body: dict, default_filename: str = "uploaded.txt") -> tuple[str, bytes, str | None]:
@@ -3023,7 +3036,7 @@ async def _artifact_workbench(request):
     shares = [x.public_dict() for x in artifact_share_store.list_shares(artifact_id=record.artifact_id, include_revoked=True)] if _artifact_owner_or_admin(record, claims) else []
     versions = [v.public_dict() for v in artifact_store.list_versions(record.artifact_id)]
     reviews = [r.public_dict() for r in document_review_store.list_reviews(artifact_id=record.artifact_id)]
-    onlyoffice = _onlyoffice_config(record, claims)
+    onlyoffice = _onlyoffice_config(record, claims, request)
     audit.log_policy_change(
         actor=claims["name"], action="inspect_artifact", target=record.artifact_id,
         detail=f"{record.filename}; classification={','.join(record.classification)}",
@@ -3181,6 +3194,54 @@ async def _artifact_versions(request):
     return JSONResponse({"artifact": _artifact_public_for(latest, claims), "version": version.public_dict()}, status_code=201)
 
 
+# ONLYOFFICE-only route: Document Server calls this server-to-server (no browser
+# session cookie), so it's authenticated via the JWT `_onlyoffice_config` put in
+# editorConfig.callbackUrl, not `_session`.
+async def _artifact_onlyoffice_callback(request):
+    record = artifact_store.get_artifact(request.path_params["aid"])
+    if record is None:
+        return JSONResponse({"error": 1}, status_code=404)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": 1}, status_code=400)
+    if onlyoffice_jwt.enabled():
+        header_token = (request.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
+        # ONLYOFFICE signs either the raw callback body or (newer Document Server
+        # versions) wraps it as {"payload": body} -- confirm which shape the
+        # deployed Document Server version sends and adjust if verification
+        # keeps failing against a real instance.
+        if onlyoffice_jwt.verify(header_token or body.get("token")) is None:
+            return JSONResponse({"error": 1}, status_code=403)
+    # Callback status codes per ONLYOFFICE's editor callback contract: 2 = ready
+    # for saving, 6 = force-saved while still being edited. Everything else
+    # (editing in progress, closed with no changes, error) needs no action.
+    if int(body.get("status") or 0) not in (2, 6):
+        return JSONResponse({"error": 0})
+    download_url = body.get("url")
+    if not download_url:
+        return JSONResponse({"error": 1}, status_code=400)
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(download_url)
+            resp.raise_for_status()
+            payload = resp.content
+    except httpx.HTTPError as exc:
+        return JSONResponse({"error": 1, "detail": str(exc)}, status_code=502)
+    users = body.get("users") or []
+    editor = (str(users[0]) if isinstance(users[0], str) else str(users[0].get("id", ""))) if users else "onlyoffice"
+    version = artifact_store.create_version(
+        artifact_id=record.artifact_id, payload=payload, filename=record.filename,
+        mime_type=record.mime_type, created_by=editor, note="Edited via ONLYOFFICE",
+    )
+    if version is not None:
+        audit.log_policy_change(
+            actor=editor, action="create_artifact_version", target=record.artifact_id,
+            detail=f"{version.version_id} (onlyoffice callback)",
+        )
+    return JSONResponse({"error": 0})
+
+
 async def _artifact_version_download(request):
     claims = _session(request)
     if not claims:
@@ -3299,20 +3360,30 @@ async def _artifact_request_approval(request):
 
 
 async def _artifact_download(request):
-    claims = _session(request)
-    if not claims:
-        return _unauthorized()
     record = artifact_store.get_artifact(request.path_params["aid"])
     if record is None:
         return JSONResponse({"error": "not found"}, status_code=404)
+    # ONLYOFFICE's Document Server (and Document Builder) fetch this URL
+    # server-to-server with no browser session -- a short-lived, artifact-scoped
+    # oo_token (minted into document.url by _onlyoffice_config /
+    # onlyoffice_jwt.scoped_download_url) stands in for the session in that case.
+    oo_token = request.query_params.get("oo_token")
+    actor = "onlyoffice"
+    if oo_token and onlyoffice_jwt.verify_access(oo_token, record.artifact_id, "download"):
+        pass
+    else:
+        claims = _session(request)
+        if not claims:
+            return _unauthorized()
+        if not _artifact_allowed(record, claims, "download"):
+            return _unauthorized(is_admin=True)
+        actor = claims["name"]
     if _artifact_expired(record):
         return JSONResponse({"error": "artifact expired"}, status_code=410)
-    if not _artifact_allowed(record, claims, "download"):
-        return _unauthorized(is_admin=True)
     if not Path(record.storage_path).exists():
         return JSONResponse({"error": "artifact file is missing"}, status_code=410)
     audit.log_policy_change(
-        actor=claims["name"], action="download_artifact", target=record.artifact_id,
+        actor=actor, action="download_artifact", target=record.artifact_id,
         detail=f"{record.filename}; classification={','.join(record.classification)}",
     )
     return FileResponse(record.storage_path, media_type=record.mime_type, filename=record.filename)
@@ -4405,6 +4476,7 @@ app.add_route("/artifacts/{aid}/reviews/{rid}/comments", _artifact_review_commen
 app.add_route("/artifacts/{aid}/reviews/{rid}/{action}", _artifact_review_decision, methods=["POST"])
 app.add_route("/artifacts/{aid}/versions", _artifact_versions, methods=["GET", "POST"])
 app.add_route("/artifacts/{aid}/versions/{vid}/download", _artifact_version_download)
+app.add_route("/artifacts/{aid}/onlyoffice/callback", _artifact_onlyoffice_callback, methods=["POST"])
 app.add_route("/artifacts/{aid}/shares", _artifact_shares, methods=["GET", "POST"])
 app.add_route("/artifacts/{aid}/shares/{sid}/revoke", _artifact_share_revoke, methods=["POST"])
 app.add_route("/admin/artifacts/purge-expired", _admin_artifact_purge_expired, methods=["POST"])

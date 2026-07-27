@@ -120,12 +120,24 @@ class FilePolicyStore(PolicyStore):
         self._chat_sessions: dict[tuple[str, str], ChatSession] = {}
         if self._path.exists():
             self._load()
+            dirty = False
             if not self._departments:
                 # Same backfill as CosmosPolicyStore -- departments.py was added
                 # after this file already existed, so the "fresh file" seed branch
                 # below never runs for it.
                 for dept in dept_seed.DEPARTMENTS.values():
                     self._departments[dept.id] = dept
+                dirty = True
+            # Per-category backfill (not gated on "categories empty"): new categories
+            # (e.g. "office", added for artifact editing) get defined in code after
+            # deployments already have a persisted store, so an all-or-nothing seed
+            # check like departments' would never add them. Only fill in IDs missing
+            # entirely -- never overwrite a category an admin has already edited.
+            for cat in cat_seed.CATEGORIES.values():
+                if cat.id not in self._categories:
+                    self._categories[cat.id] = cat
+                    dirty = True
+            if dirty:
                 self._persist()
         else:
             self._seed()

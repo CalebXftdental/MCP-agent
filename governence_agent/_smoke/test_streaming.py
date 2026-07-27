@@ -121,5 +121,39 @@ check("result is fenced as untrusted", tool_msg is not None and "<untrusted_docu
 check("embedded fake tool_call tags are stripped", tool_msg is not None and "<tool_call>" not in tool_msg["content"] and "<function=" not in tool_msg["content"])
 check("original document text survives", tool_msg is not None and "IGNORE ALL PREVIOUS INSTRUCTIONS" in tool_msg["content"])
 
+# 4) lead-in prose before a tool call, split across chunks, with the model
+# rambling on past </tool_call> in the same completion (no stop sequence) --
+# none of the raw <tool_call> markup or the premature tail may leak to the
+# client, and the tool must still run + get a grounded follow-up answer.
+def prose_then_tool_then_ramble():
+    state = {"n": 0}
+    def stream(messages, tools):
+        state["n"] += 1
+        if state["n"] == 1:
+            for tok in ["I'll search our knowledge base for that.\n",
+                        "<tool_call><function=knowledge_search_knowledge>",
+                        "<parameter=query>return policy</parameter></function></tool_call>",
+                        "I don't have any information about the return policy."]:
+                yield Delta(content=tok)
+        else:
+            for tok in ["Returns are accepted ", "within **30 days**."]:
+                yield Delta(content=tok)
+    return stream
+
+
+evs4 = asyncio.run(collect(orchestrator.run_chat_stream(FakeMCP(), "what is the return policy", "s4", None,
+                                                          llm_stream=prose_then_tool_then_ramble())))
+deltas4 = [e for e in evs4 if e["type"] in ("delta", "replace")]
+visible4 = "".join(e["text"] for e in deltas4 if e["type"] == "delta")
+tool_ev4 = next((e for e in evs4 if e["type"] == "tools"), None)
+print("lead-in prose + mid-stream tool call + ramble past </tool_call>")
+check("a tools event was emitted", tool_ev4 is not None)
+check("tool call is NOT streamed as raw markup", "<tool_call>" not in visible4 and "<function=" not in visible4)
+check("premature hallucinated tail did not leak", "I don't have any information" not in visible4)
+check("lead-in prose survived", "I'll search our knowledge base" in visible4)
+check("grounded follow-up answer streamed", "within **30 days**" in visible4)
+check("done records the tool call", evs4[-1]["type"] == "done" and
+      [t["tool"] for t in evs4[-1]["tool_calls"]] == ["knowledge_search_knowledge"])
+
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

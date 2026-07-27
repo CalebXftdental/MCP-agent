@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import uuid
 import zipfile
 from xml.etree import ElementTree as ET
 from pathlib import Path
@@ -25,12 +26,15 @@ _APP_DIR = str(Path(__file__).parent.resolve())
 if _APP_DIR not in sys.path:
     sys.path.insert(0, _APP_DIR)
 
+import httpx
 import uvicorn
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.responses import JSONResponse
 
 import artifact_store
+import onlyoffice_builder
+from auth import onlyoffice_jwt
 from builders.excel import build_xlsx
 from builders.powerpoint import build_pptx
 from builders.word import build_docx
@@ -297,6 +301,101 @@ async def convert_artifact(owner: str, artifact_id: str, target_format: str = "t
         source_tool_calls=["convert_artifact"],
     )
     return _result(record)
+
+
+def _onlyoffice_server_url() -> str:
+    return (os.getenv("ONLYOFFICE_DOCUMENT_SERVER_URL") or os.getenv("ONLYOFFICE_DOCSERVER_URL") or "").rstrip("/")
+
+
+def _gateway_public_url() -> str:
+    # mcp-office is a tool backend, not an HTTP handler -- it has no incoming
+    # request to derive its own externally-reachable base URL from (unlike the
+    # gateway's _onlyoffice_config, which uses request.base_url), so this has to
+    # be configured explicitly.
+    return (os.getenv("GATEWAY_PUBLIC_URL") or "").rstrip("/")
+
+
+@mcp.tool()
+async def edit_office_document(owner: str, artifact_id: str, edits: str) -> str:
+    """Apply a small whitelisted set of edits to an existing governed XLSX/DOCX
+    artifact via ONLYOFFICE Document Builder, and persist the result as a new
+    artifact version. `edits` is a JSON-encoded string (like the `tables` param
+    on create_excel_report) describing ops, e.g. for xlsx:
+    '[{"op":"set_cell","sheet":"Sheet1","cell":"B4","value":"500"}]'; for docx:
+    '[{"op":"replace_text","find":"TBD","replace":"Q3 2026"}]'.
+    """
+    source, err = _artifact_or_error(owner, artifact_id)
+    if err:
+        return json.dumps(err)
+    server = _onlyoffice_server_url()
+    gateway_base = _gateway_public_url()
+    if not server or not gateway_base:
+        return json.dumps({"source": "office", "status": "error", "errorCode": "onlyoffice_not_configured", "artifactId": artifact_id})
+    try:
+        ops = onlyoffice_builder.parse_ops(source.type, edits)
+    except onlyoffice_builder.InvalidEdits as exc:
+        return json.dumps({"source": "office", "status": "error", "errorCode": exc.error_code, "artifactId": artifact_id, **exc.detail})
+
+    source_url = onlyoffice_jwt.scoped_download_url(gateway_base, source.artifact_id)
+    script = onlyoffice_builder.build_script(source.type, source_url, source.filename, ops)
+    script_record = artifact_store.create_artifact(
+        owner=owner, title="Document Builder script (internal)", filename=f"docbuilder-{uuid.uuid4().hex}.js",
+        payload=script.encode("utf-8"), artifact_type="docbuilder_script",
+        mime_type="application/javascript", classification=["INTERNAL"], retention_days=1,
+        source_artifact_ids=[source.artifact_id], source_tool_calls=["edit_office_document"],
+    )
+    script_url = onlyoffice_jwt.scoped_download_url(gateway_base, script_record.artifact_id, ttl_sec=300)
+
+    body = {"async": False, "url": script_url}
+    token = onlyoffice_jwt.sign(body)
+    if token:
+        body["token"] = token
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(f"{server}/docbuilder", json=body)
+            resp.raise_for_status()
+            result = resp.json()
+    except httpx.HTTPError as exc:
+        return json.dumps({"source": "office", "status": "error", "errorCode": "docbuilder_request_failed", "detail": str(exc), "artifactId": artifact_id})
+    finally:
+        try:
+            artifact_store.delete_artifact(script_record.artifact_id)
+        except Exception:
+            pass
+
+    if result.get("error"):
+        return json.dumps({"source": "office", "status": "error", "errorCode": "docbuilder_error", "docbuilderError": result.get("error"), "artifactId": artifact_id})
+    if not result.get("end"):
+        # Document Builder only supports polling by re-sending {"async":true,"key":...}
+        # for long-running (async) jobs -- out of scope here since we always send
+        # {"async": false}, so an incomplete sync response is treated as a failure
+        # rather than adding polling logic for an edge case this scope doesn't hit.
+        return json.dumps({"source": "office", "status": "error", "errorCode": "docbuilder_incomplete", "artifactId": artifact_id})
+    urls = result.get("urls") or {}
+    result_url = urls.get(source.filename) or (next(iter(urls.values())) if urls else None)
+    if not result_url:
+        return json.dumps({"source": "office", "status": "error", "errorCode": "docbuilder_no_output", "artifactId": artifact_id})
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(result_url)
+            resp.raise_for_status()
+            payload = resp.content
+    except httpx.HTTPError as exc:
+        return json.dumps({"source": "office", "status": "error", "errorCode": "docbuilder_download_failed", "detail": str(exc), "artifactId": artifact_id})
+
+    version = artifact_store.create_version(
+        artifact_id=source.artifact_id, payload=payload, filename=source.filename,
+        mime_type=source.mime_type, created_by=owner, note="Edited via edit_office_document (AI)",
+    )
+    if version is None:
+        return json.dumps({"source": "office", "status": "error", "errorCode": "artifact_not_found", "artifactId": artifact_id})
+    latest = artifact_store.get_artifact(source.artifact_id) or source
+    out = latest.public_dict()
+    out["artifactStatus"] = out.pop("status", "ready")
+    out["versionId"] = version.version_id
+    out["editsApplied"] = ops
+    return json.dumps({"source": "office", "status": "success", **out})
 
 
 @mcp.tool()

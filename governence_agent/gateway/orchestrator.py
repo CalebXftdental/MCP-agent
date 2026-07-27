@@ -169,6 +169,22 @@ def _coerce(value: str) -> Any:
     return v
 
 
+_TOOLCALL_TAG = "<tool_call"
+
+
+def _safe_emit_len(content: str, tag: str = _TOOLCALL_TAG) -> int:
+    """How much of `content` is safe to stream to the client right now.
+
+    Withholds any trailing suffix that could still grow into `tag` on the next
+    chunk (e.g. content ending in "<tool_c"), so a tag split across stream
+    chunks never leaks a partial "<tool_c..." fragment before we know better.
+    """
+    for k in range(min(len(tag) - 1, len(content)), 0, -1):
+        if content.endswith(tag[:k]):
+            return len(content) - k
+    return len(content)
+
+
 def parse_text_tool_calls(content: str) -> list[tuple[str, dict]]:
     """Extract (name, args) tool calls from Qwen's text format (or JSON variant)."""
     calls: list[tuple[str, dict]] = []
@@ -415,13 +431,14 @@ async def run_chat_stream(mcp, message: str, session_id: str, record, *,
 
     for _ in range(_MAX_TOOL_TURNS):
         content = ""
-        decided = None      # None -> undecided | 'prose' -> streaming to client | 'hold' -> buffering (looks like a tool call)
+        sent = 0            # how much of `content` has already been streamed to the client
+        hold = False         # True once a tool-call (native or text) is detected -> stop streaming
         emitted = False
         native: dict = {}   # index -> {id,name,args}
         for delta in llm_stream(messages, specs):
             tcs = getattr(delta, "tool_calls", None)
             if tcs:
-                decided = "hold"
+                hold = True
                 for tc in tcs:
                     slot = native.setdefault(getattr(tc, "index", 0) or 0, {"id": None, "name": "", "args": ""})
                     if getattr(tc, "id", None):
@@ -434,18 +451,20 @@ async def run_chat_stream(mcp, message: str, session_id: str, record, *,
             if not piece:
                 continue
             content += piece
-            if decided is None:
-                stripped = content.lstrip()
-                if not stripped:
-                    continue
-                if stripped[0] == "<":          # likely a <tool_call> block -> buffer, don't stream
-                    decided = "hold"
-                else:
-                    decided = "prose"
-                    yield {"type": "delta", "text": content}   # flush the buffered prefix
+            if hold:
+                continue
+            tag_idx = content.find(_TOOLCALL_TAG)
+            if tag_idx != -1:
+                hold = True
+                safe_len = tag_idx
+            else:
+                safe_len = _safe_emit_len(content)
+            if safe_len > sent:
+                new_text = content[sent:safe_len]
+                if new_text.strip() or emitted:
+                    yield {"type": "delta", "text": new_text}
                     emitted = True
-            elif decided == "prose":
-                yield {"type": "delta", "text": piece}
+                sent = safe_len
 
         native_calls = [v for v in native.values() if v["name"]]
         if native_calls:
@@ -481,6 +500,10 @@ async def run_chat_stream(mcp, message: str, session_id: str, record, *,
             yield {"type": "delta", "text": final}
         elif final != content:
             yield {"type": "replace", "text": final}
+        elif sent < len(content):
+            # Stream ended mid-holdback (a trailing fragment that looked like it
+            # could grow into <tool_call but never did) -> flush what's left.
+            yield {"type": "delta", "text": content[sent:]}
         yield {"type": "done", "tool_calls": used, "configured": True}
         return
 

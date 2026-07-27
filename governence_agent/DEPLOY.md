@@ -79,6 +79,10 @@ az webapp config set -g frontier-gov-rg -n frontier-governance --health-check-pa
 | `GOVERNANCE_KEY_PEPPER` | rec🔑 | Extra secret mixed into API-key hashes. |
 | `GOVERNANCE_DEFAULT_RATE_LIMIT_PER_HOUR` | rec | e.g. `1000`. |
 | `SCM_DO_BUILD_DURING_DEPLOYMENT` | ✅ | `true` (also in `.deployment`). |
+| `ONLYOFFICE_DOCUMENT_SERVER_URL` | opt¹ | The deployed Document Server's public HTTPS URL (Container App / ACI / App Service for Containers — see `ONLYOFFICE.md`). ¹Unset ⇒ artifact preview/edit stays a structural signal dump, no editor embed. |
+| `ONLYOFFICE_JWT_SECRET` | opt🔑 | Must match the `JWT_SECRET` env var set on the Document Server resource itself, exactly. |
+| `ONLYOFFICE_EDIT_MODE` | opt | `edit` to allow in-editor saves + the AI edit tool; `view` (default) for read-only preview. |
+| `GATEWAY_PUBLIC_URL` | opt | This App Service's own public HTTPS URL. Read by `mcp-office`'s `edit_office_document` tool (it has no incoming request to derive its own base URL from, unlike the gateway's routes). |
 
 ## Step 3 — Deploy
 

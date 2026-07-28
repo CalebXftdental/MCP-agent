@@ -1,0 +1,157 @@
+.ui-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-r-md);
+  box-shadow: var(--ui-shadow-sm);
+  color: var(--ui-text);
+  overflow: hidden;
+  /* Entrance is opacity + 6px rise. Deliberately not a scale: several cards in a
+     grid all scaling at once looks like the page is breathing. */
+  animation: ui-rise var(--ui-dur-4) var(--ui-ease-out) both;
+}
+
+.ui-card--interactive {
+  cursor: pointer;
+  transition:
+    border-color var(--ui-dur-1) var(--ui-ease-in-out),
+    box-shadow var(--ui-dur-2) var(--ui-ease-out),
+    transform var(--ui-dur-2) var(--ui-ease-out);
+}
+
+.ui-card--interactive:hover {
+  border-color: var(--ui-accent);
+  box-shadow: var(--ui-shadow-md);
+  transform: translateY(-2px);
+}
+
+.ui-card--interactive:focus-within {
+  border-color: var(--ui-accent);
+}
+
+/* State stripe. Drawn with a pseudo-element rather than border-left so the
+   card's own border stays a uniform 1px on all four sides. */
+.ui-card--edge::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--ui-card-edge, var(--ui-accent));
+}
+
+.ui-card--edge {
+  padding-left: 3px;
+}
+
+.ui-card--edge-accent { --ui-card-edge: var(--ui-accent); }
+.ui-card--edge-ok { --ui-card-edge: var(--ui-ok); }
+.ui-card--edge-warn { --ui-card-edge: var(--ui-warn); }
+.ui-card--edge-danger { --ui-card-edge: var(--ui-danger); }
+.ui-card--edge-info { --ui-card-edge: var(--ui-info); }
+
+/* ── header ─────────────────────────────────────────────────────────────── */
+
+.ui-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 1.05rem 1.15rem 0;
+}
+
+.ui-card-headings {
+  min-width: 0;
+  flex: 1;
+}
+
+.ui-card-title {
+  margin: 0;
+  font-size: var(--ui-fs-lg);
+  font-weight: 650;
+  letter-spacing: -0.012em;
+  line-height: 1.25;
+  text-wrap: balance;
+}
+
+.ui-card-desc {
+  margin: 0.2rem 0 0;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-muted);
+  max-width: 62ch;
+}
+
+.ui-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+/* ── body and footer ────────────────────────────────────────────────────── */
+
+.ui-card-body {
+  padding: 1.05rem 1.15rem;
+  min-width: 0;
+}
+
+.ui-card-head + .ui-card-body {
+  padding-top: 0.85rem;
+}
+
+.ui-card-body--flush {
+  padding: 0;
+}
+
+/* A flush body butts against the card edge, so its own top border would double
+   up with the header's. */
+.ui-card-head + .ui-card-body--flush {
+  padding-top: 0.85rem;
+}
+
+.ui-card-foot {
+  padding: 0.75rem 1.15rem;
+  border-top: 1px solid var(--ui-border);
+  background: var(--ui-surface-sunken);
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-muted);
+}
+
+/* ── section header ─────────────────────────────────────────────────────── */
+
+.ui-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 0 0 0.7rem;
+}
+
+.ui-section-headings {
+  min-width: 0;
+}
+
+.ui-section-title {
+  margin: 0;
+  font-size: var(--ui-fs-md);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+.ui-section-desc {
+  margin: 0.15rem 0 0;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-muted);
+  max-width: 70ch;
+}
+
+.ui-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}

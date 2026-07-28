@@ -1,0 +1,108 @@
+.ui-donut {
+  position: relative;
+  flex: none;
+}
+
+/* The whole ring rotates and scales into place, rather than each segment drawing
+   in turn: a sequential sweep implies the segments are ordered in time, which
+   for a proportion breakdown they aren't. */
+.ui-donut-svg {
+  display: block;
+  animation: ui-donut-in var(--ui-dur-4) var(--ui-ease-out) both;
+}
+
+@keyframes ui-donut-in {
+  from {
+    opacity: 0;
+    transform: rotate(-22deg) scale(0.9);
+  }
+}
+
+.ui-donut-track {
+  stroke: var(--ui-surface-hover);
+}
+
+.ui-donut-seg {
+  /* Best-effort tween when the data changes under a poll. Browsers that don't
+     interpolate stroke-dasharray simply snap, which is the old behaviour. */
+  transition:
+    stroke-dasharray var(--ui-dur-3) var(--ui-ease-out),
+    stroke-dashoffset var(--ui-dur-3) var(--ui-ease-out);
+}
+
+.ui-donut-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.05rem;
+  text-align: center;
+  pointer-events: none;
+  animation: ui-fade var(--ui-dur-3) var(--ui-ease-out) both;
+  animation-delay: 140ms;
+}
+
+.ui-donut-value {
+  font-family: var(--ui-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--ui-fs-lg);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.ui-donut-label {
+  font-size: var(--ui-fs-2xs);
+  color: var(--ui-text-faint);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-donut-svg {
+    animation: none !important;
+  }
+}
+
+/* ── legend ─────────────────────────────────────────────────────────────── */
+
+.ui-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  flex: 1;
+  min-width: 0;
+}
+
+.ui-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-muted);
+}
+
+.ui-legend-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.ui-legend-name {
+  flex: 1;
+}
+
+.ui-legend-value {
+  font-family: var(--ui-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--ui-text);
+  white-space: nowrap;
+}
+
+.ui-legend-pct {
+  color: var(--ui-text-faint);
+}

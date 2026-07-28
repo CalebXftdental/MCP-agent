@@ -1,0 +1,98 @@
+.pick-card-wrap {
+  position: relative;
+  height: 100%;
+}
+
+.pick-card {
+  height: 100%;
+  cursor: pointer;
+  transition:
+    border-color var(--ui-dur-1) var(--ui-ease-in-out),
+    background-color var(--ui-dur-1) var(--ui-ease-in-out),
+    box-shadow var(--ui-dur-2) var(--ui-ease-out),
+    transform var(--ui-dur-2) var(--ui-ease-out);
+}
+
+.pick-card:hover,
+.pick-card:focus-visible {
+  border-color: var(--ui-border-strong);
+  box-shadow: var(--ui-shadow-md);
+}
+
+.pick-card:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 2px;
+}
+
+.pick-card:active {
+  transform: scale(0.98);
+}
+
+/* Selected reads as a filled toggle, not a stripe or checkbox off to the
+   side — the whole card is the control, so the whole card should look pressed. */
+.pick-card[data-selected] {
+  border-color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+}
+
+.pick-card[data-disabled] {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.pick-card[data-disabled]:hover {
+  border-color: var(--ui-border);
+  box-shadow: var(--ui-shadow-sm);
+}
+
+.pick-card .ui-card-head {
+  padding: 0.75rem 0.9rem;
+  gap: 0.5rem;
+}
+
+.pick-card .ui-card-title {
+  font-size: var(--ui-fs-sm);
+  font-weight: 650;
+}
+
+.pick-card .ui-card-body {
+  padding: 0;
+}
+
+.pick-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* Empty ring at rest; fills solid on selection — the same on/off shape reads
+   at a glance without needing to read the card's background tint. */
+.pick-card-check {
+  display: inline-grid;
+  place-items: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: none;
+  border-radius: 50%;
+  border: 1.5px solid var(--ui-border-strong);
+  color: transparent;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1;
+  transition:
+    background-color var(--ui-dur-1) var(--ui-ease-in-out),
+    border-color var(--ui-dur-1) var(--ui-ease-in-out),
+    color var(--ui-dur-1) var(--ui-ease-in-out),
+    transform var(--ui-dur-2) var(--ui-ease-spring);
+}
+
+.pick-card[data-selected] .pick-card-check {
+  background: var(--ui-accent);
+  border-color: var(--ui-accent);
+  color: var(--ui-on-accent);
+  transform: scale(1.08);
+}
+
+.pick-card[data-disabled] .pick-card-check {
+  opacity: 0.6;
+}

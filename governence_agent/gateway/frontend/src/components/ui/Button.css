@@ -1,0 +1,160 @@
+/* Every property the legacy stylesheet's bare `button{}` rule sets is restated
+   here, so these survive being rendered inside a page that still loads it. */
+
+.ui-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  font: inherit;
+  font-family: var(--ui-sans);
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  border-radius: var(--ui-r-sm);
+  cursor: pointer;
+  isolation: isolate;
+  transition:
+    background-color var(--ui-dur-1) var(--ui-ease-in-out),
+    border-color var(--ui-dur-1) var(--ui-ease-in-out),
+    color var(--ui-dur-1) var(--ui-ease-in-out),
+    box-shadow var(--ui-dur-2) var(--ui-ease-out),
+    transform var(--ui-dur-1) var(--ui-ease-spring);
+}
+
+.ui-btn--md {
+  padding: 0.5rem 1rem;
+  font-size: var(--ui-fs-base);
+}
+
+.ui-btn--sm {
+  padding: 0.3rem 0.62rem;
+  font-size: var(--ui-fs-sm);
+  border-radius: var(--ui-r-xs);
+}
+
+.ui-btn--block {
+  width: 100%;
+}
+
+.ui-btn:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 2px;
+}
+
+/* Lift on hover, settle on press. Both are 1px moves — enough to feel
+   mechanical, small enough not to reflow a toolbar. */
+.ui-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.ui-btn:active:not(:disabled) {
+  transform: translateY(0.5px);
+  transition-duration: 60ms;
+}
+
+.ui-btn:disabled {
+  cursor: default;
+  transform: none;
+  opacity: 0.5;
+}
+
+/* ── variants ───────────────────────────────────────────────────────────── */
+
+.ui-btn--primary {
+  background: var(--ui-accent);
+  color: var(--ui-on-accent);
+  box-shadow: var(--ui-shadow-sm);
+}
+
+.ui-btn--primary:hover:not(:disabled) {
+  background: var(--ui-accent-strong);
+  box-shadow: var(--ui-shadow-md);
+}
+
+.ui-btn--ghost {
+  background: var(--ui-surface);
+  border-color: var(--ui-border-strong);
+  color: var(--ui-text-muted);
+}
+
+.ui-btn--ghost:hover:not(:disabled) {
+  background: var(--ui-surface-hover);
+  border-color: var(--ui-accent);
+  color: var(--ui-text);
+}
+
+/* Destructive actions stay outlined until hover, so a Deny button next to an
+   Approve button never out-shouts it before you mean to press it. */
+.ui-btn--danger {
+  background: transparent;
+  border-color: var(--ui-border-strong);
+  color: var(--ui-danger);
+}
+
+.ui-btn--danger:hover:not(:disabled) {
+  background: var(--ui-danger-soft);
+  border-color: var(--ui-danger);
+}
+
+.ui-btn--quiet {
+  background: transparent;
+  color: var(--ui-text-faint);
+  padding-inline: 0.35rem;
+  font-weight: 550;
+}
+
+.ui-btn--quiet:hover:not(:disabled) {
+  color: var(--ui-text);
+  background: var(--ui-surface-hover);
+}
+
+/* ── loading ────────────────────────────────────────────────────────────── */
+
+/* The label keeps its box and fades; the spinner overlays it centred. No width
+   change, so neighbouring buttons hold still. */
+.ui-btn-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  transition: opacity var(--ui-dur-2) var(--ui-ease-out);
+}
+
+.ui-btn[data-loading] .ui-btn-content {
+  opacity: 0;
+}
+
+.ui-btn-icon {
+  display: inline-grid;
+  place-items: center;
+  font-size: 1em;
+  line-height: 1;
+}
+
+.ui-btn-spinner {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 0.9em;
+  height: 0.9em;
+  border: 2px solid currentcolor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  opacity: 0.85;
+  animation: ui-spin 620ms linear infinite;
+}
+
+/* A spinner frozen at one angle reads as a rendering bug, so it becomes a
+   pulsing ring instead of stopping. */
+@media (prefers-reduced-motion: reduce) {
+  .ui-btn-spinner {
+    border-top-color: currentcolor;
+    animation: ui-fade 900ms var(--ui-ease-in-out) infinite alternate !important;
+    animation-duration: 900ms !important;
+    animation-iteration-count: infinite !important;
+  }
+}

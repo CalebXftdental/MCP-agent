@@ -1,0 +1,195 @@
+.access {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.5rem 1.75rem 3rem;
+  /* Matches History's cap — wide enough that the granted-access grid actually
+     gets multiple columns on a laptop instead of one narrow list stranded in
+     the middle of the screen. */
+  max-width: 80rem;
+}
+
+@media (max-width: 640px) {
+  .access {
+    padding: 1rem 1rem 2.5rem;
+  }
+}
+
+.access-top-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 760px) {
+  .access-top-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Generic vertical rhythm for a card body with more than one block — Card
+   itself lays out only the header; a body with several stacked sections owns
+   its own gap so nothing collapses or doubles up. */
+.access-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.access-error-body {
+  margin: 0 0 0.7rem;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-muted);
+}
+
+/* ── account ────────────────────────────────────────────────────────────── */
+
+.access-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.access-identity-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.access-identity-name {
+  margin: 0;
+  font-size: var(--ui-fs-lg);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.access-identity-username {
+  margin: 0.1rem 0 0;
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-faint);
+}
+
+/* ── shared collapsible section (granted-access backends, request-picker
+   categories) ──────────────────────────────────────────────────────────── */
+
+.access-disclosure {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-r-md);
+  padding: 0.55rem 0.75rem;
+  transition: border-color var(--ui-dur-1) var(--ui-ease-in-out);
+}
+
+.access-disclosure[open] {
+  border-color: var(--ui-border-strong);
+}
+
+.access-disclosure summary {
+  cursor: pointer;
+  list-style: none; /* the count/badges are the payload; a plain triangle
+                        marker competes with them for no reason */
+}
+
+.access-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.access-disclosure summary::before {
+  content: '▸';
+  display: inline-block;
+  width: 1em;
+  flex: none;
+  color: var(--ui-text-faint);
+  transition: transform var(--ui-dur-2) var(--ui-ease-out);
+}
+
+.access-disclosure[open] summary::before {
+  transform: rotate(90deg);
+}
+
+/* ── granted access ─────────────────────────────────────────────────────── */
+
+.access-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+/* Unlike the request-picker's categories, a granted-access section isn't a
+   form control the user is choosing between — it's just a heading over a
+   grid of cards that already have their own borders, so boxing the section
+   too was a border around a border. Overrides `.access-disclosure`'s border
+   (same specificity, later in source order wins) while keeping its marker,
+   summary reset, and open/close transition. */
+.access-group {
+  border: 0;
+  padding: 0.4rem 0;
+}
+
+.access-group-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  font-weight: 600;
+}
+
+.access-group-head h3 {
+  flex: 1;
+  min-width: 8rem;
+  margin: 0;
+  font-size: var(--ui-fs-base);
+  font-weight: 650;
+}
+
+.access-group-levels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+/* One AccessCard per granted tool. minmax(15rem,...) is the smallest a card
+   stays legible at, so this naturally goes from one column on mobile to four
+   or five on a wide monitor — the whole point of moving off a single-column
+   list. `auto-fit`, not `auto-fill`: fill reserves empty tracks even when
+   there's nothing to put in them (a request-picker category with 1-2 tools
+   would sit in a lone narrow column with blank space beside it) — fit
+   collapses those phantom tracks so the real cards stretch to fill the row
+   instead. */
+.access-tool-grid {
+  margin-top: 0.5rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.65rem;
+}
+
+.access-group-empty {
+  margin: 0.4rem 0 0;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-faint);
+}
+
+/* ── recent denials ─────────────────────────────────────────────────────── */
+
+.access-denial-tool {
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-faint);
+  margin-top: 0.1rem;
+}
+
+.access-denial-nocat {
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-faint);
+}
+
+/* ── request picker ─────────────────────────────────────────────────────── */
+
+/* The picker's own pills/panel/tray/flight styling lives in
+   RequestPicker.css — this is only the bit its submit row borrows from here,
+   same as `.access-tool-grid` and `.access-disclosure` above. */
+.access-submit-row {
+  display: flex;
+}

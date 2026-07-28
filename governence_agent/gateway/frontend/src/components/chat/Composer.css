@@ -1,0 +1,95 @@
+/* The composer owns its own look (border, textarea, foot row) wherever it's
+   mounted; the page around it owns placement — centred in Home's hero,
+   pinned to the bottom of a thread, or full-width on the Assistant tab. */
+
+.chat-composer {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-r-lg);
+  box-shadow: var(--ui-shadow-md);
+  text-align: left;
+  transition:
+    border-color var(--ui-dur-2) var(--ui-ease-in-out),
+    box-shadow var(--ui-dur-2) var(--ui-ease-out),
+    transform var(--ui-dur-2) var(--ui-ease-out);
+}
+
+/* The whole card responds to focus, not just the textarea inside it — the card
+   is what reads as the input. */
+.chat-composer:focus-within {
+  border-color: var(--ui-accent);
+  box-shadow:
+    var(--ui-shadow-md),
+    0 0 0 3px color-mix(in srgb, var(--ui-accent) 22%, transparent);
+  transform: translateY(-1px);
+}
+
+.chat-composer-input {
+  font: inherit;
+  /* Inter, loaded in index.html — just for the composer's own text (typed
+     and placeholder alike); the rest of the app stays on --ui-sans. */
+  font-family: 'Inter', var(--ui-sans);
+  font-size: var(--ui-fs-lg);
+  line-height: 1.5;
+  /* Height is set from scrollHeight in JS; these bound it. */
+  min-height: 3.1rem;
+  max-height: 38vh;
+  resize: none;
+  overflow-y: auto;
+  padding: 0.95rem 1.1rem 0.3rem;
+  border: 0;
+  background: transparent;
+  color: var(--ui-text);
+}
+
+.chat-composer-input:focus {
+  outline: none; /* The card carries the focus ring. */
+}
+
+.chat-composer-input::placeholder {
+  color: var(--ui-text-faint);
+  opacity: 1;
+}
+
+.chat-composer-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.45rem 0.6rem 0.6rem 1.1rem;
+}
+
+.chat-composer-hint {
+  margin: 0;
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-faint);
+}
+
+.chat-composer-blank {
+  color: var(--ui-warn);
+  font-weight: 550;
+}
+
+.chat-composer-blank code {
+  font-family: var(--ui-mono);
+  font-size: 0.95em;
+}
+
+.chat-composer-hint kbd {
+  font-family: var(--ui-sans);
+  font-size: 0.95em;
+  font-weight: 600;
+  padding: 0.02em 0.3em;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-r-xs);
+  color: var(--ui-text-muted);
+}
+
+.chat-composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}

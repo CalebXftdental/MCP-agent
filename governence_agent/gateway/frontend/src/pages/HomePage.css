@@ -1,0 +1,121 @@
+/* Home is the one page in the console that isn't a data panel, so it gets a
+   different rhythm: a single centred column, and nothing competing with the
+   composer. Everything that reports on past work moved to History, which is
+   what lets the empty state stay one screen with no scroll.
+   Once a conversation starts, `.home--thread` takes over: the composer drops
+   to a pinned bottom bar and the log fills the space above it — the same
+   shape as claude.ai's own transition from empty state to thread.
+
+   The composer and quick-ask chips themselves are shared components
+   (components/chat/Composer.css, QuickAsks.css) — this file owns layout and
+   placement only. */
+
+.home {
+  display: grid;
+  place-items: center;
+  /* Enough to centre in the viewport under the topbar, without so much that the
+     page scrolls on a short window. */
+  min-height: min(78svh, 44rem);
+  padding: 1.5rem 1.75rem 2.5rem;
+}
+
+.home--thread {
+  display: flex;
+  flex-direction: column;
+  place-items: initial;
+  min-height: 0;
+  height: calc(100svh - 4.2rem); /* viewport minus the shell's sticky topbar */
+  padding: 0;
+}
+
+.home-thread-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  flex: none;
+  padding: 0.6rem 1.75rem 0;
+}
+
+.home-thread-composer {
+  flex: none;
+  max-width: 46rem;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0 1.75rem 1.1rem;
+}
+
+@media (max-width: 640px) {
+  .home--thread {
+    height: calc(100svh - 3.6rem);
+  }
+
+  .home-thread-bar,
+  .home-thread-composer {
+    padding-inline: 1rem;
+  }
+}
+
+.home-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.7rem;
+  width: 100%;
+  max-width: 44rem;
+}
+
+.home-greeting {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0;
+  font-size: clamp(1.55rem, 4vw, 2.05rem);
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  text-wrap: balance;
+}
+
+.home-mark {
+  display: inline-grid;
+  place-items: center;
+  color: var(--ui-accent);
+  flex: none;
+  animation: home-mark-in 700ms var(--ui-ease-spring) both;
+}
+
+/* The mark turns a sixth of a turn as it lands. Just enough to register as a
+   greeting rather than a loading state — it never repeats. */
+@keyframes home-mark-in {
+  from {
+    opacity: 0;
+    transform: rotate(-60deg) scale(0.5);
+  }
+}
+
+.home-sub {
+  margin: 0 0 0.2rem;
+  font-size: var(--ui-fs-base);
+  color: var(--ui-text-muted);
+  max-width: 40ch;
+  text-wrap: pretty;
+}
+
+.home-suggest {
+  width: 100%;
+}
+
+/* ── pointer to History ─────────────────────────────────────────────────── */
+
+.home-elsewhere {
+  margin: 0.2rem 0 0;
+}
+
+@media (max-width: 640px) {
+  .home {
+    padding: 1rem 1rem 2rem;
+    min-height: auto;
+    align-content: start;
+  }
+}

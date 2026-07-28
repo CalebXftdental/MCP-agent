@@ -1,0 +1,138 @@
+.chat-msg {
+  max-width: 42rem;
+  animation: ui-rise var(--ui-dur-3) var(--ui-ease-out) both;
+}
+
+.chat-msg--me {
+  align-self: flex-end;
+  background: var(--ui-accent);
+  color: var(--ui-on-accent);
+  padding: 0.6rem 0.9rem;
+  border-radius: 14px 14px 4px 14px;
+  box-shadow: var(--ui-shadow-sm);
+}
+
+.chat-msg-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--ui-fs-base);
+  line-height: 1.5;
+}
+
+.chat-msg--bot {
+  align-self: flex-start;
+  width: 100%;
+}
+
+.chat-msg-body {
+  font-size: var(--ui-fs-base);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.chat-msg-body p,
+.chat-msg-body > div {
+  margin: 0;
+}
+
+.chat-msg-body > div + div {
+  margin-top: 0.15rem;
+}
+
+.chat-msg-body ul {
+  margin: 0.35rem 0;
+  padding-left: 1.25rem;
+}
+
+.chat-msg-body li {
+  margin: 0.12rem 0;
+}
+
+.chat-msg-body .mdh {
+  font-weight: 700;
+  margin: 0.35rem 0 0.1rem;
+}
+
+.chat-msg-body .mdspace {
+  height: 0.55rem;
+}
+
+.chat-msg-body code {
+  background: var(--ui-surface-hover);
+  padding: 0.05rem 0.3rem;
+  border-radius: var(--ui-r-xs);
+  font-family: var(--ui-mono);
+  font-size: 0.85em;
+}
+
+.chat-msg-body .mdcode {
+  background: var(--ui-n-900);
+  color: #e9edf0;
+  border-radius: var(--ui-r-sm);
+  padding: 0.6rem 0.8rem;
+  overflow-x: auto;
+  font-size: 0.85em;
+  margin: 0.45rem 0;
+}
+
+.chat-msg-body .mdcode code {
+  background: none;
+  color: inherit;
+  padding: 0;
+}
+
+.chat-msg-body .mdtable-wrap {
+  overflow-x: auto;
+  margin: 0.45rem 0;
+}
+
+.chat-msg-body .mdtable {
+  border-collapse: collapse;
+  font-size: 0.9em;
+  width: 100%;
+}
+
+.chat-msg-body .mdtable th,
+.chat-msg-body .mdtable td {
+  border: 1px solid var(--ui-border);
+  padding: 0.32rem 0.55rem;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.chat-msg-body .mdtable th {
+  background: var(--ui-surface-sunken);
+  font-weight: 650;
+}
+
+.chat-msg-tool-line {
+  align-self: flex-start;
+  color: var(--ui-text-faint);
+  font-size: var(--ui-fs-2xs);
+  font-family: var(--ui-mono);
+  margin: 0;
+}
+
+.chat-msg-tool-line--done {
+  margin-top: 0.35rem;
+}
+
+.chat-msg-error {
+  margin: 0;
+  color: var(--ui-danger);
+  font-size: var(--ui-fs-sm);
+}
+
+.chat-inline-chart {
+  margin-top: 0.55rem;
+  max-width: 26rem;
+}
+
+.chat-followups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.6rem;
+  align-self: flex-start;
+}

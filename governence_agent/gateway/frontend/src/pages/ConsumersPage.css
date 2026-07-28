@@ -1,0 +1,80 @@
+.consumers {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.5rem 1.75rem 3rem;
+  max-width: 80rem;
+}
+
+@media (max-width: 640px) {
+  .consumers {
+    padding: 1rem 1rem 2.5rem;
+  }
+}
+
+/* ── create form (inside the Modal) ─────────────────────────────────────── */
+
+.consumers-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+/* ── shared bits ─────────────────────────────────────────────────────────── */
+
+.consumers-note {
+  margin: 0;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-faint);
+}
+
+.consumers-subtext {
+  margin-top: 0.1rem;
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-faint);
+}
+
+.consumers-none {
+  color: var(--ui-text-faint);
+}
+
+.consumers-cat-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+/* ── manage drawer ───────────────────────────────────────────────────────── */
+
+.consumers-drawer-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+}
+
+.consumers-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.consumers-section-label {
+  margin: 0;
+}
+
+.consumers-flags {
+  margin: 0;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--ui-r-md);
+  background: var(--ui-danger-soft);
+  color: var(--ui-danger);
+  font-size: var(--ui-fs-sm);
+  font-weight: 600;
+}
+
+.consumers-confirm-msg {
+  margin: 0;
+  font-size: var(--ui-fs-base);
+  font-weight: 600;
+  color: var(--ui-text);
+}

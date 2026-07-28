@@ -1,0 +1,46 @@
+/* Positioned entirely by inline style (`left`/`top` or `bottom`/`width`) set by
+   useCardReveal from the trigger card's measured bounding rect — this
+   stylesheet only supplies the chrome. A high z-index because this competes
+   with the WHOLE page's stacking (sticky topbar, the corner connection
+   badge), not just sibling grid cards. */
+.access-card-overlay {
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.65rem 0.9rem 0.8rem;
+  background: var(--ui-surface-raised);
+  border: 1px solid var(--ui-accent);
+  border-radius: var(--ui-r-md);
+  box-shadow: var(--ui-shadow-lg);
+  pointer-events: none; /* informational only; never blocks the pointer */
+  animation: ui-rise var(--ui-dur-2) var(--ui-ease-out) both;
+}
+
+.access-card-desc {
+  margin: 0;
+  font-size: var(--ui-fs-xs);
+  line-height: 1.5;
+  color: var(--ui-text-muted);
+}
+
+.access-card-method {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.access-card-method code {
+  font-family: var(--ui-mono);
+  font-size: var(--ui-fs-2xs);
+  color: var(--ui-text-faint);
+  overflow-wrap: anywhere;
+}
+
+.access-card-note {
+  margin: 0;
+  font-size: var(--ui-fs-2xs);
+  font-style: italic;
+  color: var(--ui-text-faint);
+}

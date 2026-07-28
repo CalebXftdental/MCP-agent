@@ -1,0 +1,46 @@
+.ui-add-btn {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2.15rem;
+  height: 2.15rem;
+  padding: 0;
+  color: var(--ui-on-accent);
+  background: var(--ui-accent);
+  border: 0;
+  border-radius: var(--ui-r-pill);
+  cursor: pointer;
+  box-shadow: var(--ui-shadow-sm);
+  /* Colour/shadow only — no transform. Scaling the circle on hover also
+     scales whatever icon sits inside it, which reads as the icon itself
+     changing size/drifting. */
+  transition:
+    box-shadow var(--ui-dur-2) var(--ui-ease-out),
+    background-color var(--ui-dur-1) var(--ui-ease-in-out);
+}
+
+.ui-add-btn--sm {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.ui-add-btn:hover:not(:disabled) {
+  background: var(--ui-accent-strong);
+  box-shadow: var(--ui-shadow-md);
+}
+
+.ui-add-btn:active:not(:disabled) {
+  background: var(--ui-accent-strong);
+  box-shadow: var(--ui-shadow-sm);
+}
+
+.ui-add-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  box-shadow: none;
+}
+
+.ui-add-btn:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 2px;
+}

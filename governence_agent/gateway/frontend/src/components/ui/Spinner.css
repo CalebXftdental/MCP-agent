@@ -1,0 +1,73 @@
+.ui-spinner-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+
+.ui-spinner-wrap--center {
+  display: flex;
+  justify-content: center;
+  padding: 1.5rem 0;
+}
+
+.ui-spinner {
+  display: inline-block;
+  border: 2px solid var(--ui-border-strong);
+  border-top-color: var(--ui-accent);
+  border-radius: 50%;
+  animation: ui-spin 700ms linear infinite;
+}
+
+.ui-spinner--sm { width: 0.85rem; height: 0.85rem; }
+.ui-spinner--md { width: 1.15rem; height: 1.15rem; }
+.ui-spinner--lg { width: 1.75rem; height: 1.75rem; border-width: 2.5px; }
+
+/* Rotation can't survive reduced motion, so the accent arc becomes a whole
+   pulsing ring — still clearly "working", with no movement. */
+@media (prefers-reduced-motion: reduce) {
+  .ui-spinner {
+    border-color: var(--ui-accent);
+    animation: ui-fade 900ms var(--ui-ease-in-out) infinite alternate !important;
+    animation-duration: 900ms !important;
+    animation-iteration-count: infinite !important;
+  }
+}
+
+/* ── typing dots ────────────────────────────────────────────────────────── */
+
+.ui-typing {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  height: 1.1rem;
+}
+
+.ui-typing i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ui-text-faint);
+  animation: ui-tdot 1.2s var(--ui-ease-in-out) infinite;
+}
+
+.ui-typing i:nth-child(2) { animation-delay: 0.18s; }
+.ui-typing i:nth-child(3) { animation-delay: 0.36s; }
+
+@keyframes ui-tdot {
+  0%,
+  70%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  35% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-typing i {
+    animation: none !important;
+    opacity: 0.5;
+  }
+}

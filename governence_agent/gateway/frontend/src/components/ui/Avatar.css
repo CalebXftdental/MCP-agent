@@ -1,0 +1,53 @@
+.ui-avatar {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  border-radius: 50%;
+  font-weight: 700;
+  line-height: 1;
+  user-select: none;
+  background: hsl(var(--ui-avatar-hue, 180) 42% 92%);
+  color: hsl(var(--ui-avatar-hue, 180) 45% 30%);
+}
+
+/* Dark theme flips the pair rather than reusing it: a 92%-lightness disc is a
+   glowing dot on a dark ground. */
+@media (prefers-color-scheme: dark) {
+  .ui-avatar {
+    background: hsl(var(--ui-avatar-hue, 180) 28% 24%);
+    color: hsl(var(--ui-avatar-hue, 180) 55% 78%);
+  }
+}
+
+:root[data-theme='dark'] .ui-avatar {
+  background: hsl(var(--ui-avatar-hue, 180) 28% 24%);
+  color: hsl(var(--ui-avatar-hue, 180) 55% 78%);
+}
+
+:root[data-theme='light'] .ui-avatar {
+  background: hsl(var(--ui-avatar-hue, 180) 42% 92%);
+  color: hsl(var(--ui-avatar-hue, 180) 45% 30%);
+}
+
+.ui-avatar--sm { width: 1.5rem; height: 1.5rem; font-size: 0.6rem; }
+.ui-avatar--md { width: 1.9rem; height: 1.9rem; font-size: var(--ui-fs-2xs); }
+.ui-avatar--lg { width: 2.6rem; height: 2.6rem; font-size: var(--ui-fs-sm); }
+
+.ui-avatar-status {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 0.5em;
+  height: 0.5em;
+  min-width: 7px;
+  min-height: 7px;
+  border-radius: 50%;
+  /* Ring in the surface colour, so the dot stays visible over any avatar tint. */
+  box-shadow: 0 0 0 2px var(--ui-surface);
+}
+
+.ui-avatar-status--ok { background: var(--ui-ok); }
+.ui-avatar-status--warn { background: var(--ui-warn); }
+.ui-avatar-status--danger { background: var(--ui-danger); }
+.ui-avatar-status--idle { background: var(--ui-n-400); }

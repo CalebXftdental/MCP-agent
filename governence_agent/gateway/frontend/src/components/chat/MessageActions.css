@@ -1,0 +1,48 @@
+.msg-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.4rem;
+  /* Revealed on hover/focus, same as the legacy `.msg.bot:hover .msg-actions`.
+     Kept always-interactive for touch (no hover) via the media query below. */
+  opacity: 0;
+  transition: opacity var(--ui-dur-1) var(--ui-ease-in-out);
+}
+
+.chat-msg:hover .msg-actions,
+.chat-msg:focus-within .msg-actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .msg-actions {
+    opacity: 1;
+  }
+}
+
+.msg-actions button {
+  background: none;
+  border: 0;
+  color: var(--ui-text-faint);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ui-fs-xs);
+  padding: 0.1rem 0.2rem;
+  transition: color var(--ui-dur-1) var(--ui-ease-in-out);
+}
+
+.msg-actions button:hover {
+  color: var(--ui-text);
+}
+
+.msg-actions button:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 1px;
+  border-radius: var(--ui-r-xs);
+}
+
+.msg-actions button.is-on {
+  color: var(--ui-accent-text);
+  font-weight: 650;
+}

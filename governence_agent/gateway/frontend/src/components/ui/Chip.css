@@ -1,0 +1,133 @@
+.ui-chip-wrap {
+  display: inline-flex;
+  align-items: stretch;
+  max-width: 100%;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-r-pill);
+  background: var(--ui-surface);
+  overflow: hidden;
+  transition:
+    border-color var(--ui-dur-1) var(--ui-ease-in-out),
+    background-color var(--ui-dur-1) var(--ui-ease-in-out),
+    transform var(--ui-dur-2) var(--ui-ease-spring);
+}
+
+.ui-chip-wrap:hover:has(.ui-chip:not(:disabled)) {
+  border-color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+  transform: translateY(-1px);
+}
+
+.ui-chip-wrap:has(.ui-chip:active:not(:disabled)) {
+  transform: translateY(0);
+}
+
+/* The ring goes on the wrapper so focusing either child outlines the whole
+   chip — two overlapping pill outlines otherwise. */
+.ui-chip-wrap:focus-within {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 2px;
+}
+
+.ui-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  font: inherit;
+  font-family: var(--ui-sans);
+  font-size: var(--ui-fs-sm);
+  font-weight: 550;
+  color: var(--ui-text);
+  background: transparent;
+  border: 0;
+  padding: 0.32rem 0.75rem;
+  cursor: pointer;
+  transition: color var(--ui-dur-1) var(--ui-ease-in-out);
+}
+
+.ui-chip:focus-visible {
+  outline: none; /* handled by the wrapper */
+}
+
+.ui-chip-wrap--removable .ui-chip {
+  padding-right: 0.4rem;
+}
+
+/* Dense variant. Only padding and type size change — the pill radius and border
+   stay put, so a mixed row of sizes still reads as one family. */
+.ui-chip-wrap--sm .ui-chip {
+  padding: 0.2rem 0.55rem;
+  font-size: var(--ui-fs-xs);
+  gap: 0.3rem;
+}
+
+.ui-chip-wrap--sm.ui-chip-wrap--removable .ui-chip {
+  padding-right: 0.28rem;
+}
+
+.ui-chip-wrap--sm .ui-chip-remove {
+  padding: 0 0.45rem 0 0.25rem;
+}
+
+.ui-chip:hover:not(:disabled) {
+  color: var(--ui-accent-text);
+}
+
+.ui-chip:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.ui-chip[data-selected] {
+  color: var(--ui-accent-text);
+  font-weight: 650;
+}
+
+.ui-chip-wrap:has(.ui-chip[data-selected]) {
+  border-color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+}
+
+.ui-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-chip-icon {
+  display: inline-grid;
+  place-items: center;
+  line-height: 1;
+  flex: none;
+}
+
+.ui-chip-remove {
+  display: inline-grid;
+  place-items: center;
+  font: inherit;
+  font-size: var(--ui-fs-2xs);
+  line-height: 1;
+  padding: 0 0.6rem 0 0.35rem;
+  border: 0;
+  background: transparent;
+  color: var(--ui-text-faint);
+  cursor: pointer;
+  transition:
+    color var(--ui-dur-1) var(--ui-ease-in-out),
+    background-color var(--ui-dur-1) var(--ui-ease-in-out);
+}
+
+.ui-chip-remove:hover:not(:disabled) {
+  color: var(--ui-danger);
+  background: var(--ui-danger-soft);
+}
+
+.ui-chip-remove:focus-visible {
+  outline: none;
+}
+
+.ui-chip-remove:disabled {
+  cursor: default;
+  opacity: 0.5;
+}

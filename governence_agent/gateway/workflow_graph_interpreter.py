@@ -9,12 +9,13 @@ from any separate in-memory cache. This is what makes "pause at an approval
 gate, then resume into the next node" safe to implement as "just walk the
 whole graph again."
 
-`_govern`/`_parse_tool_json`/`_workflow_requires_broad_export_approval`/
-`_workflow_pause_for_broad_export` live in gateway/app.py, which imports THIS
-module (to dispatch into it) -- importing them back at module load time would
-be a circular import, so they're imported lazily inside `_interpret`, by which
-point app.py's module is already fully initialized in sys.modules. This is the
-only place that trick is needed; everything else here is a normal import.
+`_workflow_requires_broad_export_approval`/`_workflow_pause_for_broad_export`
+live in backend/workflow_api.py, which imports THIS module (to dispatch into it)
+-- importing them back at module load time would be a circular import, so those
+two are imported lazily inside `_interpret`, by which point workflow_api is fully
+initialized in sys.modules. That is the only place the trick is needed; `_govern`
+and `_parse_tool_json` are plain imports below, since govern.py and backend/deps.py
+depend on nothing here.
 """
 from __future__ import annotations
 
@@ -28,6 +29,8 @@ from workflow_graph_store import RESERVED_NODE_ID_SUFFIX, topological_node_ids
 from workflow_models import WorkflowRun, WorkflowStep
 
 import orchestrator
+from backend.deps import _parse_tool_json
+from govern import _govern
 
 # A tool_call node fails (and therefore fails the whole run, matching fail_step's
 # existing "one failed step fails the run" semantics) iff _govern's own JSON result
@@ -151,7 +154,15 @@ async def _execute_llm_transform_node(run: WorkflowRun, node: GraphNode) -> tupl
 
 
 async def _interpret(run: WorkflowRun, graph: WorkflowGraphDefinition, body: dict) -> dict:
-    from app import _govern, _parse_tool_json, _workflow_requires_broad_export_approval, _workflow_pause_for_broad_export
+    # Still lazy, and still for the original reason: backend.workflow_api imports
+    # THIS module to dispatch into it, so importing it back at module load time
+    # would be a genuine cycle. By the time _interpret runs, workflow_api is fully
+    # initialized in sys.modules. _govern and _parse_tool_json no longer need the
+    # trick (see the module-level imports above) -- only these two do.
+    from backend.workflow_api import (
+        _workflow_pause_for_broad_export,
+        _workflow_requires_broad_export_approval,
+    )
 
     version_num = run.inputs.get("__graph_version") or graph.published_version
     version = graph.version_record(version_num)

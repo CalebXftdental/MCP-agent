@@ -1,0 +1,157 @@
+.req-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+/* ── category pills ─────────────────────────────────────────────────────── */
+
+.req-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.req-pill-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* The "how many are left here" count — a circle rather than a second badge so
+   it doesn't compete with the sensitivity pills used everywhere else on this
+   page for the same visual slot. */
+.req-pill-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.3rem;
+  height: 1.3rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: var(--ui-accent-soft);
+  color: var(--ui-accent-text);
+  font-size: var(--ui-fs-2xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── shared panel ────────────────────────────────────────────────────────── */
+
+/* `grid`, not `flex`: a flex item shrinks to its content's width by default
+   (flex-basis:auto doesn't stretch along the main axis), so the tool grid
+   inside never got a real width to spread its auto-fit columns across and
+   collapsed to one narrow column no matter how much room there was. A grid
+   item stretches on both axes by default, which is exactly what the nested
+   `.access-tool-grid` needs to compute its own column count correctly. */
+.req-panel {
+  min-height: 4rem;
+  display: grid;
+}
+
+.req-panel-hint {
+  margin: 0;
+  align-self: center;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-faint);
+}
+
+/* Always 4 across — unlike the granted-access grid's auto-fit, a card's width
+   here shouldn't depend on how many tools happen to be in the open category.
+   One tool still gets a quarter-width card, not a card stretched the full
+   row wide. */
+.req-tool-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.65rem;
+}
+
+@media (max-width: 900px) {
+  .req-tool-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .req-tool-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── selected tray ───────────────────────────────────────────────────────── */
+
+.req-tray {
+  border: 1px dashed var(--ui-border-strong);
+  border-radius: var(--ui-r-md);
+  padding: 0.65rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.req-tray-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.req-tray-count {
+  font-size: var(--ui-fs-xs);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--ui-text-faint);
+}
+
+.req-tray-count--full {
+  color: var(--ui-warn);
+}
+
+.req-tray-empty {
+  margin: 0;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-faint);
+}
+
+.req-tray-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+/* Entrance for a chip landing in the tray, timed to land as the flight ghost
+   (RequestPicker.tsx) fades out on arrival. */
+.req-tray-chip {
+  display: inline-flex;
+  animation: ui-pop var(--ui-dur-3) var(--ui-ease-spring) both;
+}
+
+/* ── optional note ───────────────────────────────────────────────────────── */
+
+/* `.access-disclosure` (AccessPage.css) supplies the border/marker/summary
+   reset shared by every collapsible section on this page; this only trims the
+   field's own spacing so it doesn't add a second margin on top of that. */
+.req-note .ui-field {
+  margin-top: 0.5rem;
+}
+
+/* ── flying pick ─────────────────────────────────────────────────────────── */
+
+.access-flight-ghost {
+  z-index: 1200;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.32rem 0.75rem;
+  border-radius: 999px;
+  background: var(--ui-accent-soft);
+  color: var(--ui-accent-text);
+  font-size: var(--ui-fs-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  box-shadow: var(--ui-shadow-md);
+  transition:
+    transform var(--ui-dur-4) var(--ui-ease-out),
+    opacity var(--ui-dur-4) var(--ui-ease-out);
+}

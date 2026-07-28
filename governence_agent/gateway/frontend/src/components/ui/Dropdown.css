@@ -1,0 +1,121 @@
+.ui-dd-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  width: 100%;
+  font: inherit;
+  font-family: var(--ui-sans);
+  font-size: var(--ui-fs-base);
+  line-height: 1.4;
+  padding: 0.5rem 0.65rem;
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-r-sm);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color var(--ui-dur-1) var(--ui-ease-in-out),
+    box-shadow var(--ui-dur-1) var(--ui-ease-in-out);
+}
+
+.ui-dd-trigger:hover:not(:disabled) {
+  border-color: var(--ui-n-400);
+}
+
+.ui-dd-trigger:focus-visible,
+.ui-dd-trigger[aria-expanded='true'] {
+  outline: none;
+  border-color: var(--ui-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 28%, transparent);
+}
+
+.ui-dd-trigger[aria-invalid='true'] {
+  border-color: var(--ui-danger);
+}
+
+.ui-dd-trigger:disabled {
+  background: var(--ui-surface-sunken);
+  color: var(--ui-text-faint);
+  cursor: default;
+}
+
+.ui-dd-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-dd-value--placeholder {
+  color: var(--ui-text-faint);
+}
+
+/* Own chevron, drawn the same way `.ui-select` draws its arrow — one visual
+   language for "this opens a list," whichever of the two controls it is. */
+.ui-dd-chevron {
+  flex: none;
+  width: 0.6rem;
+  height: 0.6rem;
+  background-image: linear-gradient(45deg, transparent 50%, currentcolor 50%),
+    linear-gradient(135deg, currentcolor 50%, transparent 50%);
+  background-position:
+    0 55%,
+    0.35rem 55%;
+  background-size: 0.35rem 0.35rem;
+  background-repeat: no-repeat;
+  color: var(--ui-text-faint);
+  transition: transform var(--ui-dur-2) var(--ui-ease-out);
+}
+
+.ui-dd-chevron--open {
+  transform: rotate(180deg);
+}
+
+/* ── menu (portal-rendered at a measured fixed position) ────────────────── */
+
+.ui-dd-menu {
+  position: fixed;
+  z-index: 90;
+  margin: 0;
+  padding: 0.35rem;
+  list-style: none;
+  max-height: 16rem;
+  overflow-y: auto;
+  background: var(--ui-surface-raised);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-r-md);
+  box-shadow: var(--ui-shadow-lg);
+  animation: ui-rise var(--ui-dur-2) var(--ui-ease-out) both;
+}
+
+.ui-dd-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  font: inherit;
+  font-size: var(--ui-fs-sm);
+  text-align: left;
+  color: var(--ui-text);
+  background: transparent;
+  border: 0;
+  border-radius: var(--ui-r-sm);
+  cursor: pointer;
+}
+
+.ui-dd-option[data-highlighted],
+.ui-dd-option:hover {
+  background: var(--ui-accent-soft);
+  color: var(--ui-accent-text);
+}
+
+.ui-dd-option[aria-selected='true'] {
+  font-weight: 650;
+}
+
+.ui-dd-check {
+  color: var(--ui-accent-text);
+}

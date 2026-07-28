@@ -1,16 +1,18 @@
-"""MCP client pool -- the gateway's connection to backend MCP servers.
+"""MCP client pool -- the gateway's OUTBOUND connections to backend MCP servers.
 
-The gateway is an MCP *client* here: for each governed tool call it opens a
-Streamable HTTP MCP session to the owning backend (mcp-minierp-orders,
--accounts, -shipments, or -finance), calls the canonical tool, and returns the
-backend's raw text result (a JSON string).
+The direction is the thing to keep straight: this is the gateway acting as an MCP
+*client*, calling servers it depends on. The `backend/` package next door is the
+opposite direction -- the HTTP API this gateway *serves* to browsers. (This module
+was called `backends.py` until those two sat side by side and the names became a
+trap.)
+
+For each governed tool call it opens a Streamable HTTP MCP session to the owning
+backend, calls the canonical tool, and returns the backend's raw text result (a
+JSON string).
 
 Backends run stateless_http, so a fresh connect + initialize per call is correct
-and cheap enough for Stage 1. Backend URLs come from env, e.g.:
-    MINIERP_ORDERS_MCP_URL     default http://localhost:8021/mcp
-    MINIERP_FINANCE_MCP_URL    default http://localhost:8022/mcp
-    MINIERP_ACCOUNTS_MCP_URL   default http://localhost:8023/mcp
-    MINIERP_SHIPMENTS_MCP_URL  default http://localhost:8024/mcp
+and cheap enough for Stage 1. Backend URLs come from env -- see _DEFAULT_URLS
+below for the full set and MINIERP_MCP_URL for the consolidated ERP server.
 
 A per-call timeout bounds a hung backend; failures raise BackendError, which the
 gateway turns into an audited error result (fail closed -- never a passthrough).
@@ -27,6 +29,29 @@ from mcp.client.streamable_http import streamablehttp_client
 
 class BackendError(RuntimeError):
     """A backend call failed (transport, timeout, or tool-level error)."""
+
+
+def _leaves(exc: BaseException) -> list[BaseException]:
+    """Flatten an ExceptionGroup tree down to the exceptions that actually failed."""
+    if isinstance(exc, BaseExceptionGroup):
+        return [leaf for sub in exc.exceptions for leaf in _leaves(sub)]
+    return [exc]
+
+
+def describe_error(exc: BaseException) -> str:
+    """Human-readable cause, unwrapped from anyio's task-group envelope.
+
+    streamablehttp_client runs its transport inside a task group, so an ordinary
+    connection refusal arrives as "unhandled errors in a TaskGroup (1
+    sub-exception)" -- true, and useless in a health panel. Descend to the real
+    leaf exceptions and name their types, deduped, so "backend is not running"
+    reads as `ConnectDenied: [WinError 1225] ...` instead.
+    """
+    seen: dict[str, None] = {}
+    for leaf in _leaves(exc):
+        text = str(leaf).strip()
+        seen.setdefault(f"{type(leaf).__name__}: {text}" if text else type(leaf).__name__, None)
+    return "; ".join(seen) or type(exc).__name__
 
 
 # The four miniERP domains are now served by ONE consolidated backend
@@ -92,7 +117,10 @@ async def ping(backend: str, timeout: float | None = None) -> dict:
     except asyncio.TimeoutError:
         return {"ok": False, "latency_ms": None, "error": f"probe timed out after {t}s"}
     except Exception as exc:  # noqa: BLE001 -- normalize every failure to a result
-        return {"ok": False, "latency_ms": None, "error": str(exc)}
+        # Catches ExceptionGroup too (it subclasses Exception when every leaf is an
+        # ordinary Exception, which is the transport-failure case). A bare
+        # BaseExceptionGroup carrying e.g. CancelledError deliberately propagates.
+        return {"ok": False, "latency_ms": None, "error": describe_error(exc)}
 
 
 def _extract_text(result) -> str:
@@ -125,7 +153,7 @@ async def call(backend: str, tool: str, args: dict) -> str:
     except asyncio.TimeoutError as exc:
         raise BackendError(f"{backend}.{tool} timed out after {_timeout_sec()}s") from exc
     except Exception as exc:  # noqa: BLE001 -- normalize every failure to fail-closed
-        raise BackendError(f"{backend}.{tool} call failed: {exc}") from exc
+        raise BackendError(f"{backend}.{tool} call failed: {describe_error(exc)}") from exc
 
     if getattr(result, "isError", False):
         raise BackendError(f"{backend}.{tool} returned an error: {_extract_text(result)[:300]}")

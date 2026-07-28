@@ -1,0 +1,29 @@
+.stub {
+  padding: 1.5rem 1.75rem 3rem;
+  max-width: 48rem;
+}
+
+.stub-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.stub-icon {
+  font-size: 1.05em;
+  line-height: 1;
+}
+
+.stub-body {
+  margin: 0;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-muted);
+  max-width: 60ch;
+  text-wrap: pretty;
+}
+
+@media (max-width: 640px) {
+  .stub {
+    padding: 1rem 1rem 2.5rem;
+  }
+}

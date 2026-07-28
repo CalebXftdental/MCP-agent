@@ -30,7 +30,7 @@ caller (MCP client, per-consumer key)
 |---|---|
 | `governance_core/` | Shared plane: `edge.py` (Layer-1 auth/rate/IP/size), `audit.py`, `request_context.py`, `scope_store.py`, and `policy/` (PDP). |
 | `governance_core/policy/` | `manifest.py` (tool → backend/scope/field-classifications), `entitlements.py` (consumer → allowed levels), `departments.py` (department → backend/tool/level grants), `decision.py` (`decide()`), `redaction.py` (apply plan). |
-| `gateway/` | `app.py` (FastMCP PEP + namespaced `minierp_<domain>_*` tools + `_govern` pipeline), `backends.py` (MCP client pool), `static/dashboard.html`. |
+| `gateway/` | `app.py` (FastMCP PEP + namespaced `minierp_<domain>_*` tools), `govern.py` (the `_govern` pipeline), `mcp_clients.py` (outbound MCP client pool), `backend/` (the HTTP API it serves, one module per domain), `static/app.html`, `frontend/` (React client). |
 | `mcp-minierp-orders/` | Sales orders, order lines, order totals (`SOOrder`/`SOLine`/`InventoryItem`), plus the BAccount resolution every account-scoped tool needs. |
 | `mcp-minierp-accounts/` | Contacts, addresses, customer billing profile (`BAccount`/`Customer`/`Contact`/`Address`). |
 | `mcp-minierp-shipments/` | Shipment/tracking lookups by order or shipment number — duplicates a minimal slice of order-header/BAccount resolution (needed for ownership checks + status enrichment), same pattern as `mcp-minierp-finance`'s own BAccount resolution. |

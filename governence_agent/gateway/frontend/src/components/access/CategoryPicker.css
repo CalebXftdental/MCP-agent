@@ -1,0 +1,11 @@
+.cat-picker-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.cat-picker-empty {
+  margin: 0;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-faint);
+}

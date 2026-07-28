@@ -16,7 +16,7 @@ import os
 import time
 
 import audit
-import backends
+import mcp_clients
 import safety
 from policy import manifest
 from policy.resolve import resolve as resolve_grant
@@ -413,7 +413,7 @@ async def backends_health(now: float | None = None, probe: bool = True) -> list[
     url_of: dict[str, str | None] = {}
     for b in names:
         try:
-            url_of[b] = backends.backend_url(b)
+            url_of[b] = mcp_clients.backend_url(b)
         except Exception:
             url_of[b] = None
 
@@ -426,7 +426,7 @@ async def backends_health(now: float | None = None, probe: bool = True) -> list[
             if u and u not in rep:
                 rep[u] = b
         urls = list(rep)
-        results = await asyncio.gather(*(backends.ping(rep[u]) for u in urls), return_exceptions=True)
+        results = await asyncio.gather(*(mcp_clients.ping(rep[u]) for u in urls), return_exceptions=True)
         for u, res in zip(urls, results):
             probes[u] = res if isinstance(res, dict) else {"ok": False, "latency_ms": None, "error": str(res)}
 

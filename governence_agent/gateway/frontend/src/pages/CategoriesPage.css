@@ -1,0 +1,66 @@
+.categories {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.5rem 1.75rem 3rem;
+  max-width: 80rem;
+}
+
+@media (max-width: 640px) {
+  .categories {
+    padding: 1rem 1rem 2.5rem;
+  }
+}
+
+/* ── create/edit form (shared by Modal and Drawer) ──────────────────────── */
+
+.categories-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.categories-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.categories-section-label {
+  margin: 0;
+}
+
+.categories-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.categories-chip-grid--tight {
+  gap: 0.3rem;
+}
+
+.categories-note {
+  margin: 0;
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-faint);
+}
+
+.categories-confirm-msg {
+  margin: 0;
+  font-size: var(--ui-fs-base);
+  font-weight: 600;
+  color: var(--ui-text);
+}
+
+/* ── table cells ─────────────────────────────────────────────────────────── */
+
+.categories-subtext {
+  margin-top: 0.1rem;
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-faint);
+}
+
+.categories-none {
+  color: var(--ui-text-faint);
+}

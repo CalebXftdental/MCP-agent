@@ -1,0 +1,259 @@
+.ui-dtp-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  font: inherit;
+  font-family: var(--ui-sans);
+  font-size: var(--ui-fs-base);
+  line-height: 1.4;
+  padding: 0.5rem 0.65rem;
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-r-sm);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color var(--ui-dur-1) var(--ui-ease-in-out),
+    box-shadow var(--ui-dur-1) var(--ui-ease-in-out);
+}
+
+.ui-dtp-trigger:hover:not(:disabled) {
+  border-color: var(--ui-n-400);
+}
+
+.ui-dtp-trigger:focus-visible,
+.ui-dtp-trigger[aria-expanded='true'] {
+  outline: none;
+  border-color: var(--ui-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 28%, transparent);
+}
+
+.ui-dtp-trigger[aria-invalid='true'] {
+  border-color: var(--ui-danger);
+}
+
+.ui-dtp-trigger:disabled {
+  background: var(--ui-surface-sunken);
+  color: var(--ui-text-faint);
+  cursor: default;
+}
+
+.ui-dtp-icon {
+  flex: none;
+  width: 1.05rem;
+  height: 1.05rem;
+  color: var(--ui-text-faint);
+}
+
+.ui-dtp-value {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-dtp-value--placeholder {
+  color: var(--ui-text-faint);
+}
+
+/* ── popover panel ───────────────────────────────────────────────────────── */
+
+.ui-dtp-panel {
+  position: fixed;
+  z-index: 85;
+  width: 18.5rem;
+  padding: 0.85rem;
+  background: var(--ui-surface-raised);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-r-md);
+  box-shadow: var(--ui-shadow-lg);
+  animation: ui-rise var(--ui-dur-2) var(--ui-ease-out) both;
+}
+
+.ui-dtp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.ui-dtp-month {
+  font-size: var(--ui-fs-sm);
+  font-weight: 650;
+  color: var(--ui-text);
+}
+
+.ui-dtp-nav {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 1.7rem;
+  height: 1.7rem;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--ui-text-muted);
+  background: transparent;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-r-sm);
+  cursor: pointer;
+  transition:
+    background-color var(--ui-dur-1) var(--ui-ease-in-out),
+    border-color var(--ui-dur-1) var(--ui-ease-in-out);
+}
+
+.ui-dtp-nav:hover {
+  background: var(--ui-surface-hover);
+  border-color: var(--ui-n-400);
+}
+
+.ui-dtp-nav:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 2px;
+}
+
+.ui-dtp-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 0.2rem;
+}
+
+.ui-dtp-weekdays span {
+  text-align: center;
+  font-size: var(--ui-fs-2xs);
+  font-weight: 650;
+  letter-spacing: var(--ui-eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--ui-text-faint);
+  padding: 0.2rem 0;
+}
+
+.ui-dtp-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.15rem;
+}
+
+.ui-dtp-day {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  font: inherit;
+  font-size: var(--ui-fs-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--ui-text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--ui-r-sm);
+  cursor: pointer;
+  transition:
+    background-color var(--ui-dur-1) var(--ui-ease-in-out),
+    color var(--ui-dur-1) var(--ui-ease-in-out);
+}
+
+.ui-dtp-day:hover {
+  background: var(--ui-surface-hover);
+}
+
+.ui-dtp-day:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 1px;
+}
+
+.ui-dtp-day[data-outside] {
+  color: var(--ui-text-faint);
+}
+
+.ui-dtp-day[data-today] {
+  border-color: var(--ui-accent);
+  font-weight: 650;
+}
+
+.ui-dtp-day[data-selected] {
+  background: var(--ui-accent);
+  color: var(--ui-on-accent);
+  font-weight: 650;
+}
+
+.ui-dtp-day[data-selected]:hover {
+  background: var(--ui-accent-strong);
+}
+
+/* ── time row (reuses Dropdown for hour/minute/AM-PM) ───────────────────── */
+
+.ui-dtp-time {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--ui-border);
+}
+
+.ui-dtp-time .ui-dd-trigger {
+  width: auto;
+  min-width: 3.4rem;
+  padding: 0.4rem 0.5rem;
+}
+
+.ui-dtp-time-sep {
+  color: var(--ui-text-faint);
+  font-weight: 650;
+}
+
+.ui-dtp-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.ui-dtp-text-btn {
+  font: inherit;
+  font-size: var(--ui-fs-xs);
+  font-weight: 600;
+  color: var(--ui-text-muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 0.3rem 0.2rem;
+}
+
+.ui-dtp-text-btn:hover {
+  color: var(--ui-text);
+}
+
+.ui-dtp-text-btn--accent {
+  color: var(--ui-accent-text);
+}
+
+.ui-dtp-text-btn:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 2px;
+  border-radius: var(--ui-r-xs);
+}
+
+.ui-dtp-done {
+  font: inherit;
+  font-size: var(--ui-fs-xs);
+  font-weight: 650;
+  padding: 0.4rem 0.8rem;
+  color: var(--ui-on-accent);
+  background: var(--ui-accent);
+  border: 0;
+  border-radius: var(--ui-r-sm);
+  cursor: pointer;
+  transition: background-color var(--ui-dur-1) var(--ui-ease-in-out);
+}
+
+.ui-dtp-done:hover {
+  background: var(--ui-accent-strong);
+}
+
+.ui-dtp-done:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 2px;
+}

@@ -1,0 +1,82 @@
+.alerts {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.5rem 1.75rem 3rem;
+  max-width: 80rem;
+}
+
+@media (max-width: 640px) {
+  .alerts {
+    padding: 1rem 1rem 2.5rem;
+  }
+}
+
+.alerts-severity {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.alerts-type {
+  margin-top: 0.1rem;
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-faint);
+}
+
+.alerts-handled {
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-faint);
+}
+
+.alerts-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+/* ── drawer ──────────────────────────────────────────────────────────────── */
+
+.alerts-decision-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.alerts-reason {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--ui-r-md);
+  background: var(--ui-danger-soft);
+  color: var(--ui-danger);
+  font-size: var(--ui-fs-sm);
+  font-weight: 600;
+}
+
+.alerts-subsection-label {
+  margin: 0 0 0.4rem;
+}
+
+.alerts-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.alerts-contain-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.alerts-confirm-msg {
+  margin: 0;
+  font-size: var(--ui-fs-base);
+  font-weight: 600;
+  color: var(--ui-text);
+}
+
+.alerts-note {
+  margin: 0.4rem 0 0;
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-faint);
+}

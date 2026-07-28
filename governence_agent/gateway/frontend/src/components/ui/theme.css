@@ -1,0 +1,318 @@
+/* Design tokens for the UI kit.
+ *
+ * Derived from static/app.html's :root block, not invented — same teal brand,
+ * same 12px/8px radii, same uppercase-eyebrow treatment — with four fixes:
+ *
+ *   1. The seven near-duplicate greys (#575c62 #767c84 #C4C4C4 #E0E0E0 #E7E7E7
+ *      #EFEFF0 #F6F7F8) collapse into one cool-biased ramp, so borders and
+ *      backgrounds stop drifting a shade per panel.
+ *   2. A dark theme, which the old stylesheet had none of.
+ *   3. Semantic ok/warn/danger/info kept strictly separate from the accent, so
+ *      severity reads the same everywhere. Their values match --ok/--warn/--bad
+ *      already in index.css, so this kit and ConnectionStatus agree on colour.
+ *   4. Named durations and easings, so animation is consistent instead of
+ *      per-rule guesses (.12s here, .2s there, .25s in the drawer).
+ *
+ * Every component style reads these tokens and never a raw hex, which is what
+ * makes the dark theme a token swap rather than a second stylesheet.
+ *
+ * Contrast note: --ui-accent (#2FC7BA) is ~2.1:1 on white — a fill and indicator
+ * colour ONLY. For accent-coloured text use --ui-accent-text.
+ */
+
+:root {
+  /* ── brand ramp ────────────────────────────────────────────────────────── */
+  --ui-accent-50: #eafaf8;
+  --ui-accent-100: #d7efec; /* old --status */
+  --ui-accent-200: #a9e3dc;
+  --ui-accent-500: #2fc7ba; /* old --highlight */
+  --ui-accent-600: #1a9c90; /* old --highlight-darker */
+  --ui-accent-700: #12786f;
+
+  /* ── neutral ramp (hue ~205deg, low saturation) ────────────────────────── */
+  --ui-n-950: #0b1013;
+  --ui-n-900: #151b1f;
+  --ui-n-850: #1e262b;
+  --ui-n-800: #39444d;
+  --ui-n-700: #5b6771;
+  --ui-n-600: #798591;
+  --ui-n-500: #98a2ac;
+  --ui-n-400: #bfc7ce;
+  --ui-n-300: #dce2e7;
+  --ui-n-200: #e8ecef;
+  --ui-n-100: #f1f4f6;
+  --ui-n-50: #f7f9fa;
+  --ui-white: #ffffff;
+
+  /* ── semantic scales ──────────────────────────────────────────────────── */
+  --ui-ok: #2f7d52;
+  --ui-ok-soft: #e4f2e9;
+  --ui-warn: #8a6410;
+  --ui-warn-soft: #fdf1dc;
+  --ui-danger: #a3342f;
+  --ui-danger-soft: #fbe9e7;
+  --ui-info: #2b6cb0;
+  --ui-info-soft: #e7f0f9;
+
+  /* ── surfaces and text (the only names components should use) ─────────── */
+  --ui-bg: var(--ui-n-50);
+  --ui-surface: var(--ui-white);
+  --ui-surface-sunken: var(--ui-n-50);
+  --ui-surface-hover: var(--ui-n-50);
+  --ui-surface-raised: var(--ui-white);
+  --ui-border: var(--ui-n-200);
+  --ui-border-strong: var(--ui-n-300);
+  --ui-text: #1b1b1b;
+  --ui-text-muted: var(--ui-n-700);
+  --ui-text-faint: var(--ui-n-600);
+  --ui-accent: var(--ui-accent-500);
+  --ui-accent-strong: var(--ui-accent-600);
+  --ui-accent-soft: var(--ui-accent-100);
+  --ui-accent-text: var(--ui-accent-600);
+  --ui-on-accent: var(--ui-white);
+  --ui-ring: var(--ui-accent-500);
+  --ui-scrim: rgb(21 27 31 / 0.28);
+
+  /* ── type ─────────────────────────────────────────────────────────────── */
+  --ui-sans: system-ui, 'Segoe UI Variable Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --ui-mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
+
+  --ui-fs-2xs: 0.6875rem;
+  --ui-fs-xs: 0.75rem;
+  --ui-fs-sm: 0.8125rem;
+  --ui-fs-base: 0.9375rem;
+  --ui-fs-md: 1rem;
+  --ui-fs-lg: 1.125rem;
+  --ui-fs-xl: 1.3125rem;
+  --ui-fs-2xl: 1.625rem;
+
+  --ui-eyebrow-size: var(--ui-fs-2xs);
+  --ui-eyebrow-tracking: 0.08em;
+
+  /* ── shape ────────────────────────────────────────────────────────────── */
+  --ui-r-xs: 4px;
+  --ui-r-sm: 8px;
+  --ui-r-md: 12px;
+  --ui-r-lg: 16px;
+  --ui-r-pill: 999px;
+
+  --ui-shadow-sm: 0 1px 2px rgb(21 27 31 / 0.04), 0 6px 20px -12px rgb(21 27 31 / 0.14);
+  --ui-shadow-md: 0 2px 4px rgb(21 27 31 / 0.05), 0 12px 28px -14px rgb(21 27 31 / 0.2);
+  --ui-shadow-lg: 0 4px 10px rgb(21 27 31 / 0.07), 0 28px 56px -22px rgb(21 27 31 / 0.3);
+
+  /* ── motion ───────────────────────────────────────────────────────────── */
+  --ui-dur-1: 120ms; /* colour, opacity, press */
+  --ui-dur-2: 180ms; /* small transforms */
+  --ui-dur-3: 260ms; /* panels, drawers */
+  --ui-dur-4: 420ms; /* entrances, chart reveals */
+  --ui-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ui-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ui-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Dark theme. Surfaces lift instead of the border darkening: raised panels get
+   LIGHTER than the page, which is how depth reads on a dark ground — inverting
+   the light theme's shadow-only approach would make every card disappear. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ui-ok: #79b795;
+    --ui-ok-soft: #1c2f24;
+    --ui-warn: #d8b264;
+    --ui-warn-soft: #322817;
+    --ui-danger: #e0796f;
+    --ui-danger-soft: #351f1d;
+    --ui-info: #8fb8e0;
+    --ui-info-soft: #1b2733;
+
+    --ui-bg: #0f1418;
+    --ui-surface: #171e23;
+    --ui-surface-sunken: #121a1e;
+    --ui-surface-hover: #1d262c;
+    --ui-surface-raised: #1e262b;
+    --ui-border: #2a343a;
+    --ui-border-strong: #3a464e;
+    --ui-text: #e6eaed;
+    --ui-text-muted: #9aa6b0;
+    --ui-text-faint: #7d8993;
+    --ui-accent: var(--ui-accent-500);
+    --ui-accent-strong: #47d6c9;
+    --ui-accent-soft: #123c39;
+    --ui-accent-text: #5fd9cd;
+    --ui-on-accent: #06231f;
+    --ui-scrim: rgb(3 6 8 / 0.6);
+
+    --ui-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3), 0 6px 20px -12px rgb(0 0 0 / 0.5);
+    --ui-shadow-md: 0 2px 4px rgb(0 0 0 / 0.35), 0 12px 28px -14px rgb(0 0 0 / 0.6);
+    --ui-shadow-lg: 0 4px 10px rgb(0 0 0 / 0.4), 0 28px 56px -22px rgb(0 0 0 / 0.7);
+  }
+}
+
+/* An explicit toggle has to beat the media query in BOTH directions, so each
+   theme is restated here rather than only the non-default one. */
+:root[data-theme='dark'] {
+  --ui-ok: #79b795;
+  --ui-ok-soft: #1c2f24;
+  --ui-warn: #d8b264;
+  --ui-warn-soft: #322817;
+  --ui-danger: #e0796f;
+  --ui-danger-soft: #351f1d;
+  --ui-info: #8fb8e0;
+  --ui-info-soft: #1b2733;
+
+  --ui-bg: #0f1418;
+  --ui-surface: #171e23;
+  --ui-surface-sunken: #121a1e;
+  --ui-surface-hover: #1d262c;
+  --ui-surface-raised: #1e262b;
+  --ui-border: #2a343a;
+  --ui-border-strong: #3a464e;
+  --ui-text: #e6eaed;
+  --ui-text-muted: #9aa6b0;
+  --ui-text-faint: #7d8993;
+  --ui-accent-strong: #47d6c9;
+  --ui-accent-soft: #123c39;
+  --ui-accent-text: #5fd9cd;
+  --ui-on-accent: #06231f;
+  --ui-scrim: rgb(3 6 8 / 0.6);
+
+  --ui-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3), 0 6px 20px -12px rgb(0 0 0 / 0.5);
+  --ui-shadow-md: 0 2px 4px rgb(0 0 0 / 0.35), 0 12px 28px -14px rgb(0 0 0 / 0.6);
+  --ui-shadow-lg: 0 4px 10px rgb(0 0 0 / 0.4), 0 28px 56px -22px rgb(0 0 0 / 0.7);
+}
+
+:root[data-theme='light'] {
+  --ui-ok: #2f7d52;
+  --ui-ok-soft: #e4f2e9;
+  --ui-warn: #8a6410;
+  --ui-warn-soft: #fdf1dc;
+  --ui-danger: #a3342f;
+  --ui-danger-soft: #fbe9e7;
+  --ui-info: #2b6cb0;
+  --ui-info-soft: #e7f0f9;
+
+  --ui-bg: var(--ui-n-50);
+  --ui-surface: var(--ui-white);
+  --ui-surface-sunken: var(--ui-n-50);
+  --ui-surface-hover: var(--ui-n-50);
+  --ui-surface-raised: var(--ui-white);
+  --ui-border: var(--ui-n-200);
+  --ui-border-strong: var(--ui-n-300);
+  --ui-text: #1b1b1b;
+  --ui-text-muted: var(--ui-n-700);
+  --ui-text-faint: var(--ui-n-600);
+  --ui-accent-strong: var(--ui-accent-600);
+  --ui-accent-soft: var(--ui-accent-100);
+  --ui-accent-text: var(--ui-accent-600);
+  --ui-on-accent: var(--ui-white);
+  --ui-scrim: rgb(21 27 31 / 0.28);
+
+  --ui-shadow-sm: 0 1px 2px rgb(21 27 31 / 0.04), 0 6px 20px -12px rgb(21 27 31 / 0.14);
+  --ui-shadow-md: 0 2px 4px rgb(21 27 31 / 0.05), 0 12px 28px -14px rgb(21 27 31 / 0.2);
+  --ui-shadow-lg: 0 4px 10px rgb(21 27 31 / 0.07), 0 28px 56px -22px rgb(21 27 31 / 0.3);
+}
+
+/* ── shared helpers ─────────────────────────────────────────────────────── */
+
+/* One focus ring for the whole kit. :focus-visible only, so a mouse click never
+   draws it but every keyboard path does. */
+.ui-focusable:focus-visible,
+.ui-focus-ring:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 2px;
+}
+
+/* The uppercase micro-label the old UI used for .lab / .k / .qa-label / nav
+   .group — one class instead of five copies of the same four properties. */
+.ui-eyebrow {
+  font-size: var(--ui-eyebrow-size);
+  font-weight: 650;
+  letter-spacing: var(--ui-eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--ui-text-faint);
+  line-height: 1.3;
+}
+
+.ui-mono {
+  font-family: var(--ui-mono);
+}
+
+.ui-num {
+  font-family: var(--ui-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.ui-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.ui-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── shared keyframes ───────────────────────────────────────────────────── */
+
+@keyframes ui-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes ui-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes ui-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+
+@keyframes ui-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@keyframes ui-shimmer {
+  to {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes ui-pulse-ring {
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(2.2);
+  }
+}
+
+/* ── reduced motion ─────────────────────────────────────────────────────── */
+
+/* Entrance animations are dropped outright rather than shortened: a 0.01ms
+   fade-in still flashes. Transitions stay near-instant so hover/press states
+   remain legible. Components that animate a value in JS check the same
+   preference through useReducedMotion(). */
+@media (prefers-reduced-motion: reduce) {
+  [class^='ui-'],
+  [class*=' ui-'] {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,126 @@
+.whitelist {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.5rem 1.75rem 3rem;
+  max-width: 80rem;
+}
+
+@media (max-width: 640px) {
+  .whitelist {
+    padding: 1rem 1rem 2.5rem;
+  }
+}
+
+.whitelist-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.whitelist-add-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+/* ── tray ────────────────────────────────────────────────────────────────── */
+
+.whitelist-tray {
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--ui-border);
+}
+
+.whitelist-tray-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+
+.whitelist-tray-count {
+  font-size: var(--ui-fs-xs);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--ui-text-faint);
+}
+
+.whitelist-tray-empty {
+  margin: 0;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-faint);
+}
+
+.whitelist-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+/* Entrance for a chip landing in the tray, same rhythm as the request
+   picker's own tray so adding an entry here reads the same way. */
+.whitelist-chip {
+  display: inline-flex;
+  animation: ui-pop var(--ui-dur-3) var(--ui-ease-spring) both;
+}
+
+/* ── dirty bar ───────────────────────────────────────────────────────────── */
+
+.whitelist-dirty-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.65rem 0.9rem;
+  border: 1px dashed var(--ui-border-strong);
+  border-radius: var(--ui-r-md);
+  background: var(--ui-surface-sunken);
+  animation: ui-rise var(--ui-dur-3) var(--ui-ease-out) both;
+}
+
+.whitelist-dirty-text {
+  font-size: var(--ui-fs-sm);
+  font-weight: 600;
+  color: var(--ui-text-muted);
+}
+
+.whitelist-dirty-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+/* ── confirm drawer ──────────────────────────────────────────────────────── */
+
+.whitelist-decision-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.whitelist-diff-label {
+  margin: 0 0 0.4rem;
+}
+
+.whitelist-warning {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--ui-r-md);
+  background: var(--ui-warn-soft);
+  color: var(--ui-warn);
+  font-size: var(--ui-fs-sm);
+  font-weight: 600;
+}
+
+.whitelist-warning--danger {
+  background: var(--ui-danger-soft);
+  color: var(--ui-danger);
+}
+
+.whitelist-note {
+  margin: 0;
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-faint);
+}

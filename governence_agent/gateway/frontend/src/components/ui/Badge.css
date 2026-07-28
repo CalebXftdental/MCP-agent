@@ -1,0 +1,100 @@
+.ui-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.14rem 0.55rem;
+  border: 1px solid transparent;
+  border-radius: var(--ui-r-pill);
+  font-family: var(--ui-sans);
+  font-size: var(--ui-fs-xs);
+  font-weight: 600;
+  line-height: 1.45;
+  white-space: nowrap;
+  vertical-align: baseline;
+  background: var(--ui-badge-soft);
+  color: var(--ui-badge-ink);
+  transition:
+    background-color var(--ui-dur-1) var(--ui-ease-in-out),
+    color var(--ui-dur-1) var(--ui-ease-in-out);
+}
+
+.ui-badge--subtle {
+  background: transparent;
+  border-color: var(--ui-border-strong);
+  color: var(--ui-badge-ink);
+}
+
+.ui-badge--neutral {
+  --ui-badge-soft: var(--ui-surface-hover);
+  --ui-badge-ink: var(--ui-text-muted);
+}
+
+.ui-badge--accent {
+  --ui-badge-soft: var(--ui-accent-soft);
+  --ui-badge-ink: var(--ui-accent-text);
+}
+
+.ui-badge--ok {
+  --ui-badge-soft: var(--ui-ok-soft);
+  --ui-badge-ink: var(--ui-ok);
+}
+
+.ui-badge--warn {
+  --ui-badge-soft: var(--ui-warn-soft);
+  --ui-badge-ink: var(--ui-warn);
+}
+
+.ui-badge--danger {
+  --ui-badge-soft: var(--ui-danger-soft);
+  --ui-badge-ink: var(--ui-danger);
+}
+
+.ui-badge--info {
+  --ui-badge-soft: var(--ui-info-soft);
+  --ui-badge-ink: var(--ui-info);
+}
+
+/* Neutral's tint is the hover surface, which is nearly the card colour, so the
+   dot does the work of separating it from plain text. */
+.ui-badge-dot {
+  position: relative;
+  width: 0.42em;
+  height: 0.42em;
+  border-radius: 50%;
+  background: currentcolor;
+  flex: none;
+}
+
+.ui-badge-dot--pulse::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 50%;
+  border: 1px solid currentcolor;
+  animation: ui-pulse-ring 1.8s var(--ui-ease-out) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-badge-dot--pulse::after {
+    animation: none !important;
+    opacity: 0.4;
+  }
+}
+
+/* ── severity stripe ────────────────────────────────────────────────────── */
+
+.ui-sevbar {
+  display: block;
+  width: 4px;
+  min-height: 34px;
+  height: 100%;
+  align-self: stretch;
+  border-radius: var(--ui-r-xs);
+  background: var(--ui-n-400);
+}
+
+.ui-sevbar--danger { background: var(--ui-danger); }
+.ui-sevbar--warn { background: var(--ui-warn); }
+.ui-sevbar--info { background: var(--ui-info); }
+.ui-sevbar--ok { background: var(--ui-ok); }
+.ui-sevbar--accent { background: var(--ui-accent); }

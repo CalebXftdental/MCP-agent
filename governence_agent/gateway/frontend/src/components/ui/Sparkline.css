@@ -1,0 +1,43 @@
+.ui-spark {
+  display: block;
+  overflow: visible;
+}
+
+/* pathLength={1} normalises the geometry, so one dasharray value draws any
+   series regardless of how many points it has. */
+.ui-spark-line {
+  stroke-dasharray: 1;
+  animation: ui-spark-draw var(--ui-dur-4) var(--ui-ease-out) both;
+}
+
+@keyframes ui-spark-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.ui-spark-area {
+  animation: ui-fade var(--ui-dur-4) var(--ui-ease-out) both;
+  animation-delay: 120ms;
+}
+
+/* The endpoint lands after the line reaches it. */
+.ui-spark-end {
+  animation: ui-fade var(--ui-dur-2) var(--ui-ease-out) both;
+  animation-delay: var(--ui-dur-4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-spark-line {
+    stroke-dasharray: none;
+    animation: none !important;
+  }
+
+  .ui-spark-area,
+  .ui-spark-end {
+    animation: none !important;
+  }
+}

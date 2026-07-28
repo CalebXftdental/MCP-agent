@@ -1,0 +1,48 @@
+.ui-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 2.25rem 1.25rem;
+  text-align: center;
+  color: var(--ui-text-muted);
+  animation: ui-fade var(--ui-dur-4) var(--ui-ease-out) both;
+}
+
+.ui-empty--compact {
+  padding: 0.9rem 0.75rem;
+  gap: 0.15rem;
+}
+
+.ui-empty-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+  margin-bottom: 0.35rem;
+  color: var(--ui-text-faint);
+  opacity: 0.75;
+}
+
+.ui-empty-title {
+  margin: 0;
+  font-size: var(--ui-fs-base);
+  font-weight: 600;
+  color: var(--ui-text);
+  text-wrap: balance;
+}
+
+.ui-empty--compact .ui-empty-title {
+  font-size: var(--ui-fs-sm);
+  font-weight: 550;
+  color: var(--ui-text-muted);
+}
+
+.ui-empty-desc {
+  margin: 0;
+  font-size: var(--ui-fs-sm);
+  max-width: 44ch;
+  text-wrap: pretty;
+}
+
+.ui-empty-action {
+  margin-top: 0.65rem;
+}

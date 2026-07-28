@@ -467,6 +467,83 @@ export interface EmailSend {
 /** This principal's own queued email sends (session-scoped). */
 export const getEmailSends = () => api.get<{ sends: EmailSend[] }>('/email-sends')
 
+// ── Templates ────────────────────────────────────────────────────────────────
+// Versioned reusable templates for governed office workflows and generated
+// artifacts. Readable by anyone signed in; creating, versioning, and
+// disabling are admin-only server-side (backend/templates.py) — the page
+// gates those actions on `session.isAdmin` the same way the legacy panel
+// checked `ME.role === 'admin'`, purely so the UI doesn't offer a door that
+// won't open. `content`'s shape depends on `templateType`: workflow requires
+// `goal`/`inputs`/`steps`/`outputs` to all be PRESENT (any value, even
+// empty); excel/powerpoint/word require at least one of `sections`/`tables`/
+// `layout` to be truthy (governance_core/template_store.py's `_validate`).
+// email/calendar/prompt/generic have no server-enforced shape.
+
+export type TemplateType = 'excel' | 'powerpoint' | 'word' | 'email' | 'calendar' | 'workflow' | 'prompt' | 'generic'
+
+export interface TemplateVersionRecord {
+  version: number
+  createdBy: string
+  createdAt: number
+  notes: string
+  /** Present when the caller asked for content (list calls omit it). */
+  content?: Record<string, unknown>
+}
+
+export interface Template {
+  templateId: string
+  displayName: string
+  templateType: TemplateType | string
+  status: 'active' | 'draft' | 'disabled' | string
+  owner: string
+  description: string
+  classification: string[]
+  tags: string[]
+  allowedWorkflowIds: string[]
+  currentVersion: number
+  createdAt: number
+  updatedAt: number
+  /** Notes on the current version, hoisted up for the list view — the full
+   *  version history only comes back when `versions` is requested. */
+  latestNotes: string
+  versions?: TemplateVersionRecord[]
+  /** Only present on a single-template fetch that asked for content AND
+   *  didn't also ask for versions; when versions are included, read the
+   *  current version's own `content` instead. */
+  content?: Record<string, unknown>
+}
+
+/** Admin sees disabled templates too when `includeDisabled` is set; everyone
+ *  else only ever sees non-disabled ones regardless of the flag. */
+export const listTemplates = (includeDisabled = false) =>
+  api.get<{ templates: Template[] }>(`/templates${includeDisabled ? '?include_disabled=1' : ''}`)
+
+/** Always includes full version history + each version's content — there is
+ *  no "just the latest" fetch for a single template. */
+export const getTemplate = (id: string) => api.get<Template>(`/templates/${encodeURIComponent(id)}?content=1`)
+
+export interface CreateTemplateInput {
+  display_name: string
+  template_type: string
+  content: Record<string, unknown>
+  description?: string
+  classification?: string[]
+  tags?: string[]
+  allowed_workflow_ids?: string[]
+  notes?: string
+}
+
+/** 400s (as an ApiError) if `content` fails `_validate` for the chosen type —
+ *  the message names exactly which required key is missing. */
+export const createTemplate = (input: CreateTemplateInput) => api.post<Template>('/templates', input)
+
+/** Adds a new version (bumps `currentVersion`); the template's type can't
+ *  change, so `content` is re-validated against whatever type it already is. */
+export const addTemplateVersion = (id: string, content: Record<string, unknown>, notes: string) =>
+  api.post<Template>(`/templates/${encodeURIComponent(id)}/versions`, { content, notes })
+
+export const disableTemplate = (id: string) => api.post<Template>(`/templates/${encodeURIComponent(id)}/disable`)
+
 /** Submits a self-service grant request. 400s (as an ApiError) if every
  *  selected tool is already held. */
 export const requestAccess = (selections: { category: string; tools: string[] }[], justification: string) =>

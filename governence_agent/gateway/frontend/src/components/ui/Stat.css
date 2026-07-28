@@ -1,0 +1,125 @@
+.ui-stat-grid {
+  display: grid;
+  gap: 0.7rem;
+  /* auto-fit with a floor, so tiles wrap instead of compressing. --ui-stat-min
+     is what the column count actually controls. */
+  grid-template-columns: repeat(auto-fit, minmax(var(--ui-stat-min, 11rem), 1fr));
+}
+
+.ui-stat-grid--2 { --ui-stat-min: 15rem; }
+.ui-stat-grid--3 { --ui-stat-min: 13rem; }
+.ui-stat-grid--4 { --ui-stat-min: 11rem; }
+
+.ui-stat {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.8rem 0.95rem;
+  min-width: 0;
+  text-align: left;
+  font: inherit;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-r-md);
+  box-shadow: var(--ui-shadow-sm);
+  color: var(--ui-text);
+  overflow: hidden;
+  animation: ui-rise var(--ui-dur-4) var(--ui-ease-out) both;
+}
+
+.ui-stat-label {
+  color: var(--ui-text-faint);
+}
+
+.ui-stat-value {
+  font-family: var(--ui-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--ui-fs-2xl);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  /* Space for a sparkline sitting bottom-right without the digits colliding
+     with it. */
+  padding-right: 4.5rem;
+}
+
+.ui-stat-unit {
+  font-family: var(--ui-sans);
+  font-size: var(--ui-fs-sm);
+  font-weight: 500;
+  color: var(--ui-text-faint);
+  margin-left: 0.12rem;
+}
+
+.ui-stat-detail {
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-muted);
+  padding-right: 4.5rem;
+}
+
+.ui-stat-chart {
+  position: absolute;
+  right: 0.5rem;
+  bottom: 0.5rem;
+  width: 4rem;
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+/* ── tones ──────────────────────────────────────────────────────────────── */
+
+/* Tone tints the top edge as well as the text: an at-risk tile should read from
+   across the room, and colour alone is not a signal everyone receives. */
+.ui-stat--ok,
+.ui-stat--warn,
+.ui-stat--danger {
+  border-top-width: 2px;
+}
+
+.ui-stat--ok {
+  border-top-color: var(--ui-ok);
+}
+
+.ui-stat--warn {
+  border-top-color: var(--ui-warn);
+}
+
+.ui-stat--warn .ui-stat-value,
+.ui-stat--warn .ui-stat-label {
+  color: var(--ui-warn);
+}
+
+.ui-stat--danger {
+  border-top-color: var(--ui-danger);
+}
+
+.ui-stat--danger .ui-stat-value,
+.ui-stat--danger .ui-stat-label {
+  color: var(--ui-danger);
+}
+
+/* ── clickable ──────────────────────────────────────────────────────────── */
+
+.ui-stat--clickable {
+  cursor: pointer;
+  transition:
+    border-color var(--ui-dur-1) var(--ui-ease-in-out),
+    box-shadow var(--ui-dur-2) var(--ui-ease-out),
+    transform var(--ui-dur-2) var(--ui-ease-out);
+}
+
+.ui-stat--clickable:hover {
+  border-color: var(--ui-accent);
+  box-shadow: var(--ui-shadow-md);
+  transform: translateY(-2px);
+}
+
+.ui-stat--clickable:active {
+  transform: translateY(0);
+}
+
+.ui-stat--clickable:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 2px;
+}

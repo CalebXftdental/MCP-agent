@@ -430,7 +430,7 @@ tool outputs byte-identical.
 
 **2 · Collapse 4 → 1 server.** One `mcp-minierp` FastMCP app importing all domain tool modules;
 per-tool company/region flag (default both `{2,11}`); `manifest.py` backend tags unchanged;
-`gateway/backends.py` URLs collapse to one. *Verify:* every existing primary tool reachable
+`gateway/mcp_clients.py` URLs collapse to one. *Verify:* every existing primary tool reachable
 exactly as before; categories/PDP unchanged.
 
 **3 · Persistence + durable audit.** Select `FilePolicyStore` (`GOVERNANCE_STORE_FILE`) for

@@ -1,0 +1,132 @@
+.ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.ui-field--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.ui-field-label {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: var(--ui-fs-xs);
+  font-weight: 600;
+  color: var(--ui-text-muted);
+  line-height: 1.3;
+}
+
+.ui-field-req {
+  color: var(--ui-danger);
+}
+
+.ui-field-control {
+  min-width: 0;
+}
+
+.ui-field--inline .ui-field-control {
+  flex: 1;
+}
+
+.ui-field-hint,
+.ui-field-error {
+  margin: 0;
+  font-size: var(--ui-fs-xs);
+  line-height: 1.4;
+}
+
+.ui-field-hint {
+  color: var(--ui-text-faint);
+}
+
+.ui-field-error {
+  color: var(--ui-danger);
+  /* Slides down as it appears, so it reads as attached to the control above it
+     rather than as a new line of body copy. */
+  animation: ui-rise var(--ui-dur-2) var(--ui-ease-out) both;
+}
+
+.ui-field--inline :is(.ui-field-hint, .ui-field-error) {
+  flex-basis: 100%;
+}
+
+/* ── controls ───────────────────────────────────────────────────────────── */
+
+.ui-input {
+  width: 100%;
+  font: inherit;
+  font-family: var(--ui-sans);
+  font-size: var(--ui-fs-base);
+  line-height: 1.4;
+  padding: 0.5rem 0.65rem;
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-r-sm);
+  transition:
+    border-color var(--ui-dur-1) var(--ui-ease-in-out),
+    box-shadow var(--ui-dur-1) var(--ui-ease-in-out),
+    background-color var(--ui-dur-1) var(--ui-ease-in-out);
+}
+
+.ui-input::placeholder {
+  color: var(--ui-text-faint);
+  opacity: 1; /* Firefox dims placeholders further on its own. */
+}
+
+.ui-input:hover:not(:disabled, :read-only) {
+  border-color: var(--ui-n-400);
+}
+
+/* A ring drawn with box-shadow rather than `outline` + `border-color:
+   transparent` — the legacy approach made the field visibly change size class
+   on focus, because the outline sat outside the border box. */
+.ui-input:focus {
+  outline: none;
+  border-color: var(--ui-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 28%, transparent);
+}
+
+.ui-input[aria-invalid='true'] {
+  border-color: var(--ui-danger);
+}
+
+.ui-input[aria-invalid='true']:focus {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-danger) 26%, transparent);
+}
+
+.ui-input:disabled {
+  background: var(--ui-surface-sunken);
+  color: var(--ui-text-faint);
+  cursor: default;
+}
+
+.ui-input:read-only:not(:disabled) {
+  background: var(--ui-surface-sunken);
+}
+
+.ui-select {
+  /* Own arrow, so the control looks the same in every browser. */
+  appearance: none;
+  padding-right: 1.9rem;
+  background-image: linear-gradient(45deg, transparent 50%, currentcolor 50%),
+    linear-gradient(135deg, currentcolor 50%, transparent 50%);
+  background-position:
+    calc(100% - 1.05rem) 55%,
+    calc(100% - 0.7rem) 55%;
+  background-size: 0.35rem 0.35rem;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+.ui-textarea {
+  resize: vertical;
+  min-height: 5rem;
+  font-size: var(--ui-fs-sm);
+}

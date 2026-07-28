@@ -1,0 +1,46 @@
+.wf-suggest-card {
+  max-width: 46rem;
+}
+
+.wf-suggest-desc {
+  margin: 0 0 0.7rem;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-muted);
+}
+
+.wf-suggest-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.6rem;
+}
+
+.wf-suggest-item {
+  animation: none; /* Nested inside an already-animated card; don't re-stagger. */
+}
+
+.wf-suggest-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.wf-suggest-reason {
+  margin: 0.35rem 0 0.6rem;
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-muted);
+}
+
+.wf-suggest-result {
+  margin: 0.8rem 0 0;
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-muted);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.1rem;
+}
+
+.wf-suggest-result a {
+  color: var(--ui-accent-text);
+}

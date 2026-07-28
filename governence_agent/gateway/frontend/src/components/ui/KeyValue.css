@@ -1,0 +1,33 @@
+.ui-kv {
+  display: grid;
+  gap: 0.75rem 0.9rem;
+  margin: 0;
+}
+
+.ui-kv--1 { grid-template-columns: 1fr; }
+.ui-kv--2 { grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); }
+
+.ui-kv-pair {
+  min-width: 0;
+}
+
+.ui-kv-pair--wide {
+  grid-column: 1 / -1;
+}
+
+.ui-kv-key {
+  margin: 0;
+}
+
+.ui-kv-value {
+  margin: 0.12rem 0 0;
+  font-size: var(--ui-fs-sm);
+  line-height: 1.45;
+  /* `anywhere`, not `break-word`: these hold request ids and URLs with no
+     break opportunities, which otherwise widen the whole drawer. */
+  overflow-wrap: anywhere;
+}
+
+.ui-kv-blank {
+  color: var(--ui-text-faint);
+}

@@ -1,0 +1,149 @@
+.ui-toasts {
+  position: fixed;
+  z-index: 80; /* Above the drawer (60): a failure while a drawer is open still
+                  has to be readable. */
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: min(26rem, calc(100vw - 2rem));
+  pointer-events: none; /* The gaps between toasts must not eat clicks. */
+}
+
+.ui-toasts--bottom-right { right: 1.25rem; bottom: 1.25rem; align-items: flex-end; }
+.ui-toasts--bottom-left { left: 1.25rem; bottom: 1.25rem; align-items: flex-start; }
+/* Top corners stack downward from the newest, so the newest is always nearest
+   the corner it appears in. */
+.ui-toasts--top-right { right: 1.25rem; top: 1.25rem; align-items: flex-end; flex-direction: column-reverse; }
+.ui-toasts--top-left { left: 1.25rem; top: 1.25rem; align-items: flex-start; flex-direction: column-reverse; }
+
+.ui-toast {
+  position: relative;
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.7rem 0.75rem 0.7rem 0.9rem;
+  border: 1px solid var(--ui-border);
+  border-left: 3px solid var(--ui-toast-edge, var(--ui-n-700));
+  border-radius: var(--ui-r-sm);
+  background: var(--ui-surface-raised);
+  box-shadow: var(--ui-shadow-lg);
+  color: var(--ui-text);
+  overflow: hidden;
+  /* Slides in from the side it's docked to and settles with a slight
+     overshoot — enough to catch the eye at the edge of vision. */
+  animation: ui-toast-in var(--ui-dur-3) var(--ui-ease-spring) both;
+}
+
+@keyframes ui-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+}
+
+.ui-toast--neutral { --ui-toast-edge: var(--ui-n-700); }
+.ui-toast--ok { --ui-toast-edge: var(--ui-ok); }
+.ui-toast--warn { --ui-toast-edge: var(--ui-warn); }
+.ui-toast--danger { --ui-toast-edge: var(--ui-danger); }
+
+.ui-toast-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.ui-toast-message {
+  margin: 0;
+  font-size: var(--ui-fs-sm);
+  font-weight: 550;
+  line-height: 1.4;
+  overflow-wrap: anywhere; /* Backend errors arrive as one long unbroken string. */
+}
+
+.ui-toast-detail {
+  margin: 0.15rem 0 0;
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.ui-toast-action {
+  flex: none;
+  font: inherit;
+  font-size: var(--ui-fs-xs);
+  font-weight: 650;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-r-xs);
+  background: transparent;
+  color: var(--ui-accent-text);
+  cursor: pointer;
+  transition: background-color var(--ui-dur-1) var(--ui-ease-in-out);
+}
+
+.ui-toast-action:hover {
+  background: var(--ui-accent-soft);
+}
+
+.ui-toast-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  font: inherit;
+  font-size: var(--ui-fs-2xs);
+  border: 0;
+  border-radius: var(--ui-r-xs);
+  background: transparent;
+  color: var(--ui-text-faint);
+  cursor: pointer;
+  transition:
+    color var(--ui-dur-1) var(--ui-ease-in-out),
+    background-color var(--ui-dur-1) var(--ui-ease-in-out);
+}
+
+.ui-toast-close:hover {
+  color: var(--ui-text);
+  background: var(--ui-surface-hover);
+}
+
+.ui-toast-action:focus-visible,
+.ui-toast-close:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 1px;
+}
+
+/* Countdown. transform-origin left, so it drains toward the dismiss button. */
+.ui-toast-timer {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 2px;
+  background: var(--ui-toast-edge);
+  opacity: 0.5;
+  transform-origin: left;
+  animation-name: ui-toast-drain;
+  animation-timing-function: linear;
+  animation-fill-mode: both;
+}
+
+@keyframes ui-toast-drain {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+/* Hovering or keyboard-focusing the stack pauses every countdown, so a toast
+   can't expire out from under someone reaching for its action. The provider
+   pauses its JS timers on the same events, so bar and timer agree. */
+.ui-toasts:hover .ui-toast-timer,
+.ui-toasts:focus-within .ui-toast-timer {
+  animation-play-state: paused;
+}
+
+/* The bar is decorative; the dismiss button and the JS timer both still work, so
+   dropping it costs nothing under reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  .ui-toast-timer {
+    display: none;
+  }
+}

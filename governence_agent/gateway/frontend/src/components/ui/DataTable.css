@@ -1,0 +1,140 @@
+.ui-tbl-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-r-md);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-sm);
+}
+
+/* Inside a flush Card the wrapper is already framed, so it drops its own border
+   and the corners it would round against the card's. */
+.ui-card-body--flush > .ui-tbl-wrap {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.ui-tbl {
+  border-collapse: separate; /* separate, not collapse: `collapse` drops the
+                                sticky header's bottom border in Chromium. */
+  border-spacing: 0;
+  width: 100%;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text);
+}
+
+.ui-tbl th,
+.ui-tbl td {
+  text-align: left;
+  padding: 0.65rem 0.8rem;
+  border-bottom: 1px solid var(--ui-border);
+  vertical-align: top;
+}
+
+.ui-tbl--dense th,
+.ui-tbl--dense td {
+  padding: 0.4rem 0.7rem;
+}
+
+.ui-tbl thead th {
+  font-size: var(--ui-fs-2xs);
+  font-weight: 650;
+  letter-spacing: var(--ui-eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--ui-text-faint);
+  background: var(--ui-surface-sunken);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.ui-tbl-wrap--sticky thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.ui-tbl tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* ── cell modifiers ─────────────────────────────────────────────────────── */
+
+.ui-td--mono {
+  font-family: var(--ui-mono);
+  font-size: 0.95em;
+  word-break: break-word;
+}
+
+.ui-td--num {
+  font-family: var(--ui-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ui-td--muted { color: var(--ui-text-muted); }
+.ui-td--nowrap { white-space: nowrap; }
+.ui-td--left { text-align: left; }
+.ui-td--right { text-align: right; }
+.ui-td--center { text-align: center; }
+
+/* ── rows ───────────────────────────────────────────────────────────────── */
+
+/* Rows fade in on a stagger, capped at 260ms total so a 200-row audit list
+   doesn't take four seconds to finish arriving. */
+.ui-tbl-row {
+  animation: ui-fade var(--ui-dur-3) var(--ui-ease-out) both;
+  animation-delay: min(calc(var(--ui-i, 0) * 14ms), 260ms);
+  transition: background-color var(--ui-dur-1) var(--ui-ease-in-out);
+}
+
+.ui-tbl tbody tr:hover {
+  background: var(--ui-surface-hover);
+}
+
+.ui-tbl--rows-clickable .ui-tbl-row {
+  cursor: pointer;
+}
+
+.ui-tbl--rows-clickable .ui-tbl-row:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: -2px;
+  background: var(--ui-surface-hover);
+}
+
+/* The row whose detail is open in a drawer. The left marker is inset via
+   box-shadow so it doesn't shift the first cell's text. */
+.ui-tbl-row[data-active] {
+  background: var(--ui-accent-soft);
+  box-shadow: inset 3px 0 0 var(--ui-accent);
+}
+
+.ui-tbl-empty-row td,
+.ui-tbl-skeleton-row td {
+  border-bottom: 0;
+}
+
+.ui-tbl-empty-row td {
+  padding: 0;
+  color: var(--ui-text-muted);
+}
+
+.ui-tbl-empty-row:hover,
+.ui-tbl-skeleton-row:hover {
+  background: transparent;
+}
+
+.ui-tbl-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 0.8rem;
+  border-top: 1px solid var(--ui-border);
+  background: var(--ui-surface-sunken);
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-muted);
+  font-variant-numeric: tabular-nums;
+}

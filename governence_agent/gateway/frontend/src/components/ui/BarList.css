@@ -1,0 +1,68 @@
+.ui-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ui-bar {
+  display: grid;
+  grid-template-columns: minmax(6rem, 13rem) 1fr auto;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: var(--ui-fs-sm);
+}
+
+.ui-bar-label {
+  font-family: var(--ui-mono);
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-muted);
+}
+
+.ui-bar-track {
+  height: 8px;
+  border-radius: var(--ui-r-pill);
+  background: var(--ui-surface-hover);
+  overflow: hidden;
+}
+
+.ui-bar-fill {
+  display: block;
+  height: 100%;
+  width: var(--ui-bar-pct, 0%);
+  border-radius: var(--ui-r-pill);
+  background: var(--ui-accent);
+  /* Grows from zero on a stagger, so the ranking reads top-down as it arrives.
+     Animating width (not transform) keeps the rounded cap at the true end of the
+     bar — a scaled bar squashes its own corner radius. */
+  animation: ui-bar-grow var(--ui-dur-4) var(--ui-ease-out) both;
+  animation-delay: min(calc(var(--ui-i, 0) * 45ms), 400ms);
+}
+
+@keyframes ui-bar-grow {
+  from {
+    width: 0%;
+  }
+}
+
+.ui-bar-value {
+  font-family: var(--ui-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--ui-fs-xs);
+  text-align: right;
+  min-width: 2.5rem;
+  color: var(--ui-text);
+}
+
+@media (max-width: 560px) {
+  .ui-bar {
+    grid-template-columns: 1fr auto;
+  }
+
+  /* The label takes its own row rather than being squeezed to nothing. */
+  .ui-bar-label {
+    grid-column: 1 / -1;
+  }
+}

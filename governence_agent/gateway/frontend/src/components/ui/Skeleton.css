@@ -1,0 +1,33 @@
+.ui-skeleton {
+  display: block;
+  flex: none;
+  /* Two layers: a flat base tint plus a highlight that sweeps across it. The
+     sweep is a background-position animation, so it never triggers layout. */
+  background-color: var(--ui-surface-hover);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--ui-text) 7%, transparent) 45%,
+    transparent 90%
+  );
+  background-size: 200% 100%;
+  background-position: -100% 0;
+  background-repeat: no-repeat;
+  animation: ui-shimmer 1.4s var(--ui-ease-in-out) infinite;
+  animation-delay: calc(var(--ui-i, 0) * 90ms);
+}
+
+/* A sweeping highlight is exactly the kind of motion the preference is about, so
+   it drops to a still tint rather than a faster sweep. */
+@media (prefers-reduced-motion: reduce) {
+  .ui-skeleton {
+    background-image: none;
+    animation: none !important;
+  }
+}
+
+.ui-skeleton-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}

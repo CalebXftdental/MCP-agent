@@ -1,0 +1,91 @@
+.ui-code,
+.ui-secret {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.ui-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.ui-code-copy {
+  font: inherit;
+  font-size: var(--ui-fs-2xs);
+  font-weight: 600;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-r-xs);
+  background: transparent;
+  color: var(--ui-text-muted);
+  cursor: pointer;
+  transition:
+    color var(--ui-dur-1) var(--ui-ease-in-out),
+    border-color var(--ui-dur-1) var(--ui-ease-in-out),
+    background-color var(--ui-dur-1) var(--ui-ease-in-out);
+}
+
+.ui-code-copy:hover {
+  color: var(--ui-accent-text);
+  border-color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+}
+
+.ui-code-copy:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 1px;
+}
+
+.ui-code-pre {
+  margin: 0;
+  padding: 0.6rem 0.8rem;
+  font-family: var(--ui-mono);
+  font-size: var(--ui-fs-xs);
+  line-height: 1.55;
+  tab-size: 2;
+  color: var(--ui-text);
+  background: var(--ui-surface-sunken);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-r-sm);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.ui-code-pre--wrap {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ── secret ─────────────────────────────────────────────────────────────── */
+
+.ui-secret-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+/* The dashed accent border is carried over from the legacy `.key`: it reads as
+   "this is transient, copy it now", which is exactly right for a rotated key. */
+.ui-secret-value {
+  display: block;
+  padding: 0.7rem 0.8rem;
+  font-family: var(--ui-mono);
+  font-size: var(--ui-fs-sm);
+  letter-spacing: 0.02em;
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  border: 1px dashed var(--ui-accent);
+  border-radius: var(--ui-r-sm);
+  word-break: break-all;
+  /* No transition on the reveal: a credential fading in is a credential half
+     legible for 200ms, and there is nothing to understand about the change. */
+}
+
+.ui-secret-hint {
+  margin: 0;
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-muted);
+}

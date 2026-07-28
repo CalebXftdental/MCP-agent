@@ -1,0 +1,72 @@
+.ui-seg {
+  position: relative;
+  display: grid;
+  /* Equal columns, so the thumb can be positioned by index alone with no
+     measuring: translateX(index * 100%) of a 1/n-wide thumb. */
+  grid-template-columns: repeat(var(--ui-seg-n, 2), 1fr);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-r-sm);
+  background: var(--ui-surface-sunken);
+  padding: 2px;
+  isolation: isolate;
+}
+
+.ui-seg-thumb {
+  position: absolute;
+  z-index: 0;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / var(--ui-seg-n, 2));
+  border-radius: calc(var(--ui-r-sm) - 2px);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-sm);
+  transform: translateX(calc(var(--ui-seg-i, 0) * 100%));
+  transition: transform var(--ui-dur-3) var(--ui-ease-out);
+}
+
+.ui-seg-btn {
+  position: relative;
+  z-index: 1;
+  font: inherit;
+  font-family: var(--ui-sans);
+  font-weight: 600;
+  line-height: 1.4;
+  border: 0;
+  background: transparent;
+  color: var(--ui-text-muted);
+  border-radius: calc(var(--ui-r-sm) - 2px);
+  cursor: pointer;
+  transition: color var(--ui-dur-2) var(--ui-ease-in-out);
+}
+
+.ui-seg--sm .ui-seg-btn {
+  padding: 0.28rem 0.6rem;
+  font-size: var(--ui-fs-xs);
+}
+
+.ui-seg--md .ui-seg-btn {
+  padding: 0.42rem 0.85rem;
+  font-size: var(--ui-fs-sm);
+}
+
+.ui-seg-btn:hover {
+  color: var(--ui-text);
+}
+
+.ui-seg-btn[aria-checked='true'] {
+  color: var(--ui-accent-text);
+}
+
+.ui-seg-btn:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 1px;
+}
+
+/* With no thumb transition the colour swap alone has to carry the change, so it
+   loses its delay and lands immediately. */
+@media (prefers-reduced-motion: reduce) {
+  .ui-seg-thumb {
+    transition: none !important;
+  }
+}

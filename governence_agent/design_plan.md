@@ -173,7 +173,7 @@ governence_agent/
 ├── gateway/                        # the Governance Gateway (PEP) — the ONLY public endpoint
 │   ├── app.py                      #   FastMCP server + EdgeMiddleware; federates backends
 │   ├── router.py                   #   namespaced tool -> backend MCP client + canonical name
-│   ├── backends.py                 #   MCP client pool (per-backend URL, creds, timeouts, breaker)
+│   ├── mcp_clients.py              #   outbound MCP client pool (per-backend URL, timeouts, breaker)
 │   └── static/dashboard.html       #   monitoring UI
 ├── mcp-minierp/                    # backend MCP server: miniERP tools only + its creds
 │   ├── app.py                      #   thin FastMCP; NO auth/rate/redaction (gateway's job)

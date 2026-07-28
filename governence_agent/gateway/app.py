@@ -2885,7 +2885,7 @@ def _artifact_preview(record) -> dict:
 
 def _onlyoffice_config(record, claims, request) -> dict | None:
     base = (os.getenv("ONLYOFFICE_DOCUMENT_SERVER_URL") or os.getenv("ONLYOFFICE_DOCSERVER_URL") or "").rstrip("/")
-    if not base or record.type not in ("docx", "xlsx", "pptx"):
+    if not base or record.type not in ("docx", "xlsx", "pptx", "pdf"):
         return None
     ext = record.type
     mode = "view" if str(os.getenv("ONLYOFFICE_EDIT_MODE") or "view").lower() != "edit" else "edit"
@@ -2915,7 +2915,7 @@ def _onlyoffice_config(record, claims, request) -> dict | None:
     return {
         "enabled": True,
         "documentServerUrl": base,
-        "documentType": {"docx": "word", "xlsx": "cell", "pptx": "slide"}.get(ext, "word"),
+        "documentType": {"docx": "word", "xlsx": "cell", "pptx": "slide", "pdf": "pdf"}.get(ext, "word"),
         "config": config,
     }
 

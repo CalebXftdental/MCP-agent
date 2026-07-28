@@ -25,7 +25,7 @@ import './HistoryPage.css'
 
 /**
  * History — what you've already done: your governed calls, and the answers you
- * pinned from the Assistant.
+ * pinned from Home.
  *
  * Both panels were on Home, where they competed with the composer for the first
  * screen and were capped at six rows to fit. Here they get the whole page, so:
@@ -38,9 +38,9 @@ import './HistoryPage.css'
  *   - a status filter, because "what got denied" is the question this page is
  *     actually opened to answer.
  *
- * `My Activity` remains the fuller view (rate-limit headroom, redaction detail).
- * This page deliberately overlaps it — it is the recent slice plus the pinned
- * answers, and it links across rather than duplicating the whole panel.
+ * The legacy `My Activity` tab (rate-limit headroom, redaction detail) was
+ * retired once this page covered the same ground — no second door to the
+ * same data.
  */
 
 interface SavedAnswer {
@@ -221,9 +221,6 @@ function HistoryPage({ session, navigate }: PageProps) {
               <Button variant="quiet" size="sm" onClick={load} loading={state === 'loading'}>
                 Refresh
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => navigate('activity')}>
-                My Activity →
-              </Button>
             </>
           }
           footer={
@@ -290,7 +287,7 @@ function HistoryPage({ session, navigate }: PageProps) {
         <div className="history-aside">
           <Card
             title="Saved answers"
-            description="Pinned from the Assistant"
+            description="Pinned from Home"
             actions={
               savedAnswers.items.length > 1 ? (
                 <Button variant="quiet" size="sm" onClick={savedAnswers.clear}>
@@ -302,7 +299,7 @@ function HistoryPage({ session, navigate }: PageProps) {
             {savedAnswers.items.length === 0 ? (
               <EmptyState
                 title="No saved answers yet"
-                description="Pin one with ☆ in the Assistant."
+                description="Pin one with ☆ on Home."
               />
             ) : (
               <ul className="history-saved">

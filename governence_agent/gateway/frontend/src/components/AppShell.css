@@ -1,7 +1,16 @@
 .shell {
   display: grid;
   grid-template-columns: 15.5rem 1fr;
-  height: 100svh;
+  /* A bare `auto` implicit row (the default when grid-template-rows is unset)
+     sizes itself to its tallest item's content-based minimum — on a long page
+     like My Access that's taller than 100svh, so the row grows past the
+     viewport and `.shell` overflows onto the document itself. That's a second,
+     outer scrollbar on top of `.shell-main`'s own — the fix is pinning the row
+     to a real track (minmax floor of 0, not auto) so content can't stretch it,
+     matching the `min-width: 0` already used below for the same problem on
+     the inline axis. */
+  grid-template-rows: minmax(0, 1fr);
+  height: 100%;
   background: var(--ui-bg);
   color: var(--ui-text);
   font-family: var(--ui-sans);
@@ -15,6 +24,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   background: var(--ui-surface);
   border-right: 1px solid var(--ui-border);
 }
@@ -170,6 +180,7 @@
 .shell-main {
   overflow-y: auto;
   min-width: 0;
+  min-height: 0;
 }
 
 .shell-top {
@@ -180,7 +191,6 @@
   align-items: center;
   gap: 0.9rem;
   padding: 0.95rem 1.75rem;
-  border-bottom: 1px solid var(--ui-border);
   /* Translucent so content scrolling underneath is visible, which keeps the
      header feeling attached to the page rather than floating over it. */
   background: color-mix(in srgb, var(--ui-bg) 82%, transparent);

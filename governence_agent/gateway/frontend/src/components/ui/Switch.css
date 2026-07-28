@@ -1,0 +1,89 @@
+.ui-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  width: 100%;
+  padding: 0.2rem 0;
+  background: none;
+  border: 0;
+  border-radius: var(--ui-r-sm);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-switch-row:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.ui-switch-row:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 3px;
+}
+
+.ui-switch-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.ui-switch-label {
+  font-weight: 600;
+  font-size: var(--ui-fs-base);
+  color: var(--ui-text);
+}
+
+.ui-switch-row--sm .ui-switch-label {
+  font-weight: 500;
+  font-size: var(--ui-fs-sm);
+}
+
+.ui-switch-desc {
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-faint);
+}
+
+.ui-switch {
+  --ui-switch-w: 2.2rem;
+  --ui-switch-h: 1.3rem;
+  position: relative;
+  flex: none;
+  width: var(--ui-switch-w);
+  height: var(--ui-switch-h);
+  border-radius: var(--ui-r-pill);
+  background: var(--ui-border-strong);
+  transition: background-color var(--ui-dur-2) var(--ui-ease-in-out);
+}
+
+.ui-switch-row--sm .ui-switch {
+  --ui-switch-w: 1.85rem;
+  --ui-switch-h: 1.05rem;
+}
+
+.ui-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: calc(var(--ui-switch-h) - 4px);
+  height: calc(var(--ui-switch-h) - 4px);
+  border-radius: 50%;
+  background: var(--ui-white);
+  box-shadow: var(--ui-shadow-sm);
+  transition: transform var(--ui-dur-2) var(--ui-ease-spring);
+}
+
+.ui-switch-row[data-on] .ui-switch-thumb {
+  transform: translateX(calc(var(--ui-switch-w) - var(--ui-switch-h)));
+}
+
+.ui-switch-row[data-on] .ui-switch--accent {
+  background: var(--ui-accent);
+}
+
+.ui-switch-row[data-on] .ui-switch--danger {
+  background: var(--ui-danger);
+}

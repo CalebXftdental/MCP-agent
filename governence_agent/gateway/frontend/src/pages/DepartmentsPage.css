@@ -1,0 +1,46 @@
+.departments {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.5rem 1.75rem 3rem;
+  max-width: 80rem;
+}
+
+@media (max-width: 640px) {
+  .departments {
+    padding: 1rem 1rem 2.5rem;
+  }
+}
+
+/* ── create/edit form (shared shape between Modal and Drawer) ──────────── */
+
+.departments-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.departments-confirm-msg {
+  margin: 0;
+  font-size: var(--ui-fs-base);
+  font-weight: 600;
+  color: var(--ui-text);
+}
+
+/* ── table cells ─────────────────────────────────────────────────────────── */
+
+.departments-subtext {
+  margin-top: 0.1rem;
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-faint);
+}
+
+.departments-none {
+  color: var(--ui-text-faint);
+}
+
+.departments-pill-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}

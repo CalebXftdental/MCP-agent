@@ -1,4 +1,5 @@
 .chat-log {
+  position: relative; /* anchors the loading overlay below */
   flex: 1;
   min-height: 0; /* Without this a flex column child won't shrink below its
                     content size, and the log grows the page instead of
@@ -20,8 +21,34 @@
   }
 }
 
+/* Overlaid on top of the (already-rendering, already fading in) messages
+   rather than swapped for them in the same frame — crossfades out instead of
+   popping out of existence the instant history finishes loading.
+   `padding: inherit` mirrors .chat-log's own padding, including its 640px
+   override, without duplicating the breakpoint here. */
 .chat-log-loading {
+  position: absolute;
+  inset: 0;
+  padding: inherit;
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
+  background: var(--ui-bg);
+  pointer-events: none;
+  transition: opacity var(--ui-dur-3) var(--ui-ease-out);
+}
+
+.chat-log-loading[data-state='entering'],
+.chat-log-loading[data-state='leaving'] {
+  opacity: 0;
+}
+
+.chat-log-loading[data-state='open'] {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-log-loading {
+    transition: none !important;
+  }
 }

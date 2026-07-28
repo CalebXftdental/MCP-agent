@@ -113,6 +113,7 @@ export const api = {
     request<T>('POST', path, body, init),
   patch: <T>(path: string, body?: JsonBody, init?: RequestInit) =>
     request<T>('PATCH', path, body, init),
+  put: <T>(path: string, body?: JsonBody, init?: RequestInit) => request<T>('PUT', path, body, init),
   del: <T>(path: string, init?: RequestInit) => request<T>('DELETE', path, undefined, init),
 }
 
@@ -312,6 +313,545 @@ export interface WorkflowLaunchResult {
 
 export const launchWorkflowSuggestion = (templateId: string, inputs: Record<string, unknown>) =>
   api.post<WorkflowLaunchResult>('/workflow-suggestions/launch', { template_id: templateId, inputs })
+
+// ── My Access ─────────────────────────────────────────────────────────────────
+// This principal's own resolved grant, the self-service request-access catalog,
+// and the API key used to call the gateway as this principal outside the browser.
+
+/** Plain-English view of a tool (backend/deps.py:_tool_info) — never the raw
+ *  canonical name a normal user has no reason to parse. */
+export interface ToolInfo {
+  name: string
+  description: string
+  risk: string | null
+  approvalRequired: boolean
+}
+
+/** What this principal can do on one backend: the tools, and the redaction
+ *  levels that unlock which fields on those tools come back unmasked. */
+export interface AccessGrant {
+  tools: ToolInfo[]
+  levels: string[]
+}
+
+export interface AccessSelection {
+  category: string
+  backend: string
+  tools: string[]
+}
+
+/** A self-service request. `selections` is what this UI produces; `categories`
+ *  and `backend` are older/other request shapes the same list endpoint can
+ *  return (signup requests, etc.) — present in the type so a record missing
+ *  `selections` doesn't silently type-check as one that has it. */
+export interface AccessRequestRecord {
+  id: string
+  kind: string
+  selections?: AccessSelection[]
+  categories?: string[]
+  backend?: string
+  justification: string
+  status: 'pending' | 'approved' | 'denied' | string
+  created_at: number
+}
+
+export interface MyAccess {
+  name: string
+  /** Empty string, not null, when unset — the gateway always returns a string. */
+  full_name: string
+  department: string
+  status: string
+  role: string
+  type: string
+  categories: string[]
+  effective_categories: string[]
+  has_key: boolean
+  /** Keyed by backend id. Empty object while `status !== 'active'`. */
+  access: Record<string, AccessGrant>
+  requests: AccessRequestRecord[]
+}
+
+export const getMyAccess = () => api.get<MyAccess>('/dashboard/my-access')
+
+export interface CategoryCatalogEntry {
+  id: string
+  display_name: string
+  backend: string
+  tools: ToolInfo[]
+  /** Gateway-level permissions (files/workflow_runner/...) have no MCP tools of
+   *  their own — this is the only explanation the picker has for what holding
+   *  one of those actually grants. */
+  data_domains: string[]
+}
+
+/** The full category catalog — every user, not just admins (it's what the
+ *  request-access picker groups by). */
+export const getCategoryCatalog = () =>
+  api.get<{ categories: CategoryCatalogEntry[] }>('/dashboard/category-catalog')
+
+/** Mints a fresh key, replacing any previous one. Shown once — the gateway
+ *  never returns an existing key, only its hash. */
+export const rotateMyKey = () => api.post<{ api_key: string }>('/dashboard/my-key/rotate')
+
+export interface TryToolResult {
+  /** Namespaced (`<backend>_<canonical>`), unlike the plain canonical name
+   *  the request took as `tool`. */
+  tool: string
+  /** Already governed and redacted exactly as this principal's own grant
+   *  would produce it — this is not a preview or a dry run. */
+  result: unknown
+}
+
+/** Runs one governed tool call as the signed-in principal — full PDP, scope,
+ *  and redaction apply, and it's audited like any other call. 400s (as an
+ *  ApiError) for an unknown tool or non-object `args`; 403 if the account
+ *  isn't active yet. */
+export const tryTool = (tool: string, args: Record<string, unknown>, customerId: string) =>
+  api.post<TryToolResult>('/dashboard/try-tool', { tool, args, customer_id: customerId })
+
+/** One queued calendar invite send (calendar_send_models.CalendarSendRecord).
+ *  Created by `send_calendar_invite` once a drafted .ics has an approved
+ *  approval tied to it — drafting alone (`draft_calendar_invite`, via
+ *  `tryTool`) never reaches this queue. */
+export interface CalendarSend {
+  sendId: string
+  owner: string
+  draftArtifactId: string
+  approvalId: string
+  status: 'sent' | 'queued_for_connector' | 'approval_required' | string
+  provider: string
+  title: string
+  /** Naive local wall-clock ISO string, paired with `timezone` — not UTC. */
+  start: string
+  end: string
+  timezone: string
+  attendees: string[]
+  location: string
+  message: string
+  createdAt: number
+  updatedAt: number
+  sentAt: number | null
+}
+
+/** This principal's own queued calendar sends (session-scoped — never
+ *  another principal's, matching the same shape as email/other send
+ *  queues). */
+export const getCalendarSends = () => api.get<{ sends: CalendarSend[] }>('/calendar-sends')
+
+/** One queued email send (email_send_models.EmailSendRecord) — same
+ *  approval-gated shape as `CalendarSend`, reached the same way: a drafted
+ *  email needs an approved approval tied to it before `send_email` queues
+ *  it here. */
+export interface EmailSend {
+  sendId: string
+  owner: string
+  draftArtifactId: string
+  approvalId: string
+  status: 'sent' | 'queued_for_connector' | 'approval_required' | string
+  provider: string
+  to: string[]
+  cc: string[]
+  subject: string
+  attachmentArtifactIds: string[]
+  message: string
+  createdAt: number
+  updatedAt: number
+  sentAt: number | null
+}
+
+/** This principal's own queued email sends (session-scoped). */
+export const getEmailSends = () => api.get<{ sends: EmailSend[] }>('/email-sends')
+
+/** Submits a self-service grant request. 400s (as an ApiError) if every
+ *  selected tool is already held. */
+export const requestAccess = (selections: { category: string; tools: string[] }[], justification: string) =>
+  api.post<{ ok: boolean; id: string }>('/dashboard/request-access', { selections, justification })
+
+/** One tool this principal has been denied, aggregated across recent attempts,
+ *  with enough context to file a one-click request for it. */
+export interface MyDenial {
+  tool: string
+  canonical: string
+  description: string
+  backend: string | null
+  category: string | null
+  category_name: string | null
+  risk: string | null
+  attempts: number
+  last_ts: number
+}
+
+export const getMyDenials = () => api.get<{ denials: MyDenial[] }>('/dashboard/my-denials')
+
+// ── Admin: access requests & approvals ─────────────────────────────────────
+// Two independent admin queues (admin_policy.py, approvals.py): self-service
+// access/signup requests, and the generic high-impact-action approval queue
+// that external sends and workflow steps feed into.
+
+/** One pending or decided access/signup request, as an admin sees it — wider
+ *  than `AccessRequestRecord` (which is a caller's view of their own), since
+ *  an admin also needs to know who asked and, once decided, who decided.
+ *  `tools`/`justification` cover the oldest bare-backend request shape
+ *  (admin_policy.py's undiscriminated `else` branch) alongside the current
+ *  `selections` one. */
+export interface AdminAccessRequest {
+  id: string
+  kind: string
+  consumer_id?: string
+  username?: string
+  selections?: AccessSelection[]
+  categories?: string[]
+  backend?: string
+  tools?: string[]
+  justification: string
+  status: 'pending' | 'approved' | 'denied' | string
+  created_at: number
+  decided_by?: string
+  decided_at?: number | null
+}
+
+/** Admin-only; `status` is an exact match, not a filter menu — the panel only
+ *  ever asks for `pending`. */
+export const getAdminRequests = (status = 'pending') =>
+  api.get<{ requests: AdminAccessRequest[] }>(`/admin/requests?status=${encodeURIComponent(status)}`)
+
+/** Grants the request's selections/categories. 409s (as an ApiError) when the
+ *  consumer is gone or the request has nothing valid left to grant — the
+ *  caller should surface that message rather than a generic failure. */
+export const approveAdminRequest = (id: string) =>
+  api.post<{ ok: boolean }>(`/admin/requests/${encodeURIComponent(id)}/approve`, {})
+
+/** Marks the request denied; also disables the consumer for a signup-kind
+ *  request. */
+export const denyAdminRequest = (id: string) =>
+  api.post<{ ok: boolean }>(`/admin/requests/${encodeURIComponent(id)}/deny`, {})
+
+/** One (consumer, tool) pair aggregated from recent "not granted" denials —
+ *  a hint that a grant is missing, not a request anyone made. */
+export interface AccessSuggestion {
+  consumer: string
+  tool: string
+  attempts: number
+}
+
+export const getAccessSuggestions = () =>
+  api.get<{ suggestions: AccessSuggestion[] }>('/admin/access-suggestions')
+
+/** One high-impact action waiting on (or already given) an admin decision —
+ *  an external send, a workflow step, anything gated behind `approval_store`.
+ *  Field names come through camelCase already (`ApprovalRecord.public_dict`),
+ *  unlike the rest of this file's snake_case payloads. */
+export interface Approval {
+  approvalId: string
+  requestedBy: string
+  reason: string
+  status: 'pending' | 'approved' | 'denied' | string
+  riskLevel: string
+  artifactIds: string[]
+  workflowRunId: string
+  approver: string
+  decisionNote: string
+  /** Unix seconds. */
+  createdAt: number
+  decidedAt: number | null
+}
+
+/** Admin-only. Always the full queue, decided included — there is no
+ *  pending/decided toggle in this panel, matching the legacy one. */
+export const getApprovals = () => api.get<{ approvals: Approval[] }>('/approvals?all=1&include_decided=1')
+
+/** Approves or denies one approval, with an optional note. Returns the
+ *  updated record. When the approval is tied to a workflow run this also
+ *  updates that run's matching step server-side — nothing this UI needs to
+ *  special-case. */
+export const decideApproval = (id: string, action: 'approve' | 'deny', note: string) =>
+  api.post<Approval>(`/approvals/${encodeURIComponent(id)}/${action}`, { note })
+
+// ── Admin: break-glass controls & credential hygiene ───────────────────────
+// Two more admin-only views, both enforced/computed server-side: the global
+// containment switches every governed call passes through (govern.py), and a
+// derived report over which API-key consumers are dormant, never used, or
+// overdue for rotation.
+
+/** The two independent kill switches `_govern()` checks on every call.
+ *  `paused_agents` blocks every agent (API-key) caller everywhere; humans and
+ *  admins are unaffected. `paused_backends` blocks calls to those named
+ *  backends for EVERYONE, agent or human. Neither disables a specific
+ *  consumer — that's `setConsumerStatus`, a different lever entirely. */
+export interface AdminControls {
+  paused_agents: boolean
+  paused_backends: string[]
+}
+
+/** `backends` is every known backend name (`sorted(manifest.backends())`),
+ *  regardless of pause state — the full checklist for the "block this MCP"
+ *  UI, in the same order `getBackendHealth` returns them. */
+export const getAdminControls = () =>
+  api.get<{ controls: AdminControls; backends: string[] }>('/admin/controls')
+
+/** Applies both switches together; takes effect on the very next governed
+ *  call. 409s (as an ApiError) when the policy store is read-only (no
+ *  persistence configured for this deployment). */
+export const setAdminControls = (controls: AdminControls) =>
+  api.put<{ ok: boolean; controls: AdminControls }>('/admin/controls', controls)
+
+/** One API-key consumer's hygiene read, as `analytics.credential_hygiene()`
+ *  computes it: `flags` is 0-2 of "never used" / "dormant &gt;30d" (mutually
+ *  exclusive) and "rotation unknown" / "key &gt;90d old" (also mutually
+ *  exclusive) — never more than one from each pair. */
+export interface CredentialHygieneConsumer {
+  consumer_id: string
+  name: string
+  role: string
+  type: string
+  status: 'active' | 'disabled' | string
+  /** Days since the key was last rotated (or created, if never rotated). */
+  key_age_days: number | null
+  /** Days since this consumer's last governed call. */
+  idle_days: number | null
+  last_used: number | null
+  last_rotation: number | null
+  flags: string[]
+}
+
+/** Admin-only. Pre-sorted worst-first (most flags, then longest idle) by the
+ *  server, so the UI can render it as-is. */
+export const getCredentialHygiene = () =>
+  api.get<{ consumers: CredentialHygieneConsumer[] }>('/admin/credential-hygiene')
+
+/** Mints a fresh key for this consumer and invalidates the old one
+ *  immediately. Returned once — the caller must show it now or it's gone. */
+export const rotateConsumerKey = (consumerId: string) =>
+  api.post<{ api_key: string }>(`/admin/consumers/${encodeURIComponent(consumerId)}/rotate-key`)
+
+/** Disables or reactivates a consumer. Disabling is enforced at the auth
+ *  edge — every governed call from this consumer is rejected until
+ *  reactivated. Returns the updated record, same as `updateConsumer`. */
+export const setConsumerStatus = (consumerId: string, status: 'active' | 'disabled') =>
+  api.patch<{ consumer: Consumer }>(`/admin/consumers/${encodeURIComponent(consumerId)}`, { status })
+
+// ── Admin: consumers ────────────────────────────────────────────────────────
+// Principals — people and agents — plus the categories and department that
+// decide what they can call. A consumer's EFFECTIVE grant is its own
+// `categories` unioned live with its department's current categories
+// (governance_core/policy/resolve.py) — editing a department later reaches
+// every member automatically, with nothing to keep in sync per-consumer.
+// `effective_backends` below is that union already resolved to backend names,
+// not a list of category ids.
+
+/** One principal, as the admin list/CRUD sees it (`_consumer_public`,
+ *  backend/deps.py). `categories` is what THIS record holds directly;
+ *  `department` is the other, additive half of its grant (see module note
+ *  above) — a consumer can have both at once. */
+export interface Consumer {
+  consumer_id: string
+  name: string
+  full_name: string
+  department: string
+  status: 'active' | 'disabled' | string
+  type: string
+  role: string
+  categories: string[]
+  /** Backend names (or `["*"]` for "every tool"), already resolved from
+   *  categories ∪ department — not category ids. */
+  effective_backends: string[]
+  rate_limit_per_hour: number | null
+  ip_allowlist: string[]
+  overrides: Record<string, unknown>
+  allowed_levels: string[]
+  has_key: boolean
+  has_login: boolean
+}
+
+export const listConsumers = () => api.get<{ consumers: Consumer[] }>('/admin/consumers')
+
+export interface CreateConsumerInput {
+  name: string
+  role: string
+  type: string
+  /** Directly-granted category ids — independent of `department`. */
+  categories: string[]
+  department?: string
+  rate_limit_per_hour?: number | null
+  /** Only needed if this consumer should also be able to sign into the
+   *  console itself, separately from its API key. */
+  password?: string | null
+}
+
+/** Creates the account and mints its first API key in the same call — there
+ *  is no separate "issue a key" step. 409s (as an ApiError) if the id (which
+ *  defaults to `name`) is already taken. */
+export const createConsumer = (input: CreateConsumerInput) =>
+  api.post<{ consumer: Consumer; api_key: string }>('/admin/consumers', input)
+
+export interface UpdateConsumerInput {
+  status?: 'active' | 'disabled'
+  role?: string
+  type?: string
+  categories?: string[]
+  department?: string
+  rate_limit_per_hour?: number | null
+  full_name?: string
+}
+
+/** Partial update — only the fields present in `patch` change. */
+export const updateConsumer = (consumerId: string, patch: UpdateConsumerInput) =>
+  api.patch<{ consumer: Consumer }>(`/admin/consumers/${encodeURIComponent(consumerId)}`, patch)
+
+export const deleteConsumer = (consumerId: string) =>
+  api.del<{ ok: boolean }>(`/admin/consumers/${encodeURIComponent(consumerId)}`)
+
+export interface ConsumerProfile {
+  name: string
+  full_name: string
+  department: string
+  role: string
+  type: string
+  status: string
+  /** Active safety-heuristic flags for this principal right now — empty
+   *  means clean, not "not computed." */
+  reasons: string[]
+  totals: { total: number; last_24h: number; last_7d: number; denied: number; error: number }
+  distinct_customers: number
+  rows_returned: number
+  sensitive_calls: number
+  redactions: number
+  rate_limit_per_hour: number | null
+  last_used: number | null
+  last_key_rotation: number | null
+  /** Tools this consumer is granted but has never actually called — least-
+   *  privilege candidates to revoke. */
+  unused_grants: string[]
+  ips: string[]
+}
+
+export const getConsumerProfile = (consumerId: string) =>
+  api.get<ConsumerProfile>(`/admin/consumers/${encodeURIComponent(consumerId)}/profile`)
+
+/** A department is just a named, reusable set of categories
+ *  (governance_core/departments.py) — picking one for a consumer adds its
+ *  CURRENT categories to that consumer's grant, live, not as a one-time copy. */
+export interface Department {
+  id: string
+  display_name: string
+  categories: string[]
+}
+
+export const listDepartments = () => api.get<{ departments: Department[] }>('/admin/departments')
+
+/** Creates or fully replaces a department (upsert by `id`, same shape as
+ *  `upsertCategory` below). Unlike categories, this DOES validate its
+ *  `categories` list server-side — an unknown category id is rejected
+ *  (400), not silently accepted. */
+export const upsertDepartment = (input: Department) =>
+  api.post<{ ok: boolean; id: string }>('/admin/departments', input)
+
+/** No existence check server-side — deleting an unknown id is a silent
+ *  no-op 200. Members keep their `department` id but resolve as if they had
+ *  none until reassigned; nothing reassigns them automatically. */
+export const deleteDepartment = (id: string) =>
+  api.del<{ ok: boolean }>(`/admin/departments/${encodeURIComponent(id)}`)
+
+// ── Admin: categories ────────────────────────────────────────────────────────
+// A category is a data-domain template: one backend, which of that backend's
+// tools it grants ("*" for all, tracked live as new tools appear, or an
+// explicit list), and which classification levels come through unredacted.
+// `/admin/categories` POST is a plain upsert keyed on `id` — there is no
+// separate update endpoint; "editing" a category is re-POSTing the whole
+// record with the same id.
+
+/** The admin-only sibling of `/dashboard/category-catalog` — raw ids and
+ *  names only (no descriptions), but it's where the valid backend list and
+ *  the fixed classification levels actually come from. */
+export interface AdminCatalog {
+  /** Canonical tool names per backend — needs `humanize()` for display. */
+  backends: Record<string, string[]>
+  /** Always the 4 in use today: PUBLIC, INTERNAL, PII, SENSITIVE. */
+  levels: string[]
+  categories: string[]
+  departments: string[]
+  roles: string[]
+  types: string[]
+}
+
+export const getAdminCatalog = () => api.get<AdminCatalog>('/admin/catalog')
+
+export interface AdminCategory {
+  id: string
+  display_name: string
+  backend: string
+  /** Literal `"*"` means every tool `tools_for_backend(backend)` returns —
+   *  resolved live, not expanded/stored, so it grants tools added later too. */
+  tools: '*' | string[]
+  levels: string[]
+  /** Free-form, documentation only — never enforced. */
+  data_domains: string[]
+}
+
+export const listCategories = () => api.get<{ categories: AdminCategory[] }>('/admin/categories')
+
+/** Creates or fully replaces a category (upsert by `id`). 400s (as an
+ *  ApiError) if `id`/`backend` is missing or `backend` isn't a real one —
+ *  everything else (tool names, levels, data_domains) is accepted
+ *  unvalidated server-side. */
+export const upsertCategory = (input: AdminCategory) =>
+  api.post<{ ok: boolean; id: string }>('/admin/categories', input)
+
+/** No existence check server-side — deleting an unknown id is a silent
+ *  no-op 200. Consumers/departments that still list this id keep the id but
+ *  stop getting any grant from it; nothing cleans that up automatically. */
+export const deleteCategory = (id: string) => api.del<{ ok: boolean }>(`/admin/categories/${encodeURIComponent(id)}`)
+
+// ── Admin: alerts ───────────────────────────────────────────────────────────
+// One incident per (principal, signal type), rolled up server-side from
+// safety.classify()'s live heuristics — enumeration, denial bursts, call
+// bursts, repeated tool errors on one backend. `status` is reconstructed from
+// audit policy-change events, not stored on the record itself.
+
+export interface Alert {
+  id: string
+  consumer: string
+  consumer_id: string | null
+  /** 'enumeration' | 'burst' | 'denials' | 'errors' | 'other' — widened,
+   *  since a new signal type should still render rather than crash. */
+  type: string
+  severity: 'critical' | 'high' | 'medium' | 'low' | string
+  events: number
+  first_ts: number
+  last_ts: number
+  reason: string
+  tools: string[]
+  status: 'open' | 'acknowledged' | 'resolved' | string
+  handled_by: string | null
+  handled_at: number | null
+}
+
+/** Admin-only. The whole 7-day window, unfiltered and unpaginated — the
+ *  caller does its own Open/All filtering. Cached ~8s server-side. */
+export const getAlerts = () => api.get<{ alerts: Alert[] }>('/admin/alerts')
+
+/** Acknowledges or resolves one incident. Neither needs a request body;
+ *  resolving is also a side effect of the two `setConsumerStatus`/
+ *  `rotateConsumerKey` containment actions, called separately from there. */
+export const actOnAlert = (id: string, action: 'ack' | 'resolve') =>
+  api.post<{ ok: boolean; id: string; status: string }>(`/admin/alerts/${encodeURIComponent(id)}/${action}`, {})
+
+// ── Admin: IP allowlist ─────────────────────────────────────────────────────
+// One global CIDR list, enforced only on `/mcp` traffic (edge.py) — the
+// dashboard itself authenticates by session cookie and is unaffected. An
+// EMPTY list means every IP is allowed; it is not a locked-down default.
+// There is no per-entry metadata (no label, no added-by/when) and no
+// server-side format validation — a malformed entry is silently accepted and
+// simply never matches anything at enforcement time.
+
+/** Whole-list read. */
+export const getWhitelist = () => api.get<{ whitelist: string[] }>('/admin/whitelist')
+
+/** Whole-list replace. 409s (as an ApiError) when the policy store is
+ *  read-only. Returns the saved list, so the caller can trust the response
+ *  over its own draft. */
+export const setWhitelist = (cidrs: string[]) =>
+  api.put<{ ok: boolean; whitelist: string[] }>('/admin/whitelist', { cidrs })
 
 export interface LoginResult extends Me {
   ok: boolean

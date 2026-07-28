@@ -16,7 +16,6 @@
 
 export type RouteKey =
   | 'home'
-  | 'assistant'
   | 'playground'
   | 'workflows'
   | 'automations'
@@ -27,7 +26,6 @@ export type RouteKey =
   | 'sends'
   | 'calendar'
   | 'access'
-  | 'activity'
   | 'developer'
   | 'history'
   | 'consumers'
@@ -57,16 +55,12 @@ export interface RouteDef {
 export const ROUTES: Record<RouteKey, RouteDef> = {
   home: {
     key: 'home',
+    // Home IS the assistant now — the composer here answers through the same
+    // governed chat the old Assistant tab did, so that tab was retired rather
+    // than kept as a second door to the same conversation.
     title: 'Home',
-    description: 'Your starting point — ask anything, run a saved query, and see recent activity.',
+    description: 'Ask about customers, orders, shipments, and invoices — in plain language.',
     icon: '🏠',
-  },
-  assistant: {
-    key: 'assistant',
-    title: 'Assistant',
-    description:
-      'Ask about customers, orders, shipments, and invoices — answered through the governed tools.',
-    icon: '💬',
   },
   playground: {
     key: 'playground',
@@ -130,13 +124,6 @@ export const ROUTES: Record<RouteKey, RouteDef> = {
     description: 'Your status, granted data domains, and API key.',
     icon: '🔑',
   },
-  activity: {
-    key: 'activity',
-    title: 'My Activity',
-    description:
-      'Your governed calls — what you accessed, what was redacted, and your rate-limit headroom.',
-    icon: '📈',
-  },
   developer: {
     key: 'developer',
     title: 'Developer',
@@ -150,7 +137,7 @@ export const ROUTES: Record<RouteKey, RouteDef> = {
     // sit on Home. Conversations themselves are not ported yet, and the page
     // links across to the current console for them.
     title: 'History',
-    description: 'Your recent governed calls and the answers you pinned from the Assistant.',
+    description: 'Your recent governed calls and the answers you pinned from Home.',
     icon: '🕘',
   },
   consumers: {
@@ -248,9 +235,9 @@ export interface NavGroup {
  *  is one line here. */
 export const NAV_GROUPS: NavGroup[] = [
   { label: null, keys: ['home'] },
-  { label: 'Ask & Automate', keys: ['assistant', 'playground', 'workflows', 'automations', 'my_workflows'] },
+  { label: 'Ask & Automate', keys: ['playground', 'workflows', 'automations', 'my_workflows'] },
   { label: 'Content', keys: ['knowledge', 'files', 'templates', 'sends', 'calendar'] },
-  { label: 'My Account', keys: ['access', 'activity', 'developer', 'history'] },
+  { label: 'My Account', keys: ['access', 'developer', 'history'] },
   { label: 'Access Control', keys: ['consumers', 'categories', 'department-admin'] },
   { label: 'Requests & Approvals', keys: ['requests', 'approvals'] },
   { label: 'Automation Admin', keys: ['agents', 'code-plans'] },

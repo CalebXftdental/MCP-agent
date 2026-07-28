@@ -1,0 +1,48 @@
+/* The grid item. Card itself no longer needs any positioning/overflow tricks —
+   the hover detail is a portal now, not a descendant overlay, so there's
+   nothing left for an ancestor's `overflow:hidden` to clip. */
+.access-card-wrap {
+  position: relative;
+  height: 100%;
+}
+
+/* Denser than a page-level Card: this one lives in a grid alongside a dozen
+   siblings, so it trades the default's generous padding and title size for
+   something that reads well at tile scale. Every override targets Card's own
+   classes through this wrapper rather than touching Card.css — the default
+   sizing is still correct everywhere else Card is used. */
+.access-card {
+  height: 100%;
+  cursor: default;
+}
+
+.access-card:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 2px;
+}
+
+.access-card:hover,
+.access-card:focus-visible {
+  border-color: var(--ui-border-strong);
+  box-shadow: var(--ui-shadow-md);
+}
+
+.access-card .ui-card-head {
+  padding: 0.75rem 0.9rem;
+  gap: 0.5rem;
+}
+
+.access-card .ui-card-title {
+  font-size: var(--ui-fs-sm);
+  font-weight: 650;
+}
+
+/* Holds only the sr-only detail span now — no visible content, no padding to
+   speak of, but Card still needs a body element to render for its own
+   spacing rules to apply correctly. */
+.access-card .ui-card-body {
+  padding: 0;
+}
+
+/* The hover/focus reveal itself (`.access-card-overlay` and its contents) is
+   shared chrome now — see ToolDetailOverlay.css. */

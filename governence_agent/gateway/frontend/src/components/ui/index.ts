@@ -14,6 +14,9 @@
 // come after the variable definitions in source order.
 import './theme.css'
 
+export { default as AddButton } from './AddButton'
+export type { AddButtonProps } from './AddButton'
+
 export { default as Avatar } from './Avatar'
 export type { AvatarProps } from './Avatar'
 
@@ -36,14 +39,23 @@ export type { CardProps, SectionHeaderProps } from './Card'
 export { default as Chip } from './Chip'
 export type { ChipProps } from './Chip'
 
+export { default as CidrInput } from './CidrInput'
+export type { CidrInputProps } from './CidrInput'
+
 export { CodeBlock, SecretKey } from './CodeBlock'
 export type { CodeBlockProps, SecretKeyProps } from './CodeBlock'
 
 export { default as DataTable } from './DataTable'
 export type { Column, DataTableProps } from './DataTable'
 
+export { default as DateTimePicker } from './DateTimePicker'
+export type { DateTimePickerProps } from './DateTimePicker'
+
 export { default as Donut, Legend } from './Donut'
 export type { DonutProps, DonutSegment, LegendProps } from './Donut'
+
+export { default as Dropdown } from './Dropdown'
+export type { DropdownOption, DropdownProps } from './Dropdown'
 
 export { default as Drawer } from './Drawer'
 export type { DrawerProps } from './Drawer'
@@ -56,6 +68,12 @@ export type { FieldProps, InputProps, SelectProps, TextareaProps } from './Field
 
 export { default as KeyValue } from './KeyValue'
 export type { KeyValueItem, KeyValueProps } from './KeyValue'
+
+export { default as Modal } from './Modal'
+export type { ModalProps } from './Modal'
+
+export { default as PlusIcon } from './PlusIcon'
+export type { PlusIconProps } from './PlusIcon'
 
 export { default as SegmentedControl } from './SegmentedControl'
 export type { Segment, SegmentedControlProps } from './SegmentedControl'
@@ -71,6 +89,9 @@ export type { SpinnerProps, TypingDotsProps } from './Spinner'
 
 export { default as Stat, StatGrid } from './Stat'
 export type { StatGridProps, StatProps, StatTone } from './Stat'
+
+export { default as Switch } from './Switch'
+export type { SwitchProps } from './Switch'
 
 export { default as ToastProvider } from './ToastProvider'
 export type { ToastProviderProps } from './ToastProvider'

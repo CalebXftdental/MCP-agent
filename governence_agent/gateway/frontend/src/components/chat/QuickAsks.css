@@ -1,0 +1,75 @@
+.qa-block {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.qa-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.qa-chips--center {
+  justify-content: center;
+}
+
+/* Chips arrive in reading order. `nth-child` rather than a JS-set index: the
+   list is short and static, so five selectors beat threading a counter
+   through the markup. */
+.qa-chips > * {
+  animation: ui-rise var(--ui-dur-3) var(--ui-ease-out) both;
+}
+
+.qa-chips > *:nth-child(1) { animation-delay: 20ms; }
+.qa-chips > *:nth-child(2) { animation-delay: 55ms; }
+.qa-chips > *:nth-child(3) { animation-delay: 90ms; }
+.qa-chips > *:nth-child(4) { animation-delay: 125ms; }
+.qa-chips > *:nth-child(n + 5) { animation-delay: 160ms; }
+
+.qa-groups[hidden] {
+  display: none;
+}
+
+.qa-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-r-md);
+  background: var(--ui-surface-sunken);
+  animation: ui-rise var(--ui-dur-3) var(--ui-ease-out) both;
+}
+
+.qa-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.qa-groups .qa-chips {
+  justify-content: flex-start;
+}
+
+.qa-note {
+  margin: 0.15rem 0 0;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--ui-border);
+  font-size: var(--ui-fs-2xs);
+  color: var(--ui-text-faint);
+}
+
+/* A template's {blank} rendered as a small boxed field — Slack's inline-code
+   look — instead of literal curly braces, so it reads as "fill this in"
+   rather than punctuation. */
+.qa-chip-blank {
+  font-family: var(--ui-mono);
+  font-size: 0.9em;
+  color: var(--ui-text-muted);
+  background: var(--ui-border);
+  padding: 0.03em 0.4em;
+  border-radius: var(--ui-r-xs);
+}

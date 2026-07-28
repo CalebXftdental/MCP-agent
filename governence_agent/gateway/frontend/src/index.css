@@ -2,6 +2,17 @@
    1126px #root, 56px h1, inline-flex code); none of that suits an admin console,
    so it is replaced rather than overridden. */
 
+/* Every `.ui-input` (Field.css) sets `width: 100%` alongside its own padding
+   and border. Under the browser's default content-box sizing that adds up to
+   more than 100% of the parent, so controls like the request-picker's note
+   textarea overflowed past their rounded card. border-box makes width mean
+   the full box, border included, everywhere. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 :root {
   --text: #1a1c22;
   --text-muted: #6f7686;
@@ -48,9 +59,21 @@
   }
 }
 
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  background: var(--ui-bg, var(--bg));
+}
+
+html,
+body {
+  overflow: hidden;
+}
+
 body {
   margin: 0;
-  min-height: 100svh;
 }
 
 h1,

@@ -31,6 +31,7 @@ import PlaygroundPage from './PlaygroundPage'
 import RequestsPage from './RequestsPage'
 import SecurityPage from './SecurityPage'
 import SendQueuePage from './SendQueuePage'
+import TemplatesPage from './TemplatesPage'
 import WhitelistPage from './WhitelistPage'
 import type { RouteKey } from './routes'
 import type { PageProps } from './types'
@@ -51,6 +52,7 @@ const PAGES: Partial<Record<RouteKey, ComponentType<PageProps>>> = {
   calendar: CalendarPage,
   sends: SendQueuePage,
   playground: PlaygroundPage,
+  templates: TemplatesPage,
 }
 
 export function pageFor(key: RouteKey): ComponentType<PageProps> {
@@ -78,6 +80,7 @@ export { default as PlaygroundPage } from './PlaygroundPage'
 export { default as RequestsPage } from './RequestsPage'
 export { default as SecurityPage } from './SecurityPage'
 export { default as SendQueuePage } from './SendQueuePage'
+export { default as TemplatesPage } from './TemplatesPage'
 export { default as WhitelistPage } from './WhitelistPage'
 export * from './routes'
 export type { PageProps } from './types'

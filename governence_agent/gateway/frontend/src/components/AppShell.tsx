@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Avatar, Button, Card } from './ui'
+import { Avatar, Button, Card, CollapseToggle, Tooltip } from './ui'
 import ConnectionStatus from './ConnectionStatus'
+import { useCollapsed } from '../hooks/useCollapsed'
 import type { Session } from '../hooks/useSession'
 import type { Router } from '../hooks/useRoute'
 import { isPorted } from '../pages'
@@ -76,6 +77,7 @@ function Unreachable({ message, onRetry }: { message: string; onRetry: () => voi
 
 function AppShell({ session, router, children }: AppShellProps) {
   const [navOpen, setNavOpen] = useState(false)
+  const nav = useCollapsed('gov_nav_collapsed')
   const route = ROUTES[router.key]
   const groups = visibleNav(session.role)
   const mainRef = useRef<HTMLElement>(null)
@@ -97,11 +99,27 @@ function AppShell({ session, router, children }: AppShellProps) {
   }, [navOpen])
 
   return (
-    <div className="shell" data-nav-open={navOpen || undefined}>
+    <div className="shell" data-nav-open={navOpen || undefined} data-nav-collapsed={nav.collapsed || undefined}>
       <aside className="shell-side" id="shell-nav">
         <div className="shell-brand">
-          <img className="shell-logo" src="/frontier-logo.png" alt="Frontier Dental" />
-          <span className="ui-eyebrow">MCP WoORKSPACE</span>
+          {/* Hidden when collapsed — the wrapper (not the two elements
+              individually) so the row's own justify-content can re-centre on
+              just the toggle below without a hidden sibling still claiming
+              space. */}
+          <div className="shell-brand-mark">
+            <img className="shell-logo" src="/frontier-logo.png" alt="Frontier Dental" />
+            <span className="ui-eyebrow">MCP WoORKSPACE</span>
+          </div>
+          {/* Lives in the sidebar itself, not docked at its border — when
+              collapsed it re-centres in the same narrow column the nav icons
+              and avatar sit in below, reading as one more item in that rail
+              rather than a control bolted onto the edge. */}
+          <CollapseToggle
+            collapsed={nav.collapsed}
+            onToggle={nav.toggle}
+            label="Sections"
+            className="shell-collapse-toggle"
+          />
         </div>
 
         <nav className="shell-nav" aria-label="Sections">
@@ -109,7 +127,7 @@ function AppShell({ session, router, children }: AppShellProps) {
             <div className="shell-nav-group" key={group.label ?? 'top'}>
               {group.label && <p className="shell-nav-label ui-eyebrow">{group.label}</p>}
               {group.keys.map((key) => (
-                <NavItem key={key} routeKey={key} router={router} />
+                <NavItem key={key} routeKey={key} router={router} collapsed={nav.collapsed} />
               ))}
             </div>
           ))}
@@ -123,7 +141,7 @@ function AppShell({ session, router, children }: AppShellProps) {
                 <span className="shell-who-name">{session.me.name}</span>
                 <span className="shell-who-role">{session.me.role}</span>
               </span>
-              <Button variant="ghost" size="sm" onClick={session.signOut}>
+              <Button variant="ghost" size="sm" className="shell-who-signout" onClick={session.signOut}>
                 Sign out
               </Button>
             </>
@@ -174,19 +192,23 @@ function AppShell({ session, router, children }: AppShellProps) {
   )
 }
 
-function NavItem({ routeKey, router }: { routeKey: RouteKey; router: Router }) {
+function NavItem({ routeKey, router, collapsed }: { routeKey: RouteKey; router: Router; collapsed: boolean }) {
   const route = ROUTES[routeKey]
   const active = router.key === routeKey
   const ported = isPorted(routeKey)
 
-  return (
+  const link = (
     <a
       className="shell-nav-item"
       href={router.href(routeKey)}
       data-active={active || undefined}
       data-unported={!ported || undefined}
       aria-current={active ? 'page' : undefined}
-      title={ported ? route.description : `${route.title} — not ported yet`}
+      // The label's already visible when expanded, so the native tooltip
+      // would just be a redundant, slower-to-appear echo of it — it only
+      // carries its own information (the description) there. Collapsed, the
+      // custom Tooltip below takes over instead of stacking a second one.
+      title={collapsed ? undefined : ported ? route.description : `${route.title} — not ported yet`}
     >
       <span className="shell-nav-icon" aria-hidden="true">
         {route.icon}
@@ -199,6 +221,12 @@ function NavItem({ routeKey, router }: { routeKey: RouteKey; router: Router }) {
         </>
       )}
     </a>
+  )
+
+  return (
+    <Tooltip label={ported ? route.title : `${route.title} (not ported yet)`} side="right" disabled={!collapsed}>
+      {link}
+    </Tooltip>
   )
 }
 

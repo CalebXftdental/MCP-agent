@@ -16,7 +16,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ApiError,
   getChatTranscript,
+  resumeChatHistory,
   sendChatFeedback,
+  type ChatResumeResult,
   type ChatToolCall,
 } from '../lib/api'
 import { streamOrChat } from '../lib/chatStream'
@@ -87,6 +89,14 @@ export interface UseChatResult {
   /** The full transcript as plain text, for the Export action. Null until at
    *  least one turn has completed. */
   exportText: () => string | null
+  /** Switches the active thread to an existing conversation, opened from a
+   *  past-conversations list (Home's rail or History's preview) — the one
+   *  path both go through, so opening a conversation behaves identically no
+   *  matter where it was clicked. Resolves with the id actually opened (which
+   *  differs from `sessionId` when the requested session was closed and got
+   *  cloned); the caller updates the URL to match. Rejects on a failed/unknown
+   *  id — the caller decides how to surface that. */
+  openConversation: (sessionId: string) => Promise<ChatResumeResult>
 }
 
 export function useChat(owner: string | null): UseChatResult {
@@ -252,6 +262,19 @@ export function useChat(owner: string | null): UseChatResult {
     setMessages([])
   }, [conv])
 
+  const openConversation = useCallback(
+    async (sessionId: string): Promise<ChatResumeResult> => {
+      const result = await resumeChatHistory(sessionId)
+      // Bumps generation, so the history-loading effect above fetches and
+      // renders this conversation's transcript — same mechanism a page
+      // reload uses to restore the current thread, just pointed at a
+      // different id.
+      conv.open(result.conversation_id)
+      return result
+    },
+    [conv],
+  )
+
   const exportText = useCallback((): string | null => {
     if (messages.length === 0) return null
     return messages
@@ -271,7 +294,8 @@ export function useChat(owner: string | null): UseChatResult {
       rate,
       newConversation,
       exportText,
+      openConversation,
     }),
-    [messages, busy, loadingHistory, conv.id, send, retry, rate, newConversation, exportText],
+    [messages, busy, loadingHistory, conv.id, send, retry, rate, newConversation, exportText, openConversation],
   )
 }

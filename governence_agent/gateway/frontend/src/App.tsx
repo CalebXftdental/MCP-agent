@@ -22,7 +22,12 @@ function App() {
   return (
     <ToastProvider>
       <AppShell session={session} router={router}>
-        <Page route={ROUTES[router.key]} session={session} navigate={router.navigate} />
+        <Page
+          route={ROUTES[router.key]}
+          session={session}
+          navigate={router.navigate}
+          routeParam={router.param}
+        />
       </AppShell>
     </ToastProvider>
   )

@@ -20,12 +20,39 @@ extension.
 ## What gets deployed
 
 - **Deploy root:** this `governance_agent/` folder.
-- **Ships:** `gateway/` (+ static UI), `governance_core/` (auth, store, policy),
-  `mcp-minierp/` (the consolidated backend), `minierp_core/` (shared DB client),
-  `startup.sh`, `requirements.txt`, `.deployment`.
+- **Ships:** `gateway/` (React dashboard **built** to `gateway/frontend/dist/` --
+  see Step 0 below -- plus the legacy static shell it falls back to),
+  `governance_core/` (auth, store, policy), `mcp-minierp/` (the consolidated
+  backend), `mcp-office/`, `mcp-email/`, `mcp-knowledge/`, `mcp-calendar/`,
+  `mcp-code/` (the other local-only backends `startup.sh` launches),
+  `minierp_core/` (shared DB client), `startup.sh`, `requirements.txt`,
+  `.deployment`.
 - **Exclude:** `.venv/`, `**/__pycache__/`, `_smoke/`, the four legacy
   `mcp-minierp-orders|accounts|finance|shipments/` folders, `governance_service/`,
-  `**/.env.local`, `**/*.pyc`.
+  `gateway/frontend/node_modules/`, `gateway/frontend/src/` (only the built
+  `dist/` is served at runtime), `**/.env.local`, `**/*.pyc`. The VS Code
+  extension's zip-ignore (`.vscode/settings.json`) already has these.
+
+## Dependency versions are exact-pinned, not floating
+
+Every `requirements.txt` under `governance_agent/` (root, `gateway/`, and each
+`mcp-*/`) pins its direct dependencies with `==`, not `>=`. This is deliberate,
+not stylistic: on 2026-07-28, `mcp>=1.10.0` let Oryx install whatever `mcp`
+release was newest *at deploy time*, and that release had renamed
+`streamablehttp_client` and moved `FastMCP`'s import path out from under this
+code — every backend process crash-looped (`ModuleNotFoundError`/`ImportError`)
+until the app hit its startup timeout and Azure gave up on it. The same class of
+break was latent in every other unbounded dependency (`uvicorn`, `starlette`,
+`httpx`, `openai`, `anthropic`, `azure-cosmos`, `azure-search-documents`,
+`azure-core`); they're now pinned too, to the versions verified running
+2026-07-28.
+
+**When you deliberately want to upgrade one:** bump it locally, reinstall in
+`governance_agent/.venv`, actually boot the gateway and exercise the dashboard
+(don't just `pip install` and assume), then bump the same pin everywhere it
+appears (root + `gateway/` + any `mcp-*/` that also lists it) before deploying.
+Never widen a pin back to `>=` to "fix" an install error — that's exactly what
+broke production.
 
 ## Prerequisites
 
@@ -52,7 +79,18 @@ az webapp create -g frontier-gov-rg -p frontier-gov-plan -n frontier-governance 
 az webapp config set -g frontier-gov-rg -n frontier-governance --startup-file "bash startup.sh"
 az webapp config set -g frontier-gov-rg -n frontier-governance --number-of-workers 1 --always-on true
 az webapp config set -g frontier-gov-rg -n frontier-governance --health-check-path "/health"
+az webapp config appsettings set -g frontier-gov-rg -n frontier-governance --settings WEBSITES_CONTAINER_START_TIME_LIMIT=1800
 ```
+`WEBSITES_CONTAINER_START_TIME_LIMIT=1800` matters here specifically: `startup.sh`
+boots seven Python processes (gateway + six backends) in one container, which can
+run close to or past Azure's default container-start timeout — observed causing
+a failed/retried startup on 2026-07-28 even once the app itself was otherwise
+healthy. Without it, a slow-but-fine boot gets killed and looks like a crash.
+
+If `--health-check-path` errors as an unrecognized argument (older `az` CLI
+versions), set it via `az resource update -g frontier-gov-rg -n frontier-governance
+--resource-type Microsoft.Web/sites --set properties.siteConfig.healthCheckPath=/health`
+instead.
 
 **App settings (environment variables)** — secrets should be Key Vault references.
 `appservice.settings.json` in this folder is a ready-to-edit bulk-import file
@@ -82,21 +120,55 @@ az webapp config set -g frontier-gov-rg -n frontier-governance --health-check-pa
 | `MINIERP_GRAPHQL_URL` / `MINIERP_AUTH_URL` | opt | Default to the prod db-api endpoints; override only if they change. |
 | `GOVERNANCE_KEY_PEPPER` | rec🔑 | Extra secret mixed into API-key hashes. |
 | `GOVERNANCE_DEFAULT_RATE_LIMIT_PER_HOUR` | rec | e.g. `1000`. |
-| `SCM_DO_BUILD_DURING_DEPLOYMENT` | ✅ | `true` (also in `.deployment`). |
+| `SCM_DO_BUILD_DURING_DEPLOYMENT` | ✅ | `true` (also in `.deployment`). Only takes effect with `az webapp deployment source config-zip` or the Azure extension — **not** `az webapp deploy`, which has been observed to skip the build entirely on this app despite this setting. See Step 3. |
+| `WEBSITES_CONTAINER_START_TIME_LIMIT` | ✅ | `1800` — the seven-process `startup.sh` boot needs more than Azure's default container-start allowance. |
 | `ONLYOFFICE_DOCUMENT_SERVER_URL` | opt¹ | The deployed Document Server's public HTTPS URL (Container App / ACI / App Service for Containers — see `ONLYOFFICE.md`). ¹Unset ⇒ artifact preview/edit stays a structural signal dump, no editor embed. |
 | `ONLYOFFICE_JWT_SECRET` | opt🔑 | Must match the `JWT_SECRET` env var set on the Document Server resource itself, exactly. |
 | `ONLYOFFICE_EDIT_MODE` | opt | `edit` to allow in-editor saves + the AI edit tool; `view` (default) for read-only preview. |
 | `GATEWAY_PUBLIC_URL` | opt | This App Service's own public HTTPS URL. Read by `mcp-office`'s `edit_office_document` tool (it has no incoming request to derive its own base URL from, unlike the gateway's routes). |
 
-## Step 3 — Deploy
+## Step 3 — Build the frontend, then deploy
 
-**Azure extension:** set the zip-ignore in `.vscode/settings.json` (already added in
-this folder), then right-click the `governance_agent` folder → **Deploy to Web App**.
+**The frontend build must run before every deploy, on your machine (or CI) — not
+on Azure.** Oryx's zip-deploy build (`SCM_DO_BUILD_DURING_DEPLOYMENT=true`) only
+runs `pip install -r requirements.txt` at the deploy root; it never sees or
+builds the nested `gateway/frontend/` Node project. If you skip this step, the
+gateway falls back to serving the old static shell (`gateway/static/app.html`)
+instead of the current dashboard — no error, just stale UI.
 
-**az CLI** (from inside `governance_agent/`):
+Requires Node.js installed locally. From `governance_agent/`:
 ```bash
-az webapp up -g frontier-gov-rg -n frontier-governance --runtime "PYTHON:3.12"
+./build-frontend.sh          # or: .\build-frontend.ps1  on Windows
 ```
+This runs `npm ci && npm run build` in `gateway/frontend`, producing
+`gateway/frontend/dist/`, which `gateway/backend/deps.py` and
+`gateway/backend/__init__.py` serve directly (`/dashboard*` → `dist/index.html`,
+`/assets/*` → `dist/assets/`). Rerun it any time frontend source changes.
+
+**Azure extension:** after building, set the zip-ignore in `.vscode/settings.json`
+(already added in this folder), then right-click the `governance_agent` folder →
+**Deploy to Web App**.
+
+**az CLI** (from inside `governance_agent/`, after building — zip the folder
+respecting `.vscode/settings.json`'s ignore list first):
+```bash
+az webapp deployment source config-zip -g frontier-gov-rg -n frontier-governance --src <path-to-zip>
+```
+
+> **⚠️ Do NOT use `az webapp deploy --type zip` (OneDeploy) for this app.**
+> Verified the hard way on 2026-07-28: `az webapp deploy` reported
+> `Build successful. Time: 0(s)` and shipped the zip's files as-is *without
+> running `pip install`* — despite `SCM_DO_BUILD_DURING_DEPLOYMENT=true` being
+> set. The site then crash-looped (`ModuleNotFoundError`/`ImportError` for
+> every dependency) until it hit Azure's startup timeout and the deploy failed.
+> `az webapp deployment source config-zip` (used above) and the VS Code
+> extension both correctly trigger the Oryx build — `config-zip`'s own
+> deprecation warning ("use `az webapp deploy` instead") is safe to ignore for
+> this app; that "successor" command is the one that silently broke it.
+>
+> Either way, **verify the build actually ran** by watching for
+> `Status: Building the app...` taking real time (tens of seconds, not `0(s)`)
+> before `Build successful` in the CLI output — that's the tell.
 
 ## Step 4 — Verify
 

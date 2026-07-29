@@ -1,5 +1,6 @@
 [
   { "name": "SCM_DO_BUILD_DURING_DEPLOYMENT", "value": "true", "slotSetting": false },
+  { "name": "WEBSITES_CONTAINER_START_TIME_LIMIT", "value": "1800", "slotSetting": false },
 
   { "name": "GOVERNANCE_SESSION_SECRET", "value": "<32+ RANDOM BYTES - Key Vault ref recommended>", "slotSetting": false },
   { "name": "GATEWAY_ALLOWED_HOSTS", "value": "<your-app>.azurewebsites.net", "slotSetting": false },

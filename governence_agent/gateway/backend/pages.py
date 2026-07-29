@@ -6,7 +6,10 @@ from starlette.responses import JSONResponse
 from starlette.responses import RedirectResponse
 from starlette.responses import Response
 
-from .deps import _APP_HTML, _CHAT_HTML, _LOGIN_HTML, _LOGO_BYTES, _SIGNUP_HTML, _session
+from .deps import _APP_HTML, _CHAT_HTML, _FRONTEND_DIST_DIR, _LOGIN_HTML, _LOGO_BYTES, _SIGNUP_HTML, _session
+
+_FAVICON_PATH = _FRONTEND_DIST_DIR / "favicon.svg"
+_FAVICON_BYTES = _FAVICON_PATH.read_bytes() if _FAVICON_PATH.exists() else b""
 
 
 async def _chat_page(request):
@@ -43,3 +46,9 @@ async def _logo(_request):
     if not _LOGO_BYTES:
         return Response(status_code=404)
     return Response(_LOGO_BYTES, media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
+
+
+async def _favicon(_request):
+    if not _FAVICON_BYTES:
+        return Response(status_code=404)
+    return Response(_FAVICON_BYTES, media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=86400"})

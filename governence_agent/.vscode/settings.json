@@ -10,6 +10,8 @@
     "mcp-minierp-shipments{,/**}",
     "mcp-minierp-finance{,/**}",
     "governance_service{,/**}",
+    "**/node_modules{,/**}",
+    "gateway/frontend/src{,/**}",
     "**/.env.local",
     "appservice.settings.local.json",
     "minierp.env",

@@ -47,7 +47,17 @@ _SIGNUP_HTML = _static("signup.html", "<h1>sign up</h1>")
 _CHAT_HTML = _static("chat.html", "<h1>assistant</h1>")
 
 
-_APP_HTML = _static("app.html", "<h1>governance</h1>")
+# The built React SPA (gateway/frontend, `npm run build`) ships to frontend/dist/.
+# Prefer it once it exists; fall back to the legacy hand-written shell so the
+# gateway still runs for anyone who hasn't built the frontend yet (e.g. local dev
+# touching only the Python side). See gateway/frontend/README.md and DEPLOY.md
+# for the build step that must run before a deploy.
+_FRONTEND_DIST_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+_FRONTEND_INDEX_PATH = _FRONTEND_DIST_DIR / "index.html"
+_APP_HTML = (
+    _FRONTEND_INDEX_PATH.read_text(encoding="utf-8") if _FRONTEND_INDEX_PATH.exists()
+    else _static("app.html", "<h1>governance</h1>")
+)
 
 
 _LOGO_PATH = _STATIC_DIR / "frontier-logo.png"

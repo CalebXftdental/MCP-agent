@@ -17,6 +17,8 @@ needs.
 """
 from __future__ import annotations
 
+from starlette.staticfiles import StaticFiles
+
 from . import (
     admin_policy,
     admin_security,
@@ -33,6 +35,7 @@ from . import (
     workflow_api,
     workflow_graphs,
 )
+from .deps import _FRONTEND_DIST_DIR
 
 API_PREFIX = "/backend"
 
@@ -71,6 +74,15 @@ def register(app) -> None:
     page("/dashboard/signup", pages._signup_page)
     page("/dashboard/chat", pages._chat_page)
     page("/dashboard/logo.png", pages._logo)
+    page("/favicon.svg", pages._favicon)
+
+    # The built React SPA's hashed JS/CSS (frontend/dist/assets, from `npm run
+    # build` -- see DEPLOY.md). Absent in local dev until that build has been run
+    # at least once; deps._APP_HTML falls back to the legacy shell in that case,
+    # so there's nothing under /assets to serve either.
+    _frontend_assets_dir = _FRONTEND_DIST_DIR / "assets"
+    if _frontend_assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(_frontend_assets_dir)), name="frontend-assets")
 
     # ── Health ────────────────────────────────────────────────────────────────
     # Keeps its bare path permanently: App Service and uptime probes point at it.

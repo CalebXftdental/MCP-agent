@@ -58,7 +58,12 @@ export class ApiError extends Error {
   }
 }
 
-type JsonBody = Record<string, unknown> | unknown[]
+// `object`, not `Record<string, unknown>`: a declared interface without an index
+// signature (AdminControls, CreateConsumerInput, ...) isn't structurally
+// assignable to Record<string, unknown> even when every property matches, so
+// api.post/put callers passing a named request type would fail to type-check.
+// Only ever reaches JSON.stringify() below, so nothing here needs keyed access.
+type JsonBody = object
 
 async function readBody(res: Response): Promise<unknown> {
   if (res.status === 204) return null

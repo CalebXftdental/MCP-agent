@@ -51,6 +51,12 @@ export interface ConversationId {
   set: (id: string) => void
   /** Abandon this conversation and start a new one. */
   reset: () => void
+  /** Switch the active thread to an EXISTING conversation — opening one from a
+   *  past-conversations list, as opposed to `set`'s "the current thread got
+   *  renamed." Unlike `set`, this bumps `generation`, so the history-loading
+   *  effect in `useChat` fires and replaces the messages on screen with that
+   *  conversation's transcript. */
+  open: (id: string) => void
 }
 
 export function useConversationId(owner: string | null): ConversationId {
@@ -118,5 +124,19 @@ export function useConversationId(owner: string | null): ConversationId {
     setGeneration((g) => g + 1)
   }, [key])
 
-  return { id, isResumed, generation, set, reset }
+  const open = useCallback(
+    (next: string) => {
+      setId(next)
+      setIsResumed(true)
+      try {
+        sessionStorage.setItem(key, next)
+      } catch {
+        // Private-mode quota failure: the in-memory id still works for this tab.
+      }
+      setGeneration((g) => g + 1)
+    },
+    [key],
+  )
+
+  return { id, isResumed, generation, set, reset, open }
 }

@@ -1,0 +1,7 @@
+.status-page code {
+  font-family: var(--ui-mono);
+  font-size: 0.9em;
+  padding: 0.05em 0.3em;
+  border-radius: var(--ui-r-xs);
+  background: var(--ui-surface-hover);
+}

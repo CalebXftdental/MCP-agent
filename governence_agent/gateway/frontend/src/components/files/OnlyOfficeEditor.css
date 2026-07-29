@@ -1,0 +1,30 @@
+.oo-editor {
+  position: relative;
+  width: 100%;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-r-md);
+  overflow: hidden;
+  background: var(--ui-surface-sunken);
+}
+
+.oo-editor-mount {
+  width: 100%;
+  height: 100%;
+}
+
+.oo-editor-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-faint);
+  pointer-events: none;
+}
+
+.oo-editor-error {
+  margin: 0;
+  padding: 1rem;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-muted);
+}

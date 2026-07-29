@@ -1,0 +1,29 @@
+.ui-collapse-toggle {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-r-pill);
+  background: var(--ui-surface);
+  color: var(--ui-text-muted);
+  box-shadow: var(--ui-shadow-sm);
+  cursor: pointer;
+  transition:
+    background-color var(--ui-dur-1) var(--ui-ease-out),
+    color var(--ui-dur-1) var(--ui-ease-out),
+    box-shadow var(--ui-dur-1) var(--ui-ease-out);
+}
+
+.ui-collapse-toggle:hover {
+  background: var(--ui-surface-hover);
+  color: var(--ui-text);
+  box-shadow: var(--ui-shadow-sm);
+}
+
+.ui-collapse-toggle:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 2px;
+}

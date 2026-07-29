@@ -248,7 +248,7 @@
 <div class="app">
   <aside id="sidebar">
     <div class="brand">
-      <img class="brand-logo" src="/dashboard/logo.png" alt="Frontier Dental">
+      <img class="brand-logo" src="/logo.png" alt="Frontier Dental">
       <div class="sub" id="brand-sub">MCP</div>
     </div>
     <nav id="nav"></nav>
@@ -500,15 +500,20 @@ const ROUTES = {
   alerts:{title:'Alerts',desc:'Security incidents — enumeration, denial bursts, and anomalies grouped per principal for triage.',icon:'🚨',admin:true,render:renderAlerts},
   security:{title:'Security',desc:'Backend health and API-key hygiene — dormant keys, unused grants, unrotated credentials.',icon:'🔒',admin:true,render:renderSecurity},
 };
+// This shell is also served at /legacy/<key> now (the React console's escape
+// hatch for a tab that hasn't been ported yet, since /dashboard/<key> itself
+// redirects into the new app). Whichever prefix loaded it is the one every
+// link and pushState call within this page keeps using.
+const PREFIX = location.pathname.startsWith('/legacy') ? '/legacy' : '/dashboard';
 function currentKey(){
-  const p = location.pathname.replace(/^\/dashboard\/?/,'').split('/')[0];
+  const p = location.pathname.replace(/^\/(dashboard|legacy)\/?/,'').split('/')[0];
   if(p==='admin') return 'consumers';
   return ROUTES[p] ? p : 'home';  // default landing = Home
 }
 function buildNav(){
   const nav=$('#nav'); nav.innerHTML='';
   const mk=(k)=>{const r=ROUTES[k];const a=el(`<a class="item" data-k="${k}"><span class="ic">${r.icon}</span>${r.title}</a>`);
-    a.onclick=(e)=>{e.preventDefault();go(k);}; a.href='/dashboard/'+k; return a;};
+    a.onclick=(e)=>{e.preventDefault();go(k);}; a.href=PREFIX+'/'+k; return a;};
   const section=(label,keys)=>{
     if(label) nav.appendChild(el(`<div class="group">${label}</div>`));
     keys.forEach(k=>nav.appendChild(mk(k)));
@@ -526,7 +531,7 @@ function buildNav(){
 }
 function go(key){
   if(ROUTES[key].admin && ME.role!=='admin') key='home';
-  history.pushState({},'','/dashboard/'+key);
+  history.pushState({},'',PREFIX+'/'+key);
   paint(key);
 }
 function paint(key){
@@ -557,7 +562,7 @@ async function renderHome(v){
       <div id="home_qa" style="margin-top:.8rem"></div></div>
     <div class="card card-pad" id="home_saved"></div>
     <div class="card"><div class="card-pad between" style="padding-bottom:.6rem"><h2>Recent activity</h2>
-      <a href="/dashboard/activity" onclick="event.preventDefault();go('activity')">View all →</a></div>
+      <a href="${PREFIX}/activity" onclick="event.preventDefault();go('activity')">View all →</a></div>
       <div class="tbl-wrap" style="border-radius:0 0 var(--radius) var(--radius);border-left:0;border-right:0;border-bottom:0"><table>
         <thead><tr><th>When</th><th>Tool</th><th>Status</th></tr></thead>
         <tbody id="home_act"><tr><td colspan="3" class="empty">Loading…</td></tr></tbody></table></div></div>`);

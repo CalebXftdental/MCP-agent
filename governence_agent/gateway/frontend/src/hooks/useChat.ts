@@ -16,7 +16,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ApiError,
   getChatTranscript,
+  resumeChatHistory,
   sendChatFeedback,
+  type ChatResumeResult,
   type ChatToolCall,
 } from '../lib/api'
 import { streamOrChat } from '../lib/chatStream'
@@ -87,6 +89,14 @@ export interface UseChatResult {
   /** The full transcript as plain text, for the Export action. Null until at
    *  least one turn has completed. */
   exportText: () => string | null
+  /** Switches the active thread to an existing conversation, opened from a
+   *  past-conversations list (Home's rail or History's preview) — the one
+   *  path both go through, so opening a conversation behaves identically no
+   *  matter where it was clicked. Resolves with the id actually opened (which
+   *  differs from `sessionId` when the requested session was closed and got
+   *  cloned); the caller updates the URL to match. Rejects on a failed/unknown
+   *  id — the caller decides how to surface that. */
+  openConversation: (sessionId: string) => Promise<ChatResumeResult>
 }
 
 export function useChat(owner: string | null): UseChatResult {
@@ -126,13 +136,26 @@ export function useChat(owner: string | null): UseChatResult {
     getChatTranscript(convRef.current.id)
       .then((transcript) => {
         if (!live) return
-        const loaded: ChatMessage[] = (transcript.messages ?? []).map((m) => ({
-          id: messageId(),
-          role: m.role === 'user' ? 'user' : 'bot',
-          text: m.content,
-          status: 'done',
-          toolsUsed: m.tools_used ?? undefined,
-        }))
+        // A live turn stamps `question` on the bot message the instant it's
+        // created (see `send`) — a resumed transcript has to reconstruct the
+        // same thing from the preceding user turn, or every historical reply
+        // silently loses its follow-up chips, its workflow-suggestion card,
+        // and Retry (which bails with no `question` to resend).
+        let lastQuestion = ''
+        const loaded: ChatMessage[] = (transcript.messages ?? []).map((m) => {
+          if (m.role === 'user') {
+            lastQuestion = m.content
+            return { id: messageId(), role: 'user', text: m.content, status: 'done' }
+          }
+          return {
+            id: messageId(),
+            role: 'bot',
+            text: m.content,
+            status: 'done',
+            toolsUsed: m.tools_used ?? undefined,
+            question: lastQuestion || undefined,
+          }
+        })
         setMessages(loaded)
       })
       .catch((cause: unknown) => {
@@ -239,6 +262,19 @@ export function useChat(owner: string | null): UseChatResult {
     setMessages([])
   }, [conv])
 
+  const openConversation = useCallback(
+    async (sessionId: string): Promise<ChatResumeResult> => {
+      const result = await resumeChatHistory(sessionId)
+      // Bumps generation, so the history-loading effect above fetches and
+      // renders this conversation's transcript — same mechanism a page
+      // reload uses to restore the current thread, just pointed at a
+      // different id.
+      conv.open(result.conversation_id)
+      return result
+    },
+    [conv],
+  )
+
   const exportText = useCallback((): string | null => {
     if (messages.length === 0) return null
     return messages
@@ -258,7 +294,8 @@ export function useChat(owner: string | null): UseChatResult {
       rate,
       newConversation,
       exportText,
+      openConversation,
     }),
-    [messages, busy, loadingHistory, conv.id, send, retry, rate, newConversation, exportText],
+    [messages, busy, loadingHistory, conv.id, send, retry, rate, newConversation, exportText, openConversation],
   )
 }

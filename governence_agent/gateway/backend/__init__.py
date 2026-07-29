@@ -11,9 +11,9 @@ level up.
 Two prefixes, one handler each. `/backend/<path>` is canonical — what the React
 client in frontend/ calls. The bare legacy path is registered alongside it because
 static/app.html still calls it. Retiring a legacy path is `legacy=False` on its
-line; when every line is legacy=False, `/dashboard/*` belongs to the shell alone
-and pages._dashboard can become a single catch-all, which is what React Router
-needs.
+line; when every line is legacy=False, the bare paths can drop entirely, which is
+also when `/legacy/<key>` (this module's escape hatch to the pre-React panels,
+see `page()` below) stops needing to exist at all.
 """
 from __future__ import annotations
 
@@ -58,23 +58,39 @@ def register(app) -> None:
         app.add_route(path, handler, **kwargs)
 
     # ── Pages and assets ──────────────────────────────────────────────────────
-    page("/", pages._root)
-    page("/dashboard", pages._dashboard)
-    # All app-shell section routes serve the same SPA shell (session-gated); the
-    # client renders the panel from the path. Admin panels are hidden for
-    # non-admins and every admin API enforces the role server-side.
-    for section in (
+    # / is the app itself. /dashboard was the pre-React entry point; it (and
+    # every /dashboard* path below) is deprecated in favour of the routes
+    # above the redirect block -- kept only as a redirect to its replacement,
+    # never removed outright, so an old bookmark or link still lands
+    # somewhere correct instead of 404ing.
+    page("/", pages._app_shell)
+    page("/login", pages._app_shell)
+    page("/signup", pages._app_shell)
+    page("/chat", pages._chat_page)
+    page("/logo.png", pages._logo)
+    page("/favicon.png", pages._favicon)
+
+    _LEGACY_SECTIONS = (
         "admin", "assistant", "access", "consumers", "requests", "categories",
         "department-admin", "whitelist", "monitor", "history", "alerts", "security",
         "activity", "developer", "home", "playground", "files", "workflows",
         "my_workflows", "automations", "knowledge", "sends", "calendar", "approvals",
         "templates", "code-plans", "agents",
-    ):
-        page(f"/dashboard/{section}", pages._dashboard)
-    page("/dashboard/signup", pages._signup_page)
-    page("/dashboard/chat", pages._chat_page)
-    page("/dashboard/logo.png", pages._logo)
-    page("/favicon.svg", pages._favicon)
+    )
+    # The escape hatch PlaceholderPage links to for a tab that hasn't been
+    # ported yet -- unlike /dashboard/<section> below, this ACTUALLY serves
+    # the pre-React panel (pages._legacy_shell never prefers the dist build),
+    # so it keeps meaning something for as long as the port takes.
+    for section in _LEGACY_SECTIONS:
+        page(f"/legacy/{section}", pages._legacy_shell)
+
+    # ── Deprecated: redirects only, past this point ───────────────────────────
+    page("/dashboard", pages._dashboard_redirect)
+    for section in _LEGACY_SECTIONS:
+        page(f"/dashboard/{section}", pages._dashboard_section_redirect(section))
+    page("/dashboard/signup", pages._signup_redirect)
+    page("/dashboard/chat", pages._chat_redirect)
+    page("/dashboard/logo.png", pages._logo_redirect)
 
     # The built React SPA's hashed JS/CSS (frontend/dist/assets, from `npm run
     # build` -- see DEPLOY.md). Absent in local dev until that build has been run
@@ -207,3 +223,14 @@ def register(app) -> None:
     api("/email-sends/{sid}", sends._email_send_item)
     api("/calendar-sends", sends._calendar_sends)
     api("/calendar-sends/{sid}", sends._calendar_send_item)
+
+    # ── Catch-all: MUST stay last ──────────────────────────────────────────────
+    # Path-based tab routing (/monitor, /files, ...) means the client can put
+    # any of ~25 tab keys, plus one optional /<param> segment, in the address
+    # bar -- see useRoute.ts. Rather than list them all here too (and have to
+    # extend that list every time a tab is added), one route that matches
+    # anything left unclaimed by everything registered above it serves the
+    # same shell / falls back to a real 404 for /backend, /assets, and
+    # anything that looks like a missing static file. See pages._catch_all's
+    # own docstring for exactly which of those it is.
+    app.add_route("/{tail:path}", pages._catch_all)

@@ -266,6 +266,21 @@ export function resolveRoute(raw: string | null | undefined, role: string | null
   return ROUTES[key].admin && role !== 'admin' ? DEFAULT_ROUTE : key
 }
 
+/**
+ * Whether `raw` names a real destination at all — the bare root, the `admin`
+ * alias, or a real tab key — regardless of whether this role can actually
+ * open it. That last case (a real, admin-gated tab requested by a non-admin)
+ * still silently lands on Home via `resolveRoute` above, same as always —
+ * that's an access decision, not a wrong URL, so it's deliberately not what
+ * this reports. This is only for telling "a route that doesn't exist" apart
+ * from "Home," which `resolveRoute` alone can't do since it always returns
+ * *some* valid key.
+ */
+export function isKnownPath(raw: string): boolean {
+  const key = (raw ?? '').replace(/^\/+/, '').split('/')[0]
+  return key === '' || key === 'admin' || isRouteKey(key)
+}
+
 /** Nav groups with every tab this role can't reach removed, and now-empty groups
  *  dropped — so a non-admin sees no stray group headings. */
 export function visibleNav(role: string | null): NavGroup[] {

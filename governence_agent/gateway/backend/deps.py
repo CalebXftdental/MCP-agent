@@ -41,9 +41,6 @@ def _static(name: str, fallback: str) -> str:
 _ACCOUNT_HTML = _static("account.html", "<h1>my access</h1>")
 
 
-_SIGNUP_HTML = _static("signup.html", "<h1>sign up</h1>")
-
-
 _CHAT_HTML = _static("chat.html", "<h1>assistant</h1>")
 
 
@@ -58,6 +55,14 @@ _APP_HTML = (
     _FRONTEND_INDEX_PATH.read_text(encoding="utf-8") if _FRONTEND_INDEX_PATH.exists()
     else _static("app.html", "<h1>governance</h1>")
 )
+
+
+# Always the hand-written shell, dist or no dist -- unlike _APP_HTML above,
+# this never prefers the React build. It's what `/legacy/<key>` serves: the
+# escape hatch PlaceholderPage links to for a tab that hasn't been ported yet,
+# which only means something once a dist build exists and _APP_HTML has
+# already moved on to serving that instead.
+_LEGACY_APP_HTML = _static("app.html", "<h1>governance</h1>")
 
 
 _LOGO_PATH = _STATIC_DIR / "frontier-logo.png"
@@ -82,41 +87,6 @@ _CHAT_IDLE_SEC = int(os.getenv("GOVERNANCE_CHAT_IDLE_SEC") or str(60 * 60))
 
 
 _CHAT_SWEEP_INTERVAL_SEC = int(os.getenv("GOVERNANCE_CHAT_SWEEP_INTERVAL_SEC") or "300")
-
-
-_LOGIN_HTML = """<!doctype html><html lang=en><head><meta charset=utf-8>
-<meta name=viewport content="width=device-width, initial-scale=1"><title>Frontier Governance — Sign in</title>
-<style>
-:root{--highlight:#2FC7BA;--highlight-darker:#2ab3a7;--gray900:#212121;--gray700:#A1A1A1;
---gray200:#E7E7E7;--gray50:#F6F7F8;--error:#f44336}
-*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;
-background:linear-gradient(135deg,#eafaf8,var(--gray50));font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--gray900)}
-.card{background:#fff;border:1px solid var(--gray200);border-radius:16px;padding:2rem 1.9rem;width:22rem;
-box-shadow:0 10px 40px -12px rgba(33,33,33,.22)}
-.logo{width:46px;height:46px;border-radius:12px;background:linear-gradient(135deg,var(--highlight),#5ad6cb);
-display:grid;place-items:center;color:#fff;font-weight:700;font-size:1.4rem;margin-bottom:1rem}
-h2{margin:0 0 .15rem;font-size:1.25rem}p.sub{margin:0 0 1.4rem;color:var(--gray700);font-size:.85rem}
-label{display:block;font-size:.78rem;font-weight:600;color:var(--gray700);margin:.7rem 0 .25rem}
-input{width:100%;padding:.6rem .7rem;border:1px solid var(--gray200);border-radius:9px;font:inherit}
-input:focus{outline:2px solid var(--highlight);border-color:transparent}
-button{width:100%;margin-top:1.2rem;padding:.65rem;border:0;border-radius:9px;background:var(--highlight);
-color:#fff;font-weight:650;font-size:.95rem;cursor:pointer}button:hover{background:var(--highlight-darker)}
-#e{color:var(--error);font-size:.83rem;min-height:1.1rem;margin:.6rem 0 0;text-align:center}
-.foot{margin:1rem 0 0;text-align:center;font-size:.82rem;color:var(--gray700)}
-.foot a{color:var(--highlight);text-decoration:none;font-weight:600}
-</style></head><body>
-<form class=card id=f>
-<div class=logo>F</div>
-<h2>Frontier Governance</h2><p class=sub>Sign in to the control plane.</p>
-<label for=u>Username</label><input id=u autofocus autocomplete=username>
-<label for=p>Password</label><input id=p type=password autocomplete=current-password>
-<button>Sign in</button><p id=e></p>
-<p class=foot>No account? <a href=/dashboard/signup>Create one</a></p>
-</form>
-<script>f.onsubmit=async e=>{e.preventDefault();const r=await fetch('/dashboard/login',
-{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:u.value,password:p.value})});
-if(r.ok){location='/dashboard'}else{const j=await r.json().catch(()=>({}));document.getElementById('e').textContent=j.error||'Sign in failed'}}</script>
-</body></html>"""
 
 
 def _session(request) -> dict | None:

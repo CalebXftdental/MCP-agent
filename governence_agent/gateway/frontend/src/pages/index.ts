@@ -24,13 +24,17 @@ import CategoriesPage from './CategoriesPage'
 import ConsumersPage from './ConsumersPage'
 import DepartmentsPage from './DepartmentsPage'
 import DeveloperPage from './DeveloperPage'
+import FilesPage from './FilesPage'
 import HistoryPage from './HistoryPage'
 import HomePage from './HomePage'
+import KnowledgePage from './KnowledgePage'
+import MonitorPage from './MonitorPage'
 import PlaceholderPage from './PlaceholderPage'
 import PlaygroundPage from './PlaygroundPage'
 import RequestsPage from './RequestsPage'
 import SecurityPage from './SecurityPage'
 import SendQueuePage from './SendQueuePage'
+import TemplatesPage from './TemplatesPage'
 import WhitelistPage from './WhitelistPage'
 import type { RouteKey } from './routes'
 import type { PageProps } from './types'
@@ -41,6 +45,7 @@ const PAGES: Partial<Record<RouteKey, ComponentType<PageProps>>> = {
   history: HistoryPage,
   requests: RequestsPage,
   approvals: ApprovalsPage,
+  monitor: MonitorPage,
   security: SecurityPage,
   alerts: AlertsPage,
   whitelist: WhitelistPage,
@@ -51,6 +56,9 @@ const PAGES: Partial<Record<RouteKey, ComponentType<PageProps>>> = {
   calendar: CalendarPage,
   sends: SendQueuePage,
   playground: PlaygroundPage,
+  templates: TemplatesPage,
+  files: FilesPage,
+  knowledge: KnowledgePage,
 }
 
 export function pageFor(key: RouteKey): ComponentType<PageProps> {
@@ -71,13 +79,17 @@ export { default as CategoriesPage } from './CategoriesPage'
 export { default as ConsumersPage } from './ConsumersPage'
 export { default as DepartmentsPage } from './DepartmentsPage'
 export { default as DeveloperPage } from './DeveloperPage'
+export { default as FilesPage } from './FilesPage'
 export { default as HistoryPage } from './HistoryPage'
 export { default as HomePage } from './HomePage'
+export { default as KnowledgePage } from './KnowledgePage'
+export { default as MonitorPage } from './MonitorPage'
 export { default as PlaceholderPage } from './PlaceholderPage'
 export { default as PlaygroundPage } from './PlaygroundPage'
 export { default as RequestsPage } from './RequestsPage'
 export { default as SecurityPage } from './SecurityPage'
 export { default as SendQueuePage } from './SendQueuePage'
+export { default as TemplatesPage } from './TemplatesPage'
 export { default as WhitelistPage } from './WhitelistPage'
 export * from './routes'
 export type { PageProps } from './types'

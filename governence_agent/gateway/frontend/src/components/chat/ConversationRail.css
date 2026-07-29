@@ -1,0 +1,77 @@
+.conv-rail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.conv-rail-list li {
+  animation: ui-rise var(--ui-dur-2) var(--ui-ease-out) both;
+  animation-delay: calc(var(--ui-i, 0) * 25ms);
+}
+
+.conv-rail-row {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  align-items: flex-start;
+  text-align: left;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid transparent;
+  border-radius: var(--ui-r-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background-color var(--ui-dur-1) var(--ui-ease-out),
+    border-color var(--ui-dur-1) var(--ui-ease-out);
+}
+
+.conv-rail-row:hover:not(:disabled) {
+  background: var(--ui-surface-hover);
+}
+
+.conv-rail-row:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.conv-rail-row[data-active] {
+  background: var(--ui-accent-soft);
+  border-color: var(--ui-accent-200, var(--ui-border-strong));
+}
+
+.conv-rail-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.conv-rail-when {
+  font-size: var(--ui-fs-2xs);
+  color: var(--ui-text-faint);
+}
+
+.conv-rail-preview {
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.conv-rail-list--dense .conv-rail-row {
+  padding: 0.5rem 0.6rem;
+}
+
+.conv-rail-list--dense .conv-rail-preview {
+  font-size: var(--ui-fs-xs);
+  -webkit-line-clamp: 2;
+}

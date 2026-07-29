@@ -287,6 +287,22 @@ export interface ChatTranscript {
 export const getChatTranscript = (sessionId: string) =>
   api.get<ChatTranscript>(`/dashboard/chat-history/${encodeURIComponent(sessionId)}`)
 
+export interface ChatResumeResult {
+  conversation_id: string
+  /** True when the requested session was already closed, so the server cloned
+   *  it into a fresh open session pre-seeded with its messages rather than
+   *  reopening the closed id — `conversation_id` is that NEW id, not the one
+   *  requested. */
+  cloned: boolean
+}
+
+/** "Continue this conversation" from a past-conversation list. An open session
+ *  resumes under its own id (`cloned: false`); a closed one is cloned into a
+ *  fresh open session (backend/chat.py's `_chat_resume` — the server never
+ *  reopens a closed id). 404s (as an ApiError) when the id is unknown. */
+export const resumeChatHistory = (sessionId: string) =>
+  api.post<ChatResumeResult>(`/dashboard/chat-history/${encodeURIComponent(sessionId)}/resume`)
+
 export const sendChatFeedback = (conversationId: string, rating: 'up' | 'down') =>
   api.post<{ ok: boolean }>('/dashboard/feedback', { conversation_id: conversationId, rating })
 

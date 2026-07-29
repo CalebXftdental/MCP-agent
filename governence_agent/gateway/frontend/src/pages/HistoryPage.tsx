@@ -11,6 +11,8 @@ import {
   useToast,
   type Column,
 } from '../components/ui'
+import ConversationRail from '../components/chat/ConversationRail'
+import { useConversationHistory } from '../hooks/useConversationHistory'
 import { useStoredList } from '../hooks/useStoredList'
 import {
   ApiError,
@@ -83,6 +85,7 @@ const EMPTY_SUMMARY: ActivitySummary = {
 function HistoryPage({ session, navigate }: PageProps) {
   const toast = useToast()
   const savedAnswers = useStoredList<SavedAnswer>('gov_savedans', session.name)
+  const conversations = useConversationHistory(session.name)
 
   const [calls, setCalls] = useState<GovernedCall[]>([])
   const [summary, setSummary] = useState<ActivitySummary>(EMPTY_SUMMARY)
@@ -335,20 +338,16 @@ function HistoryPage({ session, navigate }: PageProps) {
             )}
           </Card>
 
-          <Card title="Past conversations" description="Not ported to this console yet.">
-            <p className="history-note">
-              Your assistant conversations — each closes and gets summarized after
-              1h idle — are still on the current console.
-            </p>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                location.href = '/dashboard/history'
-              }}
-            >
-              Open conversations →
-            </Button>
+          <Card
+            title="Past conversations"
+            description="Each closes and gets summarized after 1h idle. Pick one up where you left off."
+          >
+            <ConversationRail
+              sessions={conversations.sessions}
+              state={conversations.state}
+              onSelect={(sessionId) => navigate('home', sessionId)}
+              emptyDescription="Ask the assistant something on Home to start one."
+            />
           </Card>
         </div>
       </div>

@@ -10,21 +10,116 @@
    (components/chat/Composer.css, QuickAsks.css) — this file owns layout and
    placement only. */
 
+/* ── shell: the conversation rail beside hero/thread ─────────────────────── */
+
+.home-shell {
+  position: relative; /* containing block for the docked collapse toggle below */
+  display: flex;
+  align-items: stretch;
+  height: calc(100svh - 4.2rem); /* viewport minus the app shell's sticky topbar */
+  min-height: 0;
+}
+
+/* The clipping window onto the rail — this is the actual flex child, and its
+   `width` is what animates. `.home-rail` inside keeps a constant width, so
+   its contents never reflow/squeeze mid-collapse; they just get
+   progressively cropped, which reads as a clean slide-away. Same technique
+   as the app shell's own sidebar collapse (AppShell.css). */
+.home-rail-outer {
+  flex: none;
+  width: 16rem;
+  min-height: 0;
+  overflow: hidden;
+  transition: width var(--ui-dur-3) var(--ui-ease-in-out);
+}
+
+.home-rail-outer[data-collapsed] {
+  width: 0;
+}
+
+.home-rail {
+  width: 16rem;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  min-height: 0;
+  padding: 1rem 0.85rem;
+  border-right: 1px solid var(--ui-border);
+  background: var(--ui-surface-sunken);
+  transition:
+    opacity var(--ui-dur-2) var(--ui-ease-in-out),
+    visibility 0s var(--ui-dur-3);
+}
+
+.home-rail-outer[data-collapsed] .home-rail {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.home-rail-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.home-rail-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.home-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Docked to the rail's edge: a sibling of `.home-rail-outer`, not a
+   descendant, so it's never subject to that box's `overflow: hidden`. `left`
+   is driven by the same collapsed state (and transitions on the same
+   schedule) as the rail's width, so it visually slides along with the rail's
+   edge instead of jumping. */
+.home-rail-toggle {
+  position: absolute;
+  top: 1.1rem;
+  left: calc(16rem - 0.95rem);
+  z-index: 10;
+  transition: left var(--ui-dur-3) var(--ui-ease-in-out);
+}
+
+.home-rail-outer[data-collapsed] ~ .home-rail-toggle {
+  left: 0.4rem;
+}
+
+@media (max-width: 780px) {
+  .home-rail-outer,
+  .home-rail-toggle {
+    display: none;
+  }
+}
+
+/* ── hero / thread, inside .home-main ────────────────────────────────────── */
+
 .home {
+  flex: 1;
   display: grid;
   place-items: center;
-  /* Enough to centre in the viewport under the topbar, without so much that the
-     page scrolls on a short window. */
-  min-height: min(78svh, 44rem);
+  min-height: 0;
   padding: 1.5rem 1.75rem 2.5rem;
+  overflow-y: auto;
 }
 
 .home--thread {
+  flex: 1;
   display: flex;
   flex-direction: column;
   place-items: initial;
   min-height: 0;
-  height: calc(100svh - 4.2rem); /* viewport minus the shell's sticky topbar */
   padding: 0;
 }
 
@@ -45,7 +140,7 @@
 }
 
 @media (max-width: 640px) {
-  .home--thread {
+  .home-shell {
     height: calc(100svh - 3.6rem);
   }
 

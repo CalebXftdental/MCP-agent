@@ -16,6 +16,7 @@
   font-family: var(--ui-sans);
   font-size: var(--ui-fs-base);
   line-height: 1.55;
+  transition: grid-template-columns var(--ui-dur-3) var(--ui-ease-in-out);
 }
 
 /* ── sidebar ────────────────────────────────────────────────────────────── */
@@ -31,11 +32,20 @@
 
 .shell-brand {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 1.05rem 1.25rem;
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.shell-brand-mark {
+  display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 0.3rem;
-  padding: 1.05rem 1.25rem;
-  border-bottom: 1px solid var(--ui-border);
+  min-width: 0;
+  overflow: hidden;
 }
 
 .shell-logo {
@@ -175,6 +185,70 @@
   color: var(--ui-text-faint);
 }
 
+/* ── collapsed: slim icon rail (desktop only — see the min-width guard) ────
+   Kept in one block rather than scattered next to each base rule, since it's
+   one coherent state change (logo/labels/text/signout all drop at once) and
+   grouping it makes that obvious, plus it's easy to gate behind the
+   min-width query in exactly one place. 4rem is wide enough for a nav icon or
+   the avatar circle, centred, with a little breathing room either side. */
+@media (min-width: 821px) {
+  .shell[data-nav-collapsed] {
+    grid-template-columns: 4rem 1fr;
+  }
+
+  /* The logo/title wrapper drops out entirely (not just faded) so the brand
+     row's `justify-content` has only the toggle left to place — centred, in
+     line with the icon rail below. */
+  .shell[data-nav-collapsed] .shell-brand {
+    justify-content: center;
+    padding-inline: 0.6rem;
+  }
+
+  .shell[data-nav-collapsed] .shell-brand-mark {
+    display: none;
+  }
+
+  .shell[data-nav-collapsed] .shell-nav-label {
+    display: none;
+  }
+
+  /* Each row becomes just its icon, centred in the rail — the same width and
+     horizontal position the avatar circle and the toggle above sit at, so
+     the whole sidebar reads as one aligned column of icons. */
+  .shell[data-nav-collapsed] .shell-nav-item {
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .shell[data-nav-collapsed] .shell-nav-text,
+  .shell[data-nav-collapsed] .shell-nav-dot {
+    display: none;
+  }
+
+  /* A visible scrollbar at 4rem wide eats a noticeable fraction of the rail
+     and doesn't scroll anything wider than an icon anyway — the list still
+     scrolls (wheel, trackpad, keyboard), just without the chrome. */
+  .shell[data-nav-collapsed] .shell-nav {
+    scrollbar-width: none;
+  }
+
+  .shell[data-nav-collapsed] .shell-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Just the avatar circle remains, centred — name, role, and Sign out all
+     need the expanded width to mean anything. */
+  .shell[data-nav-collapsed] .shell-who {
+    justify-content: center;
+    padding-inline: 0.6rem;
+  }
+
+  .shell[data-nav-collapsed] .shell-who-text,
+  .shell[data-nav-collapsed] .shell-who-signout {
+    display: none;
+  }
+}
+
 /* ── main ───────────────────────────────────────────────────────────────── */
 
 .shell-main {
@@ -224,6 +298,14 @@
   height: 2.25rem;
 }
 
+/* Sits in `.shell-brand` in normal flow — no special positioning needed here,
+   the row's own `justify-content` (above) handles moving it to centre when
+   collapsed. Desktop-only: the mobile drawer's hamburger (in the topbar)
+   takes over below the 820px breakpoint instead — see that media query. */
+.shell-collapse-toggle {
+  flex: none;
+}
+
 .shell-gate {
   padding: 1.5rem 1.75rem;
   max-width: 40rem;
@@ -255,7 +337,10 @@
 }
 
 /* 820px matches the legacy stylesheet's sidebar breakpoint, so both UIs collapse
-   at the same width during the port. */
+   at the same width during the port. The desktop collapse state (above) is
+   gated to min-width:821px, so nothing here needs to know about it — a stale
+   `data-nav-collapsed` from a prior desktop session simply doesn't match
+   anything at this width. */
 @media (max-width: 820px) {
   .shell {
     grid-template-columns: 1fr;
@@ -274,6 +359,10 @@
 
   .shell[data-nav-open] .shell-side {
     transform: translateX(0);
+  }
+
+  .shell-collapse-toggle {
+    display: none;
   }
 
   .shell-scrim {

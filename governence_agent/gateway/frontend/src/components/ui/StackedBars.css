@@ -1,0 +1,70 @@
+.ui-stackbars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.ui-stackbars-plot {
+  display: flex;
+  align-items: flex-end;
+  gap: clamp(2px, 0.6vw, 0.5rem);
+  padding-top: 1.2rem;
+  box-sizing: border-box;
+}
+
+.ui-stackbars-col {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  position: relative;
+  animation: ui-rise var(--ui-dur-3) var(--ui-ease-out) both;
+  animation-delay: calc(var(--ui-i, 0) * 12ms);
+}
+
+.ui-stackbars-total {
+  position: absolute;
+  top: -1.05rem;
+  font-size: var(--ui-fs-2xs);
+  color: var(--ui-text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.ui-stackbars-track {
+  width: 100%;
+  max-width: 2.4rem;
+  display: flex;
+  flex-direction: column-reverse;
+  border-radius: 3px 3px 1px 1px;
+  overflow: hidden;
+  min-height: 2px;
+  background: var(--ui-surface-sunken);
+}
+
+.ui-stackbars-seg {
+  width: 100%;
+  transition: opacity var(--ui-dur-1) var(--ui-ease-out);
+}
+
+.ui-stackbars-col:hover .ui-stackbars-seg {
+  opacity: 0.85;
+}
+
+.ui-stackbars-labels {
+  display: flex;
+  gap: clamp(2px, 0.6vw, 0.5rem);
+}
+
+.ui-stackbars-label {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-size: var(--ui-fs-2xs);
+  color: var(--ui-text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

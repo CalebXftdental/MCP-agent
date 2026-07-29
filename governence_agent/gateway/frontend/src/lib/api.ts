@@ -918,6 +918,123 @@ export const getAlerts = () => api.get<{ alerts: Alert[] }>('/admin/alerts')
 export const actOnAlert = (id: string, action: 'ack' | 'resolve') =>
   api.post<{ ok: boolean; id: string; status: string }>(`/admin/alerts/${encodeURIComponent(id)}/${action}`, {})
 
+// ── Admin: monitor ──────────────────────────────────────────────────────────
+// Live security overview (analytics.overview()), the raw recent-calls feed
+// that overview is computed from, and the durable policy-change log (signups,
+// key rotations, category/department/control edits) — all read-only.
+
+export type MonitorRange = '1h' | '24h' | '7d' | '30d'
+
+/** Hours to hand `exportAuditWindow` for the currently selected range — the
+ *  export always covers "since now minus this many hours," same as the KPIs
+ *  above it. */
+export const MONITOR_RANGE_HOURS: Record<MonitorRange, number> = { '1h': 1, '24h': 24, '7d': 168, '30d': 720 }
+
+export interface OverviewKpis {
+  total: number
+  ok: number
+  denied: number
+  error: number
+  suspicious: number
+  redactions: number
+  sensitive: number
+  rows: number
+  avg_latency: number
+  auth_rate: number
+  denied_rate: number
+}
+
+/** One time bucket of `overview.series` — hourly buckets under a 24h range,
+ *  daily otherwise (analytics.py's `_series`). */
+export interface OverviewSeriesBucket {
+  ok: number
+  denied: number
+  error: number
+  label: string
+}
+
+/** A generic (label, count) pair — `by_department`/`by_tool`/`by_user` all
+ *  share this shape; the latter two are already trimmed to the top 8 server-side. */
+export interface OverviewCount {
+  k: string
+  n: number
+}
+
+export interface OverviewHeatmap {
+  /** `grid[weekday][hour]`, weekday 0 = Monday. */
+  grid: number[][]
+  max: number
+}
+
+export interface Overview {
+  range_sec: number
+  kpis: OverviewKpis
+  series: OverviewSeriesBucket[]
+  by_department: OverviewCount[]
+  by_tool: OverviewCount[]
+  by_user: OverviewCount[]
+  heatmap: OverviewHeatmap
+}
+
+/** Admin-only. Cached ~15s server-side, so switching range and switching back
+ *  within that window is free. */
+export const getOverview = (range: MonitorRange) => api.get<Overview>(`/admin/overview?range=${range}`)
+
+/** One audited call, as the admin monitor sees it — wider than `GovernedCall`
+ *  (a caller's view of its own activity): includes the fields only a full
+ *  investigation needs (governance_core/audit.py's `log_call`). */
+export interface AdminCall {
+  ts: number
+  consumer: string
+  tool: string
+  status: string
+  rows?: number | null
+  latency_ms: number | null
+  detail: string | null
+  suspicious?: boolean
+  reasons?: string[]
+  customer_id: string | null
+  session_id: string | null
+  request_id: string | null
+  client_ip: string | null
+  /** Free-text summary of the call's arguments, already redacted server-side. */
+  args: string
+}
+
+/** Admin sees every principal's calls; capped at `limit` (most recent first),
+ *  same 1000-event ring buffer the KPIs above read from. */
+export const getAdminCalls = (limit = 200) => api.get<{ calls: AdminCall[] }>(`/admin/calls?limit=${limit}`)
+
+/** One durable policy-change event — a signup, key rotation, or admin edit
+ *  (governance_core/audit.py's `log_policy_change`). `tool` here is really
+ *  `"<action> <target>"`, not a governed tool name. */
+export interface PolicyChange {
+  ts: number
+  consumer: string
+  tool: string
+  detail: string | null
+}
+
+export const getPolicyChanges = () => api.get<{ changes: PolicyChange[] }>('/admin/policy-changes')
+
+export interface AuditExportArtifact {
+  artifactId: string
+  filename: string
+  downloadUrl: string
+}
+
+export interface AuditExportResult {
+  artifact: AuditExportArtifact
+  summary: { total: number; byType: Record<string, number>; suspicious: number }
+  filters: { hours: number; type: string; consumer: string; limit: number }
+}
+
+/** Snapshots the last `hours` of audit events (every type, not just calls)
+ *  into a downloadable artifact. 5000-record cap matches the legacy panel's
+ *  default. */
+export const exportAuditWindow = (hours: number, limit = 5000) =>
+  api.post<AuditExportResult>('/admin/audit-export', { hours, type: 'all', limit })
+
 // ── Admin: IP allowlist ─────────────────────────────────────────────────────
 // One global CIDR list, enforced only on `/mcp` traffic (edge.py) — the
 // dashboard itself authenticates by session cookie and is unaffected. An

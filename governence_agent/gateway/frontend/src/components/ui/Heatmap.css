@@ -1,0 +1,49 @@
+.ui-heatmap {
+  display: grid;
+  grid-template-columns: 2.2rem repeat(var(--ui-heat-cols), minmax(0, 1fr));
+  gap: 2px;
+  align-items: center;
+  animation: ui-fade var(--ui-dur-3) var(--ui-ease-out) both;
+}
+
+.ui-heatmap-corner {
+  grid-column: 1;
+}
+
+.ui-heatmap-colhead {
+  font-size: var(--ui-fs-2xs);
+  color: var(--ui-text-faint);
+  text-align: center;
+  line-height: 1;
+}
+
+.ui-heatmap-rowhead {
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-faint);
+  padding-right: 0.35rem;
+  text-align: right;
+}
+
+.ui-heatmap-cell {
+  aspect-ratio: 1;
+  min-width: 0.5rem;
+  border-radius: 3px;
+  background: var(--ui-surface-sunken);
+  border: 1px solid var(--ui-border);
+  transition:
+    transform var(--ui-dur-1) var(--ui-ease-out),
+    box-shadow var(--ui-dur-1) var(--ui-ease-out);
+}
+
+.ui-heatmap-cell:hover {
+  transform: scale(1.3);
+  box-shadow: var(--ui-shadow-sm);
+  position: relative;
+  z-index: 1;
+}
+
+@media (max-width: 640px) {
+  .ui-heatmap {
+    grid-template-columns: 1.8rem repeat(var(--ui-heat-cols), minmax(0, 1fr));
+  }
+}

@@ -26,6 +26,7 @@ import DepartmentsPage from './DepartmentsPage'
 import DeveloperPage from './DeveloperPage'
 import HistoryPage from './HistoryPage'
 import HomePage from './HomePage'
+import MonitorPage from './MonitorPage'
 import PlaceholderPage from './PlaceholderPage'
 import PlaygroundPage from './PlaygroundPage'
 import RequestsPage from './RequestsPage'
@@ -42,6 +43,7 @@ const PAGES: Partial<Record<RouteKey, ComponentType<PageProps>>> = {
   history: HistoryPage,
   requests: RequestsPage,
   approvals: ApprovalsPage,
+  monitor: MonitorPage,
   security: SecurityPage,
   alerts: AlertsPage,
   whitelist: WhitelistPage,
@@ -75,6 +77,7 @@ export { default as DepartmentsPage } from './DepartmentsPage'
 export { default as DeveloperPage } from './DeveloperPage'
 export { default as HistoryPage } from './HistoryPage'
 export { default as HomePage } from './HomePage'
+export { default as MonitorPage } from './MonitorPage'
 export { default as PlaceholderPage } from './PlaceholderPage'
 export { default as PlaygroundPage } from './PlaygroundPage'
 export { default as RequestsPage } from './RequestsPage'

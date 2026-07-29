@@ -126,13 +126,26 @@ export function useChat(owner: string | null): UseChatResult {
     getChatTranscript(convRef.current.id)
       .then((transcript) => {
         if (!live) return
-        const loaded: ChatMessage[] = (transcript.messages ?? []).map((m) => ({
-          id: messageId(),
-          role: m.role === 'user' ? 'user' : 'bot',
-          text: m.content,
-          status: 'done',
-          toolsUsed: m.tools_used ?? undefined,
-        }))
+        // A live turn stamps `question` on the bot message the instant it's
+        // created (see `send`) — a resumed transcript has to reconstruct the
+        // same thing from the preceding user turn, or every historical reply
+        // silently loses its follow-up chips, its workflow-suggestion card,
+        // and Retry (which bails with no `question` to resend).
+        let lastQuestion = ''
+        const loaded: ChatMessage[] = (transcript.messages ?? []).map((m) => {
+          if (m.role === 'user') {
+            lastQuestion = m.content
+            return { id: messageId(), role: 'user', text: m.content, status: 'done' }
+          }
+          return {
+            id: messageId(),
+            role: 'bot',
+            text: m.content,
+            status: 'done',
+            toolsUsed: m.tools_used ?? undefined,
+            question: lastQuestion || undefined,
+          }
+        })
         setMessages(loaded)
       })
       .catch((cause: unknown) => {

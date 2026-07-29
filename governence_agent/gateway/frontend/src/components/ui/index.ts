@@ -66,6 +66,9 @@ export type { EmptyStateProps } from './EmptyState'
 export { default as Field, Input, Select, Textarea } from './Field'
 export type { FieldProps, InputProps, SelectProps, TextareaProps } from './Field'
 
+export { default as Heatmap } from './Heatmap'
+export type { HeatmapProps } from './Heatmap'
+
 export { default as KeyValue } from './KeyValue'
 export type { KeyValueItem, KeyValueProps } from './KeyValue'
 
@@ -86,6 +89,9 @@ export type { SparklineProps } from './Sparkline'
 
 export { default as Spinner, TypingDots } from './Spinner'
 export type { SpinnerProps, TypingDotsProps } from './Spinner'
+
+export { default as StackedBars } from './StackedBars'
+export type { StackedBarBucket, StackedBarSegment, StackedBarsProps } from './StackedBars'
 
 export { default as Stat, StatGrid } from './Stat'
 export type { StatGridProps, StatProps, StatTone } from './Stat'

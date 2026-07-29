@@ -1,0 +1,9 @@
+.ui-filetype-icon {
+  display: block;
+  flex: none;
+}
+
+.ui-filetype-icon text {
+  font-family: var(--ui-sans);
+  letter-spacing: 0.01em;
+}

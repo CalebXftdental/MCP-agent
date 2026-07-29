@@ -1,0 +1,358 @@
+.login-screen {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  background: var(--ui-bg);
+}
+
+@media (max-width: 900px) {
+  .login-screen {
+    grid-template-columns: 1fr;
+  }
+
+  .login-panel--brand {
+    display: none;
+  }
+}
+
+/* ── brand panel ──────────────────────────────────────────────────────────── */
+
+.login-panel--brand {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  background: linear-gradient(135deg, var(--ui-accent-700), var(--ui-accent-500) 65%, var(--ui-accent-200));
+  color: var(--ui-white);
+}
+
+.login-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  pointer-events: none;
+}
+
+.login-blob--a {
+  width: 26rem;
+  height: 26rem;
+  top: -8rem;
+  left: -6rem;
+  opacity: 0.5;
+  background: radial-gradient(circle at 30% 30%, #ffffff, transparent 70%);
+  animation: login-float-a 22s ease-in-out infinite;
+}
+
+.login-blob--b {
+  width: 20rem;
+  height: 20rem;
+  bottom: -6rem;
+  right: -4rem;
+  opacity: 0.55;
+  background: radial-gradient(circle at 60% 60%, var(--ui-accent-200), transparent 70%);
+  animation: login-float-b 26s ease-in-out infinite;
+}
+
+.login-blob--c {
+  width: 16rem;
+  height: 16rem;
+  top: 42%;
+  right: 8%;
+  opacity: 0.3;
+  background: radial-gradient(circle, #ffffff, transparent 70%);
+  animation: login-float-c 30s ease-in-out infinite;
+}
+
+@keyframes login-float-a {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(2rem, 3rem) scale(1.08);
+  }
+}
+
+@keyframes login-float-b {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(-2.5rem, -2rem) scale(1.1);
+  }
+}
+
+@keyframes login-float-c {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(-1.5rem, 2.5rem) scale(0.92);
+  }
+}
+
+/* Continuous, looping motion (unlike a one-shot entrance) is exactly what
+   reduced-motion is meant to stop — frozen outright rather than shortened. */
+@media (prefers-reduced-motion: reduce) {
+  .login-blob {
+    animation: none;
+  }
+}
+
+/* Faint techy grid, faded out toward the edges via the mask so it reads as
+   texture behind the content rather than a competing pattern. */
+.login-grid-texture {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgb(255 255 255 / 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 0.08) 1px, transparent 1px);
+  background-size: 2.5rem 2.5rem;
+  mask-image: radial-gradient(circle at 28% 25%, black, transparent 72%);
+  -webkit-mask-image: radial-gradient(circle at 28% 25%, black, transparent 72%);
+}
+
+.login-brand-content {
+  position: relative;
+  z-index: 1;
+  max-width: 26rem;
+  animation: ui-rise var(--ui-dur-4) var(--ui-ease-out) both;
+}
+
+.login-mark-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 4.75rem;
+  height: 4.75rem;
+  margin-bottom: 1.6rem;
+  border-radius: var(--ui-r-lg);
+  background: rgba(255, 250, 250, 0.87);
+  border: 1px solid rgb(255 255 255 / 0.28);
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.2) inset,
+    var(--ui-shadow-lg);
+  backdrop-filter: blur(10px);
+  animation: login-mark-float 7s var(--ui-ease-in-out) infinite;
+}
+
+@keyframes login-mark-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-0.4rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-mark-tile {
+    animation: none;
+  }
+}
+
+.login-mark {
+  width: 2.9rem;
+  height: 2.9rem;
+  object-fit: contain;
+}
+
+.login-brand-eyebrow {
+  margin: 0 0 0.4rem;
+  font-size: var(--ui-eyebrow-size);
+  font-weight: 650;
+  letter-spacing: var(--ui-eyebrow-tracking);
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+
+.login-brand-title {
+  margin: 0 0 0.6rem;
+  font-size: var(--ui-fs-2xl);
+  font-weight: 1200;
+  letter-spacing: -0.01em;
+  color: #ffffff;
+  font-family: monospace
+}
+
+.login-brand-tagline {
+  margin: 0 0 1.8rem;
+  font-size: var(--ui-fs-lg);
+  line-height: 1.5;
+  opacity: 0.94;
+  font-family: monospace
+}
+
+.login-stat-row {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.login-stat-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.75rem 1rem;
+  min-width: 7.5rem;
+  border-radius: var(--ui-r-md);
+  background: rgb(255 255 255 / 0.12);
+  border: 1px solid rgb(255 255 255 / 0.22);
+  backdrop-filter: blur(8px);
+  animation: ui-rise var(--ui-dur-4) var(--ui-ease-out) both;
+  animation-delay: calc(var(--ui-i, 0) * 90ms + 120ms);
+}
+
+.login-stat-value {
+  font-size: var(--ui-fs-lg);
+  font-weight: 700;
+}
+
+.login-stat-label {
+  font-size: var(--ui-fs-xs);
+  opacity: 0.82;
+}
+
+/* ── form panel ───────────────────────────────────────────────────────────── */
+
+.login-panel--form {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.5rem;
+}
+
+.login-card-wrap {
+  width: 100%;
+  max-width: 24rem;
+}
+
+.login-card {
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-r-lg);
+  box-shadow: var(--ui-shadow-lg);
+  padding: 2.2rem 2rem;
+  animation: ui-rise var(--ui-dur-3) var(--ui-ease-out) both;
+}
+
+.login-card-logo {
+  display: none;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: var(--ui-r-sm);
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 900px) {
+  .login-card-logo {
+    display: block;
+  }
+}
+
+.login-card-title {
+  margin: 0 0 0.2rem;
+  font-size: var(--ui-fs-xl);
+  font-weight: 700;
+}
+
+.login-card-sub {
+  margin: 0 0 1.4rem;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-faint);
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.login-password-wrap {
+  position: relative;
+}
+
+.login-password-input {
+  padding-right: 2.4rem;
+}
+
+.login-password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 0.4rem;
+  transform: translateY(-50%);
+  display: inline-grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border: none;
+  border-radius: var(--ui-r-sm);
+  background: transparent;
+  color: var(--ui-text-faint);
+  cursor: pointer;
+  transition:
+    background-color var(--ui-dur-1) var(--ui-ease-out),
+    color var(--ui-dur-1) var(--ui-ease-out);
+}
+
+.login-password-toggle:hover {
+  background: var(--ui-surface-hover);
+  color: var(--ui-text-muted);
+}
+
+.login-password-toggle:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 2px;
+}
+
+.login-banner {
+  margin: 0;
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--ui-r-sm);
+  font-size: var(--ui-fs-sm);
+  line-height: 1.4;
+  animation: ui-rise var(--ui-dur-2) var(--ui-ease-out) both;
+}
+
+.login-banner--danger {
+  background: var(--ui-danger-soft);
+  color: var(--ui-danger);
+}
+
+.login-banner--warn {
+  background: var(--ui-warn-soft);
+  color: var(--ui-warn);
+  margin-bottom: 1rem;
+}
+
+.login-switch {
+  margin: 1.4rem 0 0;
+  text-align: center;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-faint);
+}
+
+.login-switch-link {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 650;
+  color: var(--ui-accent-text);
+  cursor: pointer;
+}
+
+.login-switch-link:hover {
+  text-decoration: underline;
+}
+
+.login-switch-link:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 2px;
+  border-radius: var(--ui-r-xs);
+}

@@ -45,3 +45,19 @@ export function firstName(name: string | null | undefined): string {
   const head = (name || 'there').split(/[.@\s]/)[0]
   return head.charAt(0).toUpperCase() + head.slice(1)
 }
+
+/** "482 B", "3.4 KB", "12 MB" — the legacy Files panel only ever showed
+ *  KB-rounded, so a small artifact read as "0 KB" and a large one as an
+ *  unbroken six-digit number. One decimal below 10 of a unit, none above. */
+export function formatBytes(bytes: number | null | undefined): string {
+  if (bytes == null) return '—'
+  if (bytes < 1024) return `${bytes} B`
+  const units = ['KB', 'MB', 'GB']
+  let value = bytes / 1024
+  let i = 0
+  while (value >= 1024 && i < units.length - 1) {
+    value /= 1024
+    i++
+  }
+  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[i]}`
+}

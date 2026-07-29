@@ -1,0 +1,21 @@
+.not-found-digits {
+  margin: 0;
+  font-size: 5rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--ui-accent-soft);
+  user-select: none;
+}
+
+.status-page .ui-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 3.25rem;
+  height: 3.25rem;
+  margin: 0 auto 0.6rem;
+  border-radius: var(--ui-r-pill);
+  background: var(--ui-accent-soft);
+  color: var(--ui-accent-text);
+  font-size: 1rem;
+  opacity: 1;
+}

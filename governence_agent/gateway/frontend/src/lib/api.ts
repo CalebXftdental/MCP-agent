@@ -108,7 +108,16 @@ async function request<T>(
   }
 
   const payload = await readBody(res)
-  if (!res.ok) throw new ApiError(res.status, payload)
+  if (!res.ok) {
+    // A single choke point for "the session died mid-use" (cookie expired,
+    // revoked, or the server restarted with a new signing secret) — every
+    // call goes through here, so this is the one place that can notice
+    // without every page threading its own 401 handling. `useSession` listens
+    // and re-checks itself only while it currently believes it's signed in,
+    // so this can't loop against the normal 401 a signed-out `getMe()` gets.
+    if (res.status === 401) window.dispatchEvent(new Event('gov:session-expired'))
+    throw new ApiError(res.status, payload)
+  }
   return payload as T
 }
 
@@ -482,6 +491,183 @@ export interface EmailSend {
 
 /** This principal's own queued email sends (session-scoped). */
 export const getEmailSends = () => api.get<{ sends: EmailSend[] }>('/email-sends')
+
+// ── Files (artifacts) ───────────────────────────────────────────────────────
+// Generated/uploaded artifacts (governance_core/artifact_models.py) — reports,
+// drafts, uploads, anything produced by or fed into a governed workflow.
+// Everyone sees their own plus anything actively shared with them; an admin
+// with `?all=1` sees everyone's (backend/artifacts.py's `_artifacts`).
+
+export interface Artifact {
+  artifactId: string
+  owner: string
+  title: string
+  filename: string
+  /** Free-form — `word`/`excel`/`powerpoint`/`pdf`/`email_draft`/
+   *  `calendar_invite`/`json`/`text`/anything else a workflow produced. */
+  type: string
+  mimeType: string
+  classification: string[]
+  sourceWorkflowRunId: string | null
+  sourceToolCalls: string[]
+  sourceArtifactIds: string[]
+  checksum: string
+  sizeBytes: number
+  status: string
+  createdAt: number
+  expiresAt: number | null
+  retentionDays: number | null
+  currentVersion: number
+  versionCount: number
+  latestVersionId: string
+  downloadUrl: string
+  workbenchUrl: string
+  /** Computed server-side (`_artifact_public_for`), not stored on the record:
+   *  true when this caller sees it via an active share rather than owning it. */
+  shared?: boolean
+  expired?: boolean
+}
+
+/** `all` (admin-only; a non-admin's request for it is silently ignored
+ *  server-side) lists every principal's artifacts instead of just this
+ *  caller's own + shared-with-them. Capped at 100 server-side. */
+export const listArtifacts = (all = false) => api.get<{ artifacts: Artifact[] }>(`/artifacts${all ? '?all=1' : ''}`)
+
+export interface CreateArtifactInput {
+  title?: string
+  filename?: string
+  /** Exactly one of `text`/`content_base64` — plain text is the "paste
+   *  instead of upload" path, auto-named `<title>.txt` server-side if
+   *  `filename` is omitted. */
+  text?: string
+  content_base64?: string
+  mime_type?: string
+  artifact_type?: string
+  classification?: string[]
+  retention_days?: number
+}
+
+/** Requires the `files` category unless admin. 25MB cap server-side (base64
+ *  decoded size). Returns the created artifact, 201. */
+export const createArtifact = (input: CreateArtifactInput) => api.post<Artifact>('/artifacts', input)
+
+export const getArtifact = (id: string) => api.get<Artifact>(`/artifacts/${encodeURIComponent(id)}`)
+
+/** Owner or admin only. */
+export const deleteArtifact = (id: string) =>
+  api.del<{ ok: boolean; artifactId: string }>(`/artifacts/${encodeURIComponent(id)}`)
+
+/** Type-specific facts pulled from the file itself — sheet/slide counts,
+ *  attendee lists, table detection — never raw file bytes. `signals` shape
+ *  depends entirely on `kind` (== the artifact's `type`); read defensively. */
+export interface ArtifactPreview {
+  kind: string
+  filename: string
+  summary: string[]
+  packageParts: string[]
+  signals: Record<string, unknown>
+  error?: string
+}
+
+export interface ArtifactVersionRecord {
+  artifactId: string
+  versionId: string
+  versionNumber: number
+  filename: string
+  mimeType: string
+  checksum: string
+  sizeBytes: number
+  createdBy: string
+  createdAt: number
+  note: string
+  downloadUrl: string
+}
+
+export interface ArtifactShare {
+  shareId: string
+  artifactId: string
+  owner: string
+  sharedWith: string
+  permissions: string[]
+  createdBy: string
+  status: 'active' | 'revoked' | string
+  createdAt: number
+  expiresAt: number | null
+  revokedAt: number | null
+  revokedBy: string | null
+}
+
+/** One approval request tied to this artifact — the same shape
+ *  `getApprovals()` returns, filtered server-side to this artifact's id. */
+export interface ArtifactApproval {
+  approvalId: string
+  requestedBy: string
+  reason: string
+  status: 'pending' | 'approved' | 'denied' | string
+  riskLevel: string
+  artifactIds: string[]
+  workflowRunId: string
+  approver: string
+  decisionNote: string
+  createdAt: number
+  decidedAt: number | null
+}
+
+/** Present only when `GOVERNANCE_ONLYOFFICE_DOCUMENT_SERVER_URL` is
+ *  configured server-side AND the artifact's type is one ONLYOFFICE can open
+ *  (word/excel/powerpoint/pdf). `config` is opaque on purpose — it's handed
+ *  verbatim to `new DocsAPI.DocEditor(mountId, config)`, never read into or
+ *  reconstructed from typed fields, so a new key ONLYOFFICE's API adds still
+ *  reaches it untouched. */
+export interface OnlyOfficeConfig {
+  enabled: true
+  documentServerUrl: string
+  documentType: 'word' | 'cell' | 'slide' | 'pdf' | string
+  config: Record<string, unknown>
+}
+
+/** The artifact's full detail view — everything the manage drawer needs in
+ *  one call. `shares` comes back empty for a caller who isn't the owner/admin
+ *  (backend/artifacts.py only populates it for them). Document review
+ *  threads (comments, approve/request-changes) aren't modeled here — this
+ *  console doesn't render that workflow, only the ONLYOFFICE viewer/editor
+ *  itself, so `reviews`' shape is left untyped rather than guessed at. */
+export interface ArtifactWorkbench {
+  artifact: Artifact
+  preview: ArtifactPreview
+  approvals: ArtifactApproval[]
+  shares: ArtifactShare[]
+  versions: ArtifactVersionRecord[]
+  reviews: unknown[]
+  onlyoffice: OnlyOfficeConfig | null
+}
+
+export const getArtifactWorkbench = (id: string) => api.get<ArtifactWorkbench>(`/artifacts/${encodeURIComponent(id)}/workbench`)
+
+export interface AddArtifactVersionInput {
+  filename?: string
+  text?: string
+  content_base64?: string
+  mime_type?: string
+  note?: string
+}
+
+/** Owner or admin only. */
+export const addArtifactVersion = (id: string, input: AddArtifactVersionInput) =>
+  api.post<{ artifact: Artifact; version: ArtifactVersionRecord }>(`/artifacts/${encodeURIComponent(id)}/versions`, input)
+
+/** Owner or admin only. Grants `view` by default; add `'download'` to let the
+ *  recipient pull the file itself, not just see its metadata/preview. */
+export const createArtifactShare = (
+  id: string,
+  input: { shared_with: string; permissions?: string[]; expires_in_days?: number },
+) => api.post<ArtifactShare>(`/artifacts/${encodeURIComponent(id)}/shares`, input)
+
+export const revokeArtifactShare = (id: string, shareId: string) =>
+  api.post<ArtifactShare>(`/artifacts/${encodeURIComponent(id)}/shares/${encodeURIComponent(shareId)}/revoke`)
+
+export const requestArtifactApproval = (id: string, reason: string, riskLevel = 'medium') =>
+  api.post<ArtifactApproval>(`/artifacts/${encodeURIComponent(id)}/request-approval`, { reason, risk_level: riskLevel })
 
 // ── Templates ────────────────────────────────────────────────────────────────
 // Versioned reusable templates for governed office workflows and generated
@@ -1072,8 +1258,113 @@ export interface LoginResult extends Me {
   ok: boolean
 }
 
-/** Sets the session cookie on success; 401 on bad credentials, 429 when locked out. */
+/** Sets the session cookie on success; 401 on bad credentials, 429 when locked out
+ *  (`ApiError.isRateLimited`) after too many failures for that username+IP. */
 export const login = (username: string, password: string) =>
   api.post<LoginResult>('/dashboard/login', { username, password })
 
 export const logout = () => api.post<{ ok: boolean }>('/dashboard/logout')
+
+export interface Department {
+  id: string
+  display_name: string
+  categories: string[]
+}
+
+/** Public — no session required, so the signup form can populate its
+ *  department picker before the visitor has an account. */
+export const getDepartments = () => api.get<{ departments: Department[] }>('/dashboard/departments')
+
+export interface SignupResult {
+  ok: boolean
+  status: string
+  name: string
+}
+
+/** Creates an active account and signs it in immediately (no email
+ *  verification, no admin approval gate on the account itself) — sets the
+ *  session cookie the same as `login`. 400 for a missing field or an unknown
+ *  department, 409 for a taken username or a read-only policy store. */
+export const signup = (input: { full_name: string; username: string; password: string; department: string }) =>
+  api.post<SignupResult>('/dashboard/signup', input)
+
+// ── Knowledge base ───────────────────────────────────────────────────────────
+// Read-only end to end (governance_core/policy/manifest.py: "Deliberately no
+// ingest_knowledge_text/ingest_knowledge_file entries"). New documents arrive
+// through AraTestEnvBE's own ingestion pipeline into the shared knowledge
+// base, never through this gateway — so there is no upload/ingest client here,
+// only list/view/delete of what's already indexed, plus search and
+// citation-backed answers.
+
+export interface KnowledgeDocument {
+  documentId: string
+  owner: string
+  title: string
+  filename: string
+  sourceType: string
+  classification: string[]
+  createdAt: number
+  updatedAt: number
+  chunkCount: number
+  checksum: string
+  metadata: Record<string, unknown>
+}
+
+/** `all` only takes effect for an admin caller — a non-admin passing it gets
+ *  silently scoped back to their own documents (backend/knowledge.py). */
+export const listKnowledgeDocuments = (all = false) =>
+  api.get<{ documents: KnowledgeDocument[] }>(`/knowledge/documents${all ? '?all=1' : ''}`)
+
+export const getKnowledgeDocument = (id: string) =>
+  api.get<{ document: KnowledgeDocument }>(`/knowledge/documents/${encodeURIComponent(id)}`)
+
+/** 404s — not 403 — for someone else's document if you're not an admin; the
+ *  backend won't even confirm it exists. */
+export const deleteKnowledgeDocument = (id: string) =>
+  api.del<{ ok: boolean }>(`/knowledge/documents/${encodeURIComponent(id)}`)
+
+export interface KnowledgeSearchHit {
+  chunkId: string
+  documentId: string
+  ordinal: number
+  text: string
+  score: number
+  documentTitle: string
+  filename: string
+  classification: string[]
+}
+
+/** The live mcp-knowledge backend (Azure AI Search in production) wraps hits
+ *  as `{results: [...]}`; the local dev fallback store returns a bare array.
+ *  Normalised here so the page never has to guess which one answered. */
+export const searchKnowledge = async (
+  query: string,
+  limit = 5,
+  documentId = '',
+): Promise<KnowledgeSearchHit[]> => {
+  const body: Record<string, unknown> = { query, limit }
+  if (documentId) body.document_id = documentId
+  const result = await api.post<{ results?: KnowledgeSearchHit[] } | KnowledgeSearchHit[]>(
+    '/knowledge/search',
+    body,
+  )
+  return Array.isArray(result) ? result : (result.results ?? [])
+}
+
+export interface KnowledgeCitation {
+  documentId: string
+  chunkId: string
+  documentTitle: string
+  score: number
+}
+
+export interface KnowledgeAnswer {
+  answer: string
+  citations: KnowledgeCitation[]
+}
+
+export const answerFromKnowledge = (query: string, limit = 5, documentId = '') => {
+  const body: Record<string, unknown> = { query, limit }
+  if (documentId) body.document_id = documentId
+  return api.post<KnowledgeAnswer>('/knowledge/answer', body)
+}

@@ -69,6 +69,9 @@ export type { EmptyStateProps } from './EmptyState'
 export { default as Field, Input, Select, Textarea } from './Field'
 export type { FieldProps, InputProps, SelectProps, TextareaProps } from './Field'
 
+export { default as FileTypeIcon } from './FileTypeIcon'
+export type { FileTypeIconProps } from './FileTypeIcon'
+
 export { default as Heatmap } from './Heatmap'
 export type { HeatmapProps } from './Heatmap'
 

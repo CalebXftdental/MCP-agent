@@ -7,10 +7,12 @@ import './PlaceholderPage.css'
  * `static/app.html` yet.
  *
  * It links to the live legacy panel rather than apologising, because the legacy
- * panel still works: every bare route stays registered alongside its `/backend`
- * twin (gateway/backend/__init__.py), so `/dashboard/<key>` is a working page for
- * as long as the port takes. Sending someone to a dead end would be the only
- * real failure here.
+ * panel still works. `/legacy/<key>` (gateway/backend/__init__.py) is a dedicated
+ * escape hatch that always serves the pre-React shell, unlike `/dashboard/<key>`
+ * — once a dist build exists, that path serves this same React shell (via a
+ * redirect into its own hash routing), so it can no longer reach the legacy
+ * panel at all. Sending someone to a dead end would be the only real failure
+ * here.
  */
 
 function PlaceholderPage({ route }: PageProps) {
@@ -33,7 +35,7 @@ function PlaceholderPage({ route }: PageProps) {
             // A full page load, not a tab change: this leaves the React app for
             // the legacy one. Same origin, so the session cookie rides along.
             onClick={() => {
-              location.href = `/dashboard/${route.key}`
+              location.href = `/legacy/${route.key}`
             }}
           >
             Open the current version →

@@ -8,12 +8,12 @@ export interface PageProps {
   /** This page's own registry entry — title, description, icon, admin flag. */
   route: RouteDef
   session: Session
-  /** Tab navigation. Pages never touch `location` directly, so swapping the
-   *  hash router for React Router later is a change in one file. An optional
-   *  second argument appends `/<param>` to the hash (see `routeParam` below). */
+  /** Tab navigation. Pages never touch `location` directly, so swapping this
+   *  router for React Router later is a change in one file. An optional
+   *  second argument appends `/<param>` to the path (see `routeParam` below). */
   navigate: (key: RouteKey, param?: string) => void
-  /** The segment after this tab in the URL, if any (`#/home/<id>` → `id`).
-   *  Null on a bare `#/home`. Currently only Home reads this, to open a
+  /** The segment after this tab in the URL, if any (`/home/<id>` → `id`).
+   *  Null on a bare `/home`. Currently only Home reads this, to open a
    *  specific conversation deep-linked from History's preview list — a
    *  generic name rather than `conversationId` since any page could grow its
    *  own use for a URL-carried id later. */

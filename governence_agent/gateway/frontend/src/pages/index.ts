@@ -24,8 +24,10 @@ import CategoriesPage from './CategoriesPage'
 import ConsumersPage from './ConsumersPage'
 import DepartmentsPage from './DepartmentsPage'
 import DeveloperPage from './DeveloperPage'
+import FilesPage from './FilesPage'
 import HistoryPage from './HistoryPage'
 import HomePage from './HomePage'
+import KnowledgePage from './KnowledgePage'
 import MonitorPage from './MonitorPage'
 import PlaceholderPage from './PlaceholderPage'
 import PlaygroundPage from './PlaygroundPage'
@@ -55,6 +57,8 @@ const PAGES: Partial<Record<RouteKey, ComponentType<PageProps>>> = {
   sends: SendQueuePage,
   playground: PlaygroundPage,
   templates: TemplatesPage,
+  files: FilesPage,
+  knowledge: KnowledgePage,
 }
 
 export function pageFor(key: RouteKey): ComponentType<PageProps> {
@@ -75,8 +79,10 @@ export { default as CategoriesPage } from './CategoriesPage'
 export { default as ConsumersPage } from './ConsumersPage'
 export { default as DepartmentsPage } from './DepartmentsPage'
 export { default as DeveloperPage } from './DeveloperPage'
+export { default as FilesPage } from './FilesPage'
 export { default as HistoryPage } from './HistoryPage'
 export { default as HomePage } from './HomePage'
+export { default as KnowledgePage } from './KnowledgePage'
 export { default as MonitorPage } from './MonitorPage'
 export { default as PlaceholderPage } from './PlaceholderPage'
 export { default as PlaygroundPage } from './PlaygroundPage'

@@ -1,0 +1,23 @@
+.status-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.3rem;
+  padding: 2rem 1.5rem;
+  background: var(--ui-bg);
+  text-align: center;
+}
+
+.status-page-mark {
+  width: 2.75rem;
+  height: 2.75rem;
+  animation: ui-rise var(--ui-dur-3) var(--ui-ease-out) both;
+}
+
+.status-page-body {
+  width: 100%;
+  max-width: 28rem;
+  animation: ui-rise var(--ui-dur-4) var(--ui-ease-out) both;
+}

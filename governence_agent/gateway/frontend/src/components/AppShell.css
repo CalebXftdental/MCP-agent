@@ -306,30 +306,6 @@
   flex: none;
 }
 
-.shell-gate {
-  padding: 1.5rem 1.75rem;
-  max-width: 40rem;
-}
-
-.shell-gate-body {
-  margin: 0 0 0.6rem;
-  font-size: var(--ui-fs-sm);
-  color: var(--ui-text-muted);
-  text-wrap: pretty;
-}
-
-.shell-gate-body:last-child {
-  margin-bottom: 0;
-}
-
-.shell-gate-body code {
-  font-family: var(--ui-mono);
-  font-size: 0.9em;
-  padding: 0.05em 0.3em;
-  border-radius: var(--ui-r-xs);
-  background: var(--ui-surface-hover);
-}
-
 /* ── mobile drawer ──────────────────────────────────────────────────────── */
 
 .shell-scrim {

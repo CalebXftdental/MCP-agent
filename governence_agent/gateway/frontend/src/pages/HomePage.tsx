@@ -31,7 +31,7 @@ import './HomePage.css'
  * conversation was a link out to the legacy console's history page, which
  * this replaces. Opening one, whether from this rail or from History's own
  * preview list, goes through the exact same path: `navigate('home', sessionId)`
- * sets `#/home/<id>` in the URL, and the effect below is the one place that
+ * sets `/home/<id>` in the URL, and the effect below is the one place that
  * turns that id into an actually-open conversation (`chat.openConversation`,
  * backend/chat.py's `_chat_resume` — a closed session gets cloned into a
  * fresh open one rather than reopened, so the URL is corrected to the clone's
@@ -87,7 +87,7 @@ function HomePage({ session, navigate, routeParam }: PageProps) {
     if (queued) ask(queued)
   }, [ask])
 
-  // Opens the conversation named in the URL (`#/home/<id>`), whether it got
+  // Opens the conversation named in the URL (`/home/<id>`), whether it got
   // there from this page's own rail or from History's preview list. Guarded
   // by a ref (not just the `routeParam !== conversationId` check) so React
   // 18 Strict Mode's double-invoked effects can't fire `resumeChatHistory`

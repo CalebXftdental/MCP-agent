@@ -2,22 +2,24 @@ import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
 /**
- * Paths forwarded to the gateway by the dev server.
+ * Paths forwarded to the gateway by the dev server. Everything else — `/`,
+ * `/login`, `/signup`, `/dashboard*` — is left to Vite's own dev index.html:
+ * this app owns its sign-in view now (LoginPage.tsx), so none of those need
+ * the real gateway's HTML, only its JSON API underneath.
  *
  * `/backend` is the whole JSON API (API_PREFIX in gateway/app.py), so one entry
  * covers every endpoint. The gateway's legacy bare paths — /admin/*, /artifacts/*
  * and the rest — are deliberately NOT proxied: the old app.html is served from
  * port 8020 and calls them same-origin there, never through this dev server.
  *
- * `/dashboard` is temporary. It is here only so the legacy login page stays
- * reachable from the dev server while React has no login of its own. Remove it
- * before giving React any client-side route under /dashboard, or the proxy will
- * answer with app.html instead.
+ * `/legacy` IS proxied, unlike the rest of the HTML paths above — it's the one
+ * page route that's supposed to serve the pre-React shell, not this app, so it
+ * has to reach the real gateway rather than Vite's SPA fallback.
  *
  * `/mcp` is deliberately absent: that is the governed machine plane, which takes
  * an API key rather than a session cookie, and this app never calls it.
  */
-const GATEWAY_PATHS = ['/backend', '/dashboard']
+const GATEWAY_PATHS = ['/backend', '/legacy']
 
 export default defineConfig(({ mode }) => {
   // Third arg '' loads unprefixed vars too, so GATEWAY_ORIGIN is visible here

@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .env.local
 minierp.env
+logs/
 
 # Local persistent store + durable audit (GOVERNANCE_STORE_FILE / AUDIT_FILE
 # default under ./data). Holds hashed creds + audit -- never commit.

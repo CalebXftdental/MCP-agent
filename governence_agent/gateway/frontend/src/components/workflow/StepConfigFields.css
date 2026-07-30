@@ -1,0 +1,31 @@
+.step-config {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.step-config-lead {
+  margin: 0;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-muted);
+}
+
+.step-config-empty {
+  margin: 0;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-muted);
+}
+
+/* Source picker + its value control, side by side inside one Field. */
+.step-binding-controls {
+  display: grid;
+  grid-template-columns: minmax(9rem, 14rem) minmax(9rem, 1fr);
+  gap: 0.5rem;
+  align-items: center;
+}
+
+@media (max-width: 560px) {
+  .step-binding-controls {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,70 @@
+import type { GraphNode, WorkflowBinding, WorkflowGraphCatalogTool } from '../../lib/api'
+
+/** Display helpers shared by the flow nodes and the add/edit modal, so a step
+ *  reads the same in both places. */
+
+const RISK_ICONS: Record<string, string> = {
+  send: '✉️',
+  write: '📝',
+  export: '📊',
+  read_sensitive: '🔍',
+  read_low: '🔎',
+}
+
+export function stepKindLabel(kind: string, tool: string): string {
+  if (kind === 'approval_gate') return 'Approval gate'
+  if (kind === 'llm_transform') return 'AI step'
+  return tool || 'Step'
+}
+
+export function stepIcon(kind: string, tool: WorkflowGraphCatalogTool | undefined): string {
+  if (kind === 'approval_gate') return '✅'
+  if (kind === 'llm_transform') return '✨'
+  return (tool?.riskLevel && RISK_ICONS[tool.riskLevel]) || '🔧'
+}
+
+const AI_ACTION_LABELS: Record<string, string> = {
+  summarize: 'Summarize',
+  draft_reply: 'Draft a reply',
+  classify: 'Classify',
+  extract: 'Extract',
+}
+
+function bindingSummary(binding: WorkflowBinding | undefined): string | null {
+  if (!binding) return null
+  if (binding.source === 'literal') {
+    const value = String(binding.value ?? '').trim()
+    return value ? `"${value}"` : null
+  }
+  if (binding.source === 'trigger') return `input: ${binding.path}`
+  return `from an earlier step`
+}
+
+/** A one-line "what is this step actually set to" summary for the collapsed
+ *  flow node — so the flow is readable without opening every step. Returns
+ *  null when there's nothing configured worth showing, and the node falls
+ *  back to a "needs setting up" hint instead. */
+export function stepSummary(step: GraphNode, tool: WorkflowGraphCatalogTool | undefined): string | null {
+  if (step.kind === 'approval_gate') {
+    const reason = String(step.config.reason ?? '').trim()
+    const risk = String(step.config.risk_level ?? 'medium')
+    return reason ? `${reason} · ${risk} risk` : `${risk} risk`
+  }
+
+  if (step.kind === 'llm_transform') {
+    const action = AI_ACTION_LABELS[String(step.config.kind ?? 'summarize')] ?? 'Summarize'
+    const from = bindingSummary(step.inputBindings.input_text)
+    return from ? `${action} · ${from}` : action
+  }
+
+  const argNames = Object.keys(tool?.parameters?.properties ?? {})
+  if (argNames.length === 0) return 'No inputs needed'
+  const set = argNames.filter((a) => {
+    const b = step.inputBindings[a]
+    if (!b) return false
+    // A literal that was never typed into counts as unset — otherwise
+    // choosing "Type a value" and leaving it blank would read as configured.
+    return b.source !== 'literal' || String(b.value ?? '').trim() !== ''
+  }).length
+  return set === 0 ? null : `${set} of ${argNames.length} input${argNames.length === 1 ? '' : 's'} set`
+}

@@ -1667,6 +1667,13 @@ export const listWorkflowGraphs = () => api.get<{ graphs: WorkflowGraph[] }>('/w
 export const getWorkflowGraph = (graphId: string) =>
   api.get<WorkflowGraph>(`/workflow-graphs/${encodeURIComponent(graphId)}`)
 
+/** Owner or admin only. Hard delete — there is no "deleted" status, the
+ *  graph is simply gone from `listWorkflowGraphs`/`getWorkflowGraph`
+ *  afterward. An automation or past run that still names this graph's id as
+ *  its template id keeps that id; nothing reaches back to clean those up. */
+export const deleteWorkflowGraph = (graphId: string) =>
+  api.del<{ ok: boolean }>(`/workflow-graphs/${encodeURIComponent(graphId)}`)
+
 export interface SaveWorkflowGraphInput {
   display_name: string
   description?: string

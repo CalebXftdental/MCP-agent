@@ -174,7 +174,7 @@ def register(app) -> None:
 
     # ── Workflow graphs ───────────────────────────────────────────────────────
     api("/workflow-graphs", workflow_graphs._workflow_graphs, methods=["GET", "POST"])
-    api("/workflow-graphs/{gid}", workflow_graphs._workflow_graph_item)
+    api("/workflow-graphs/{gid}", workflow_graphs._workflow_graph_item, methods=["GET", "DELETE"])
     api("/workflow-graphs/{gid}/versions", workflow_graphs._workflow_graph_versions, methods=["POST"])
     api("/workflow-graphs/{gid}/publish", workflow_graphs._workflow_graph_publish, methods=["POST"])
     api("/workflow-graphs/{gid}/validate", workflow_graphs._workflow_graph_validate, methods=["POST"])

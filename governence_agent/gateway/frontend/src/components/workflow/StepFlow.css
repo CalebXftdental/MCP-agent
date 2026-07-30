@@ -1,0 +1,190 @@
+.step-flow {
+  display: flex;
+  flex-direction: column;
+}
+
+.step-flow-item {
+  display: flex;
+  flex-direction: column;
+}
+
+/* The line joining one node to the next, with an arrowhead at the bottom. */
+.step-flow-connector {
+  align-self: flex-start;
+  width: 2px;
+  height: 1.4rem;
+  margin-left: 1.35rem;
+  background: var(--ui-border-strong);
+  position: relative;
+}
+
+.step-flow-connector::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--ui-border-strong);
+}
+
+.step-flow-node {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-r-md);
+  background: var(--ui-surface);
+  transition: border-color var(--ui-dur-1) var(--ui-ease-out), box-shadow var(--ui-dur-1) var(--ui-ease-out);
+}
+
+.step-flow-node:hover,
+.step-flow-node:focus-within {
+  border-color: var(--ui-border-strong);
+  box-shadow: var(--ui-shadow-sm);
+}
+
+.step-flow-node[data-needs-gate] {
+  border-color: var(--ui-danger);
+}
+
+/* The trigger reads as the fixed starting point, not an editable step. */
+.step-flow-node--trigger {
+  background: var(--ui-surface-sunken);
+  border-style: dashed;
+}
+
+.step-flow-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  flex: none;
+  border-radius: var(--ui-r-pill);
+  background: var(--ui-accent-soft);
+  color: var(--ui-accent-text);
+  font-size: var(--ui-fs-2xs);
+  font-weight: 700;
+}
+
+.step-flow-icon {
+  font-size: 1.05rem;
+  line-height: 1;
+  flex: none;
+}
+
+.step-flow-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.step-flow-title {
+  font-size: var(--ui-fs-sm);
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.step-flow-summary {
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.step-flow-summary--muted {
+  color: var(--ui-text-faint);
+  font-style: italic;
+}
+
+.step-flow-summary--warn {
+  color: var(--ui-danger);
+}
+
+/* Hidden until the node is approached (hover) or focused from the keyboard.
+   `visibility` alongside `opacity` so the buttons aren't a click target while
+   invisible; both transition, so the reveal still animates. */
+.step-flow-controls {
+  display: flex;
+  gap: 0.25rem;
+  flex: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--ui-dur-1) var(--ui-ease-out), visibility var(--ui-dur-1) var(--ui-ease-out);
+}
+
+.step-flow-node:hover .step-flow-controls,
+.step-flow-node:focus-within .step-flow-controls {
+  opacity: 1;
+  visibility: visible;
+}
+
+.step-flow-btn {
+  width: 1.6rem;
+  height: 1.6rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--ui-r-sm);
+  border: 1px solid var(--ui-border);
+  background: var(--ui-surface);
+  color: var(--ui-text-muted);
+  cursor: pointer;
+  font-size: var(--ui-fs-xs);
+  line-height: 1;
+}
+
+.step-flow-btn:hover:not(:disabled) {
+  border-color: var(--ui-accent);
+  color: var(--ui-accent-text);
+}
+
+.step-flow-btn:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 1px;
+}
+
+.step-flow-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.step-flow-btn--danger:hover:not(:disabled) {
+  border-color: var(--ui-danger);
+  color: var(--ui-danger);
+}
+
+.step-flow-gate-fix {
+  align-self: flex-start;
+  margin-top: 0.35rem;
+  margin-left: 2.1rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px dashed var(--ui-danger);
+  border-radius: var(--ui-r-pill);
+  background: none;
+  color: var(--ui-danger);
+  font-size: var(--ui-fs-xs);
+  cursor: pointer;
+}
+
+.step-flow-gate-fix:hover {
+  background: var(--ui-danger-soft);
+}
+
+/* Keyboard users can't hover, so the controls must be reachable — they are,
+   via :focus-within above. Touch devices have no hover either; there, show
+   them permanently rather than leaving the node with no visible affordance. */
+@media (hover: none) {
+  .step-flow-controls {
+    opacity: 1;
+    visibility: visible;
+  }
+}

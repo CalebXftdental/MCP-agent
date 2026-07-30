@@ -81,6 +81,10 @@ async def _workflow_graph_item(request):
     graph, err = _require_graph_owner(claims, request.path_params["gid"])
     if err:
         return err
+    if request.method == "DELETE":
+        workflow_graph_store.delete_graph(graph.graph_id)
+        audit.log_policy_change(actor=claims["name"], action="delete_workflow_graph", target=graph.graph_id)
+        return JSONResponse({"ok": True})
     return JSONResponse(graph.public_dict(include_nodes=True))
 
 

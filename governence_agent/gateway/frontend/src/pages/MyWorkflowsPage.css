@@ -64,125 +64,13 @@
   width: 100%;
 }
 
-/* ── steps ──────────────────────────────────────────────────────────────── */
+/* Step rendering lives in components/workflow/: StepFlow.css for the flow
+   nodes and their hover controls, StepConfigFields.css for the add/edit
+   modal's form. */
 
-.mw-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.mw-step {
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-r-md);
-  padding: 0.85rem 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-
-.mw-step[data-needs-gate] {
-  border-color: var(--ui-danger);
-}
-
-.mw-step-head {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-
-.mw-step-index {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  border-radius: var(--ui-r-pill);
-  background: var(--ui-surface-sunken);
-  font-size: var(--ui-fs-xs);
-  font-weight: 650;
-  flex-shrink: 0;
-}
-
-.mw-step-title {
-  font-weight: 650;
-  flex: 1;
-}
-
-.mw-step-move {
-  display: flex;
-  gap: 0.25rem;
-}
-
-.mw-step-btn {
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: var(--ui-r-sm);
-  border: 1px solid var(--ui-border);
-  background: var(--ui-surface);
-  cursor: pointer;
-  color: var(--ui-text-muted);
-}
-
-.mw-step-btn:hover:not(:disabled) {
-  border-color: var(--ui-border-strong);
-  color: var(--ui-text);
-}
-
-.mw-step-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.mw-step-btn-danger:hover:not(:disabled) {
-  border-color: var(--ui-danger);
-  color: var(--ui-danger);
-}
-
-.mw-step-warning {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.6rem;
-  padding: 0.5rem 0.7rem;
-  border-radius: var(--ui-r-sm);
-  background: var(--ui-danger-soft);
-  color: var(--ui-danger);
-  font-size: var(--ui-fs-sm);
-}
-
-.mw-step-empty {
+.mw-delete-modal-lead {
   margin: 0;
   font-size: var(--ui-fs-sm);
   color: var(--ui-text-muted);
-}
-
-.mw-step-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 0.7rem;
-}
-
-.mw-step-bindings {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.mw-binding-row {
-  display: grid;
-  grid-template-columns: minmax(9rem, 1fr) minmax(9rem, 1fr) minmax(9rem, 1fr);
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.mw-binding-label {
-  font-size: var(--ui-fs-sm);
-  color: var(--ui-text-muted);
-}
-
-.mw-binding-req {
-  color: var(--ui-danger);
-  margin-left: 0.15rem;
 }
 

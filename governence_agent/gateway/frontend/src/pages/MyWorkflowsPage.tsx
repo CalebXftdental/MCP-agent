@@ -8,20 +8,23 @@ import {
   EmptyState,
   Field,
   Input,
+  Modal,
   Spinner,
-  Textarea,
   useToast,
   type DropdownOption,
 } from '../components/ui'
 import { SampleToggle, WorkflowInputFields, WorkflowReadiness } from '../components/workflow/WorkflowInputFields'
 import WorkflowAlertBadge from '../components/workflow/WorkflowAlertBadge'
 import InfoHoverIcon from '../components/workflow/InfoHoverIcon'
-import StepPickerModal from '../components/workflow/StepPickerModal'
+import StepModal from '../components/workflow/StepModal'
+import StepFlow from '../components/workflow/StepFlow'
+import type { NodeSource, TriggerInput } from '../components/workflow/StepConfigFields'
 import { useWorkflowInputs } from '../hooks/useWorkflowInputs'
 import {
   ApiError,
   addWorkflowGraphVersion,
   createWorkflowGraph,
+  deleteWorkflowGraph,
   getWorkflowGraph,
   getWorkflowGraphCatalog,
   listWorkflowGraphs,
@@ -31,8 +34,6 @@ import {
   validateWorkflowGraph,
   type GraphEdge,
   type GraphNode,
-  type GraphNodeKind,
-  type WorkflowBinding,
   type WorkflowGraph,
   type WorkflowGraphCatalogTool,
   type WorkflowGraphValidation,
@@ -57,8 +58,6 @@ import './MyWorkflowsPage.css'
  * simply the degenerate case where each step's edge is exactly "the step
  * before it," generated here rather than hand-wired.
  */
-
-type TriggerInput = { name: string; label: string }
 
 function newStepId(): string {
   return `step_${Math.random().toString(36).slice(2, 9)}`
@@ -132,113 +131,6 @@ function topoOrder(nodes: GraphNode[], edges: GraphEdge[]): GraphNode[] {
   return order.length === nodes.length ? order.map((id) => byId.get(id)!) : nodes
 }
 
-interface NodeSource {
-  nodeId: string
-  path: string
-  label: string
-}
-
-type BindingSource = 'literal' | 'trigger' | 'node'
-
-function bindingSource(binding: WorkflowBinding | undefined): BindingSource {
-  return binding?.source ?? 'literal'
-}
-
-interface BindingRowProps {
-  argLabel: string
-  required?: boolean
-  binding: WorkflowBinding | undefined
-  triggerInputs: TriggerInput[]
-  nodeSources: NodeSource[]
-  onChange: (binding: WorkflowBinding | null) => void
-}
-
-/** One step argument's value source — typed literally, taken from this
- *  workflow's own declared input, or taken from an earlier step's output.
- *  Mirrors `gateway/workflow_graph_interpreter.py`'s `_resolve_binding`
- *  exactly: those are the only three sources it understands. */
-function BindingRow({ argLabel, required, binding, triggerInputs, nodeSources, onChange }: BindingRowProps) {
-  const source = bindingSource(binding)
-  const sourceOptions: DropdownOption[] = [
-    { value: 'literal', label: 'Type a value' },
-    ...(triggerInputs.length ? [{ value: 'trigger', label: "From this workflow's input" }] : []),
-    ...(nodeSources.length ? [{ value: 'node', label: 'From an earlier step' }] : []),
-  ]
-
-  return (
-    <div className="mw-binding-row">
-      <span className="mw-binding-label">
-        {argLabel}
-        {required && <span className="mw-binding-req">*</span>}
-      </span>
-      <Dropdown
-        value={source}
-        onChange={(v) => {
-          if (v === 'literal') onChange({ source: 'literal', value: '' })
-          else if (v === 'trigger' && triggerInputs[0]) onChange({ source: 'trigger', path: triggerInputs[0].name })
-          else if (v === 'node' && nodeSources[0]) onChange({ source: 'node', node_id: nodeSources[0].nodeId, path: nodeSources[0].path })
-        }}
-        options={sourceOptions}
-      />
-      {source === 'literal' && (
-        <Input
-          value={binding && binding.source === 'literal' ? String(binding.value ?? '') : ''}
-          onChange={(e) => onChange({ source: 'literal', value: e.target.value })}
-          placeholder="value"
-        />
-      )}
-      {source === 'trigger' && (
-        <Dropdown
-          value={binding && binding.source === 'trigger' ? binding.path : ''}
-          onChange={(path) => onChange({ source: 'trigger', path })}
-          options={triggerInputs.map((t) => ({ value: t.name, label: t.label || t.name }))}
-        />
-      )}
-      {source === 'node' && (
-        <Dropdown
-          value={binding && binding.source === 'node' ? `${binding.node_id}::${binding.path}` : ''}
-          onChange={(v) => {
-            const [nodeId, path] = v.split('::')
-            onChange({ source: 'node', node_id: nodeId, path })
-          }}
-          options={nodeSources.map((s) => ({ value: `${s.nodeId}::${s.path}`, label: s.label }))}
-        />
-      )}
-    </div>
-  )
-}
-
-interface ToolStepFieldsProps {
-  step: GraphNode
-  tool: WorkflowGraphCatalogTool | undefined
-  triggerInputs: TriggerInput[]
-  nodeSources: NodeSource[]
-  onBind: (arg: string, binding: WorkflowBinding | null) => void
-}
-
-function ToolStepFields({ step, tool, triggerInputs, nodeSources, onBind }: ToolStepFieldsProps) {
-  const properties = tool?.parameters?.properties ?? {}
-  const required = new Set(tool?.parameters?.required ?? [])
-  const argNames = Object.keys(properties)
-  if (!tool) return <p className="mw-step-empty">This tool is no longer available.</p>
-  if (argNames.length === 0) return <p className="mw-step-empty">This tool takes no inputs.</p>
-  return (
-    <div className="mw-step-bindings">
-      {argNames.map((arg) => (
-        <BindingRow
-          key={arg}
-          argLabel={properties[arg]?.description || arg}
-          required={required.has(arg)}
-          binding={step.inputBindings[arg]}
-          triggerInputs={triggerInputs}
-          nodeSources={nodeSources}
-          onChange={(b) => onBind(arg, b)}
-        />
-      ))}
-    </div>
-  )
-}
-
 function MyWorkflowsPage({ session }: PageProps) {
   const toast = useToast()
 
@@ -254,7 +146,11 @@ function MyWorkflowsPage({ session }: PageProps) {
 
   const [triggerInputs, setTriggerInputs] = useState<TriggerInput[]>([])
   const [steps, setSteps] = useState<GraphNode[]>([])
-  const [stepPickerOpen, setStepPickerOpen] = useState(false)
+  const [stepModalOpen, setStepModalOpen] = useState(false)
+  /** Node id being edited, or null when the modal is adding a new step. */
+  const [editingStepId, setEditingStepId] = useState<string | null>(null)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [deletingGraph, setDeletingGraph] = useState(false)
 
   const [saving, setSaving] = useState(false)
   const [validating, setValidating] = useState(false)
@@ -298,6 +194,7 @@ function MyWorkflowsPage({ session }: PageProps) {
     setValidation(null)
     setRunPhase('idle')
     setRunResult(null)
+    setDeleteConfirmOpen(false)
   }, [])
 
   const openGraph = useCallback(
@@ -321,6 +218,7 @@ function MyWorkflowsPage({ session }: PageProps) {
         setValidation(null)
         setRunPhase('idle')
         setRunResult(null)
+        setDeleteConfirmOpen(false)
       } catch {
         toast.error('Could not load that workflow.')
       }
@@ -328,16 +226,32 @@ function MyWorkflowsPage({ session }: PageProps) {
     [resetToNew, toast],
   )
 
-  const addStep = useCallback(
-    (kind: string) => {
-      if (!kind) return
-      const step =
-        kind === 'approval_gate' ? makeApprovalStep() : kind === 'llm_transform' ? makeAiStep() : catalogByTool[kind] ? makeToolStep(catalogByTool[kind]) : null
-      if (!step) return
-      setSteps((prev) => [...prev, step])
+  /** Blank step of the chosen kind, for `StepModal`'s picker phase. Node-id
+   *  generation stays here so the modal never invents ids of its own. */
+  const makeStep = useCallback(
+    (kind: string): GraphNode | null => {
+      if (kind === 'approval_gate') return makeApprovalStep()
+      if (kind === 'llm_transform') return makeAiStep()
+      return catalogByTool[kind] ? makeToolStep(catalogByTool[kind]) : null
     },
     [catalogByTool],
   )
+
+  const openAddStep = useCallback(() => {
+    setEditingStepId(null)
+    setStepModalOpen(true)
+  }, [])
+
+  const openEditStep = useCallback((nodeId: string) => {
+    setEditingStepId(nodeId)
+    setStepModalOpen(true)
+  }, [])
+
+  /** Upsert by node id: an edited step replaces itself in place (keeping its
+   *  position in the chain), a brand-new one appends. */
+  const commitStep = useCallback((step: GraphNode) => {
+    setSteps((prev) => (prev.some((s) => s.nodeId === step.nodeId) ? prev.map((s) => (s.nodeId === step.nodeId ? step : s)) : [...prev, step]))
+  }, [])
 
   const removeStep = useCallback((nodeId: string) => {
     setSteps((prev) => prev.filter((s) => s.nodeId !== nodeId))
@@ -364,22 +278,6 @@ function MyWorkflowsPage({ session }: PageProps) {
     })
   }, [])
 
-  const updateStepConfig = useCallback((nodeId: string, config: Record<string, unknown>) => {
-    setSteps((prev) => prev.map((s) => (s.nodeId === nodeId ? { ...s, config } : s)))
-  }, [])
-
-  const setBinding = useCallback((nodeId: string, arg: string, binding: WorkflowBinding | null) => {
-    setSteps((prev) =>
-      prev.map((s) => {
-        if (s.nodeId !== nodeId) return s
-        const inputBindings = { ...s.inputBindings }
-        if (binding) inputBindings[arg] = binding
-        else delete inputBindings[arg]
-        return { ...s, inputBindings }
-      }),
-    )
-  }, [])
-
   const addTriggerInput = useCallback(() => setTriggerInputs((prev) => [...prev, { name: '', label: '' }]), [])
   const updateTriggerInput = useCallback((index: number, patch: Partial<TriggerInput>) => {
     setTriggerInputs((prev) => prev.map((t, i) => (i === index ? { ...t, ...patch } : t)))
@@ -388,6 +286,10 @@ function MyWorkflowsPage({ session }: PageProps) {
     setTriggerInputs((prev) => prev.filter((_, i) => i !== index))
   }, [])
 
+  /** Outputs of every step before position `index` — the only ones a step at
+   *  that position may bind to, since the interpreter walks the chain in
+   *  order. For a not-yet-added step, `index` is `steps.length` (everything
+   *  is "before" it). */
   const sourcesBefore = useCallback(
     (index: number): NodeSource[] =>
       steps.slice(0, index).flatMap((s) => {
@@ -400,6 +302,12 @@ function MyWorkflowsPage({ session }: PageProps) {
       }),
     [steps, catalogByTool],
   )
+
+  const editingStep = useMemo(() => steps.find((s) => s.nodeId === editingStepId) ?? null, [steps, editingStepId])
+  const modalNodeSources = useMemo(() => {
+    const index = editingStepId ? steps.findIndex((s) => s.nodeId === editingStepId) : steps.length
+    return sourcesBefore(index < 0 ? steps.length : index)
+  }, [editingStepId, steps, sourcesBefore])
 
   const buildGraph = useCallback((): { nodes: GraphNode[]; edges: GraphEdge[] } => {
     const trigger: GraphNode = {
@@ -414,9 +322,18 @@ function MyWorkflowsPage({ session }: PageProps) {
     return { nodes, edges: chainEdges(nodes) }
   }, [triggerInputs, steps])
 
-  const save = useCallback(async () => {
+  /** Persists whatever is CURRENTLY on screen (steps, trigger inputs, name,
+   *  description) as a new version — the one place both `save` and `publish`
+   *  actually write to the backend, so neither can drift from what the
+   *  editor shows. `publish` used to call `publishWorkflowGraph(graphId)`
+   *  directly, which republishes whatever version was last explicitly
+   *  saved — if you removed a step and hit Publish without an explicit save
+   *  first, the removal was silently discarded and the OLD version (step
+   *  still in it) got published; reopening the workflow then made the
+   *  "deleted" step look like it had come back. Routing publish through
+   *  this same persist step closes that gap. */
+  const persist = useCallback(async (): Promise<WorkflowGraph | null> => {
     const { nodes, edges } = buildGraph()
-    setSaving(true)
     try {
       const result = graphId
         ? await addWorkflowGraphVersion(graphId, { display_name: displayName, description, nodes, edges })
@@ -425,14 +342,23 @@ function MyWorkflowsPage({ session }: PageProps) {
       setStatus(result.status)
       setPublishedVersion(result.publishedVersion)
       setValidation(null)
-      toast.success(graphId ? 'New version saved' : 'Saved as a new draft')
-      loadGraphs()
+      return result
     } catch (cause) {
       toast.error(cause instanceof ApiError ? cause.message : 'Could not save that workflow.')
-    } finally {
-      setSaving(false)
+      return null
     }
-  }, [graphId, displayName, description, buildGraph, loadGraphs, toast])
+  }, [graphId, displayName, description, buildGraph, toast])
+
+  const save = useCallback(async () => {
+    setSaving(true)
+    const wasNew = !graphId
+    const result = await persist()
+    setSaving(false)
+    if (result) {
+      toast.success(wasNew ? 'Saved as a new draft' : 'New version saved')
+      loadGraphs()
+    }
+  }, [graphId, persist, loadGraphs, toast])
 
   const validate = useCallback(async () => {
     if (!graphId) {
@@ -451,13 +377,11 @@ function MyWorkflowsPage({ session }: PageProps) {
   }, [graphId, buildGraph, toast])
 
   const publish = useCallback(async () => {
-    if (!graphId) {
-      toast.warn('Save the workflow first')
-      return
-    }
     setPublishing(true)
     try {
-      const result = await publishWorkflowGraph(graphId)
+      const saved = await persist()
+      if (!saved) return
+      const result = await publishWorkflowGraph(saved.graphId)
       setStatus(result.status)
       setPublishedVersion(result.publishedVersion)
       toast.success('Workflow published')
@@ -467,7 +391,7 @@ function MyWorkflowsPage({ session }: PageProps) {
     } finally {
       setPublishing(false)
     }
-  }, [graphId, loadGraphs, toast])
+  }, [persist, loadGraphs, toast])
 
   const toggleStatus = useCallback(async () => {
     if (!graphId) return
@@ -480,6 +404,22 @@ function MyWorkflowsPage({ session }: PageProps) {
       toast.error(cause instanceof ApiError ? cause.message : 'Could not update that workflow.')
     }
   }, [graphId, status, toast])
+
+  const confirmDeleteGraph = useCallback(async () => {
+    if (!graphId) return
+    setDeletingGraph(true)
+    try {
+      await deleteWorkflowGraph(graphId)
+      toast.success('Workflow deleted')
+      setDeleteConfirmOpen(false)
+      resetToNew()
+      loadGraphs()
+    } catch (cause) {
+      toast.error(cause instanceof ApiError ? cause.message : 'Could not delete that workflow.')
+    } finally {
+      setDeletingGraph(false)
+    }
+  }, [graphId, resetToNew, loadGraphs, toast])
 
   const run = useCallback(async () => {
     if (!graphId) return
@@ -499,9 +439,6 @@ function MyWorkflowsPage({ session }: PageProps) {
     () => graphs.map((g) => ({ value: g.graphId, label: `${g.displayName} (${g.status})` })),
     [graphs],
   )
-
-  const stepKindTitle = (kind: GraphNodeKind, tool: string) =>
-    kind === 'approval_gate' ? 'Approval gate' : kind === 'llm_transform' ? 'AI step' : tool
 
   return (
     <div className="my-workflows">
@@ -533,6 +470,11 @@ function MyWorkflowsPage({ session }: PageProps) {
                 {status === 'active' ? 'Disable' : 'Enable'}
               </Button>
             )}
+            {graphId && (
+              <Button size="sm" variant="danger" onClick={() => setDeleteConfirmOpen(true)}>
+                Delete
+              </Button>
+            )}
             <Button size="sm" variant="ghost" onClick={resetToNew}>
               New workflow
             </Button>
@@ -540,9 +482,9 @@ function MyWorkflowsPage({ session }: PageProps) {
               Check
             </Button>
             <Button size="sm" variant="ghost" onClick={save} loading={saving}>
-              {graphId ? 'Save new version' : 'Save as draft'}
+              Save
             </Button>
-            <Button size="sm" onClick={publish} loading={publishing} disabled={!graphId}>
+            <Button size="sm" onClick={publish} loading={publishing}>
               Publish
             </Button>
           </div>
@@ -597,141 +539,66 @@ function MyWorkflowsPage({ session }: PageProps) {
 
       <Card
         title="Steps"
-        description="Runs top to bottom. Add a step, fill in a small form, reorder with the arrows."
-        actions={<AddButton onClick={() => setStepPickerOpen(true)} label="Add a step" size="sm" />}
+        description="Runs top to bottom. Hover a step to edit, reorder, or remove it."
+        actions={<AddButton onClick={openAddStep} label="Add a step" size="sm" />}
       >
         {steps.length === 0 ? (
           <EmptyState
             title="No steps yet"
             description="Add one to get started."
             action={
-              <Button size="sm" variant="ghost" onClick={() => setStepPickerOpen(true)}>
+              <Button size="sm" variant="ghost" onClick={openAddStep}>
                 + Add a step
               </Button>
             }
           />
         ) : (
-          <div className="mw-steps">
-            {steps.map((step, i) => {
-              const tool = step.kind === 'tool_call' ? catalogByTool[step.tool] : undefined
-              const needsGate = tool?.riskLevel === 'send' && !steps.slice(0, i).some((s) => s.kind === 'approval_gate')
-              const sources = sourcesBefore(i)
-              return (
-                <div key={step.nodeId} className="mw-step" data-needs-gate={needsGate || undefined}>
-                  <div className="mw-step-head">
-                    <span className="mw-step-index">{i + 2}</span>
-                    <span className="mw-step-title">{stepKindTitle(step.kind, tool?.canonical ?? step.tool)}</span>
-                    <div className="mw-step-move">
-                      <button type="button" className="mw-step-btn" disabled={i === 0} onClick={() => moveStep(step.nodeId, -1)} aria-label="Move up">
-                        ↑
-                      </button>
-                      <button
-                        type="button"
-                        className="mw-step-btn"
-                        disabled={i === steps.length - 1}
-                        onClick={() => moveStep(step.nodeId, 1)}
-                        aria-label="Move down"
-                      >
-                        ↓
-                      </button>
-                      <button type="button" className="mw-step-btn mw-step-btn-danger" onClick={() => removeStep(step.nodeId)} aria-label="Remove step">
-                        ✕
-                      </button>
-                    </div>
-                  </div>
-
-                  {needsGate && (
-                    <div className="mw-step-warning">
-                      <span>This step sends something externally — add an approval gate before it.</span>
-                      <Button size="sm" variant="ghost" onClick={() => insertApprovalBefore(step.nodeId)}>
-                        + Insert approval before
-                      </Button>
-                    </div>
-                  )}
-
-                  {step.kind === 'tool_call' && (
-                    <ToolStepFields step={step} tool={tool} triggerInputs={triggerInputs} nodeSources={sources} onBind={(arg, b) => setBinding(step.nodeId, arg, b)} />
-                  )}
-
-                  {step.kind === 'approval_gate' && (
-                    <div className="mw-step-fields">
-                      <Field label="Reason">
-                        {(fp) => (
-                          <Textarea
-                            {...fp}
-                            mono={false}
-                            rows={2}
-                            value={String(step.config.reason ?? '')}
-                            onChange={(e) => updateStepConfig(step.nodeId, { ...step.config, reason: e.target.value })}
-                          />
-                        )}
-                      </Field>
-                      <Field label="Risk level">
-                        {(fp) => (
-                          <Dropdown
-                            {...fp}
-                            value={String(step.config.risk_level ?? 'medium')}
-                            onChange={(v) => updateStepConfig(step.nodeId, { ...step.config, risk_level: v })}
-                            options={[
-                              { value: 'medium', label: 'Medium' },
-                              { value: 'high', label: 'High' },
-                            ]}
-                          />
-                        )}
-                      </Field>
-                    </div>
-                  )}
-
-                  {step.kind === 'llm_transform' && (
-                    <div className="mw-step-fields">
-                      <Field label="AI action">
-                        {(fp) => (
-                          <Dropdown
-                            {...fp}
-                            value={String(step.config.kind ?? 'summarize')}
-                            onChange={(v) => updateStepConfig(step.nodeId, { ...step.config, kind: v })}
-                            options={[
-                              { value: 'summarize', label: 'Summarize' },
-                              { value: 'draft_reply', label: 'Draft a reply' },
-                              { value: 'classify', label: 'Classify' },
-                              { value: 'extract', label: 'Extract' },
-                            ]}
-                          />
-                        )}
-                      </Field>
-                      <Field label="Instruction">
-                        {(fp) => (
-                          <Textarea
-                            {...fp}
-                            mono={false}
-                            rows={2}
-                            value={String(step.config.instruction ?? '')}
-                            onChange={(e) => updateStepConfig(step.nodeId, { ...step.config, instruction: e.target.value })}
-                          />
-                        )}
-                      </Field>
-                      <BindingRow
-                        argLabel="Text to work from"
-                        binding={step.inputBindings.input_text}
-                        triggerInputs={triggerInputs}
-                        nodeSources={sources}
-                        onChange={(b) => setBinding(step.nodeId, 'input_text', b)}
-                      />
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
+          <StepFlow
+            steps={steps}
+            catalogByTool={catalogByTool}
+            triggerInputLabels={triggerInputs.filter((t) => t.name.trim()).map((t) => t.label || t.name)}
+            onEdit={openEditStep}
+            onMove={moveStep}
+            onRemove={removeStep}
+            onInsertApprovalBefore={insertApprovalBefore}
+          />
         )}
       </Card>
 
-      <StepPickerModal
-        open={stepPickerOpen}
-        onClose={() => setStepPickerOpen(false)}
+      <StepModal
+        open={stepModalOpen}
+        onClose={() => setStepModalOpen(false)}
         catalog={catalog}
-        onPick={addStep}
+        triggerInputs={triggerInputs}
+        nodeSources={modalNodeSources}
+        editing={editingStep}
+        makeStep={makeStep}
+        onCommit={commitStep}
       />
+
+      <Modal
+        open={deleteConfirmOpen}
+        onClose={() => setDeleteConfirmOpen(false)}
+        eyebrow="My Workflow"
+        title={`Delete ${displayName}?`}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setDeleteConfirmOpen(false)} disabled={deletingGraph}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={confirmDeleteGraph} loading={deletingGraph}>
+              Delete
+            </Button>
+          </>
+        }
+      >
+        <p className="mw-delete-modal-lead">
+          This can't be undone.
+          {status === 'active'
+            ? ' Any automation scheduled against it will start failing, and it disappears from the Workflows catalog immediately.'
+            : ' Every saved version goes with it.'}
+        </p>
+      </Modal>
 
       {status === 'active' && graphId && (
         <Card

@@ -1,0 +1,4 @@
+{
+    "appService.defaultWebAppToDeploy": "/subscriptions/35a5c6a3-52b3-4a58-9bf5-7a7dc56c72b2/resourceGroups/RG_IVA_Prod/providers/Microsoft.Web/sites/MCP-Workspace-testing-env",
+    "appService.deploySubpath": "governence_agent"
+}

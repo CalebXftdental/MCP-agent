@@ -1,0 +1,121 @@
+.wf-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+/* A section title carrying a WorkflowInfoIcon and/or WorkflowAlertBadge —
+   shared by WorkflowsPage's "Run a workflow" and MyWorkflowsPage's "Run this
+   workflow". */
+.workflows-run-title {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* A flex row, not a stretching grid: each field keeps a modest fixed-ish
+   width instead of ballooning to fill whatever space is left, and `actions`
+   (the page's own submit button) joins the same row as a trailing item,
+   wrapping below only when the row genuinely runs out of space. */
+.wf-fields-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.8rem;
+}
+
+.wf-field-cell {
+  flex: 0 1 11rem;
+  min-width: 8rem;
+}
+
+.wf-fields-actions {
+  display: flex;
+  padding-bottom: 0.05rem;
+}
+
+.wf-fields-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-top: 0.2rem;
+  border-top: 1px solid var(--ui-border);
+}
+
+.wf-readiness {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: var(--ui-fs-sm);
+}
+
+.wf-readiness-checking {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--ui-text-muted);
+  margin: 0;
+}
+
+.wf-readiness-error {
+  margin: 0;
+  color: var(--ui-danger);
+}
+
+.wf-readiness-note {
+  margin: 0;
+  color: var(--ui-text-muted);
+}
+
+/* ── run form/result — shared by WorkflowsPage and MyWorkflowsPage ────────── */
+
+.workflows-run-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.workflows-run-error {
+  margin: 0;
+  color: var(--ui-danger);
+  font-size: var(--ui-fs-sm);
+}
+
+.workflows-run-result {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.9rem 1rem;
+  border-radius: var(--ui-r-md);
+  background: var(--ui-surface-sunken);
+}
+
+.workflows-run-result-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.workflows-run-result-id {
+  color: var(--ui-text-faint);
+  font-size: var(--ui-fs-xs);
+}
+
+.workflows-run-result-note {
+  margin: 0;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-muted);
+}
+
+.workflows-run-result-artifacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.workflows-run-result-artifact {
+  padding: 0.35rem 0.7rem;
+  border-radius: var(--ui-r-pill);
+  border: 1px solid var(--ui-border);
+  background: var(--ui-surface);
+  font-size: var(--ui-fs-sm);
+}

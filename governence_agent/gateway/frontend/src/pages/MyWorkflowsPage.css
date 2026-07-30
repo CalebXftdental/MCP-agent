@@ -1,0 +1,188 @@
+.my-workflows {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.5rem 1.75rem 3rem;
+  max-width: 80rem;
+}
+
+@media (max-width: 640px) {
+  .my-workflows {
+    padding: 1rem 1rem 2.5rem;
+  }
+}
+
+/* Lifecycle actions (Disable/Enable, New workflow, Check, Save, Publish),
+   grouped in the Card's own header actions slot instead of a separate
+   full-width button row below the fields. */
+.mw-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.mw-version-note {
+  margin: 0.7rem 0 0;
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-faint);
+}
+
+/* Top-aligned (not the run forms' flex-end): with no trailing action button
+   in this row, top-aligning is what keeps every label on the same line
+   regardless of which fields have a hint under them — "Description"'s
+   "Optional" hint made its column taller than "Name"/"Open an existing
+   workflow", which flex-end read as those two labels sitting lower rather
+   than the intended "all three start at the same height." Each cell also
+   grows to share the row instead of capping at a fixed width, so the
+   dropdown's own selected-workflow label has room and doesn't truncate. */
+.mw-identity-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.8rem;
+}
+
+.mw-identity-cell {
+  flex: 1 1 12rem;
+  min-width: 10rem;
+}
+
+/* ── trigger inputs ─────────────────────────────────────────────────────── */
+
+.mw-trigger-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.mw-trigger-input-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+/* ── steps ──────────────────────────────────────────────────────────────── */
+
+.mw-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.mw-step {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-r-md);
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.mw-step[data-needs-gate] {
+  border-color: var(--ui-danger);
+}
+
+.mw-step-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.mw-step-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: var(--ui-r-pill);
+  background: var(--ui-surface-sunken);
+  font-size: var(--ui-fs-xs);
+  font-weight: 650;
+  flex-shrink: 0;
+}
+
+.mw-step-title {
+  font-weight: 650;
+  flex: 1;
+}
+
+.mw-step-move {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.mw-step-btn {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: var(--ui-r-sm);
+  border: 1px solid var(--ui-border);
+  background: var(--ui-surface);
+  cursor: pointer;
+  color: var(--ui-text-muted);
+}
+
+.mw-step-btn:hover:not(:disabled) {
+  border-color: var(--ui-border-strong);
+  color: var(--ui-text);
+}
+
+.mw-step-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.mw-step-btn-danger:hover:not(:disabled) {
+  border-color: var(--ui-danger);
+  color: var(--ui-danger);
+}
+
+.mw-step-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--ui-r-sm);
+  background: var(--ui-danger-soft);
+  color: var(--ui-danger);
+  font-size: var(--ui-fs-sm);
+}
+
+.mw-step-empty {
+  margin: 0;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-muted);
+}
+
+.mw-step-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.mw-step-bindings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.mw-binding-row {
+  display: grid;
+  grid-template-columns: minmax(9rem, 1fr) minmax(9rem, 1fr) minmax(9rem, 1fr);
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.mw-binding-label {
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-muted);
+}
+
+.mw-binding-req {
+  color: var(--ui-danger);
+  margin-left: 0.15rem;
+}
+

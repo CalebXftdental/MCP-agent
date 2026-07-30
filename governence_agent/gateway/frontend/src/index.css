@@ -30,7 +30,7 @@
   --panel: #ffffff;
   --panel-shadow: 0 12px 28px -8px rgb(0 0 0 / 0.22), 0 2px 6px -2px rgb(0 0 0 / 0.12);
 
-  --sans: system-ui, 'Segoe UI Variable Text', 'Segoe UI', Roboto, sans-serif;
+  --sans: 'Inter', system-ui, 'Segoe UI Variable Text', 'Segoe UI', Roboto, sans-serif;
   --mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
 
   font: 16px/1.55 var(--sans);

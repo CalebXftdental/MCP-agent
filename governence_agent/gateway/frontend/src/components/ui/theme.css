@@ -74,7 +74,7 @@
   --ui-scrim: rgb(21 27 31 / 0.28);
 
   /* ── type ─────────────────────────────────────────────────────────────── */
-  --ui-sans: system-ui, 'Segoe UI Variable Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --ui-sans: 'Inter', system-ui, 'Segoe UI Variable Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --ui-mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
 
   --ui-fs-2xs: 0.6875rem;

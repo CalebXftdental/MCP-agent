@@ -6,12 +6,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Frontier MCP Workspace</title>
 
-    <!-- Inter, for the Home composer only (components/chat/Composer.css --composer-font)
-         — the rest of the app stays on the native --ui-sans stack in theme.css. -->
+    <!-- Inter, the app's font everywhere (--sans in index.css, --ui-sans in
+         theme.css). Full variable weight range, not fixed instances — the UI
+         relies on in-between weights (550, 650, ...) that only a variable
+         font renders correctly. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,100..900&display=swap"
       rel="stylesheet"
     />
   </head>

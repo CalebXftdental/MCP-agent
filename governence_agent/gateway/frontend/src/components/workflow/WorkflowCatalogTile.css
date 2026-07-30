@@ -1,0 +1,106 @@
+.wf-tile-wrap {
+  position: relative;
+}
+
+.wf-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  height: 7.5rem;
+  padding: 0.75rem;
+  text-align: center;
+  border-radius: var(--ui-r-md);
+  border: 1px solid var(--ui-border);
+  background: var(--ui-surface);
+  cursor: pointer;
+  transition: border-color var(--ui-dur-1) var(--ui-ease-out), box-shadow var(--ui-dur-1) var(--ui-ease-out),
+    transform var(--ui-dur-1) var(--ui-ease-out);
+}
+
+.wf-tile:hover,
+.wf-tile:focus-visible {
+  border-color: var(--ui-border-strong);
+  box-shadow: var(--ui-shadow-md);
+  transform: translateY(-1px);
+}
+
+.wf-tile:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 2px;
+}
+
+.wf-tile[data-selected] {
+  border-color: var(--ui-accent);
+  box-shadow: 0 0 0 1px var(--ui-accent);
+}
+
+.wf-tile[data-disabled] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.wf-tile-icon {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.wf-tile-title {
+  font-size: var(--ui-fs-sm);
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* Admin Disable/Enable — a plain CSS reveal on the wrapper (not the portaled
+   detail overlay; see the component's module note for why). */
+.wf-tile-admin {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  opacity: 0;
+  transition: opacity var(--ui-dur-1) var(--ui-ease-out);
+}
+
+.wf-tile-wrap:hover .wf-tile-admin,
+.wf-tile-admin:focus-within {
+  opacity: 1;
+}
+
+/* ── hover/focus detail overlay (portaled) ─────────────────────────────── */
+
+.wf-tile-overlay {
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.65rem 0.9rem 0.8rem;
+  background: var(--ui-surface-raised);
+  border: 1px solid var(--ui-accent);
+  border-radius: var(--ui-r-md);
+  box-shadow: var(--ui-shadow-lg);
+  pointer-events: none;
+  animation: ui-rise var(--ui-dur-2) var(--ui-ease-out) both;
+}
+
+.wf-tile-overlay-desc {
+  margin: 0;
+  font-size: var(--ui-fs-xs);
+  line-height: 1.5;
+  color: var(--ui-text-muted);
+}
+
+.wf-tile-overlay-outputs {
+  margin: 0;
+  font-size: var(--ui-fs-2xs);
+  color: var(--ui-text-faint);
+}
+
+.wf-tile-overlay-reason {
+  margin: 0;
+  font-size: var(--ui-fs-2xs);
+  color: var(--ui-danger);
+}

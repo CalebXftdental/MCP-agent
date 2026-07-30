@@ -1368,3 +1368,358 @@ export const answerFromKnowledge = (query: string, limit = 5, documentId = '') =
   if (documentId) body.document_id = documentId
   return api.post<KnowledgeAnswer>('/knowledge/answer', body)
 }
+
+// ── Workflows ────────────────────────────────────────────────────────────────
+// A "workflow" is either one of the 5 hardcoded templates (gateway/workflows.py)
+// or a published user-built graph (see Workflow graphs, below) — both project
+// into this same WorkflowTemplate shape server-side, so one client type and one
+// set of run/preflight/run-history endpoints cover both.
+
+export interface WorkflowTemplate {
+  templateId: string
+  displayName: string
+  description: string
+  requiredCategories: string[]
+  outputTypes: string[]
+  status: 'active' | 'disabled' | string
+  version: number
+  disabledBy?: string
+  disabledAt?: number | null
+  disabledReason?: string
+}
+
+export const listWorkflows = () => api.get<{ workflows: WorkflowTemplate[] }>('/workflows')
+
+/** One input a template declares as user-fillable (backend/workflow_api.py's
+ *  `_workflow_input_requirements`) — a graph-backed template's trigger node
+ *  carries the same shape. This is what makes the run/schedule form show only
+ *  the fields a given workflow actually uses, instead of one static form with
+ *  every field for every workflow. */
+export interface WorkflowInputRequirement {
+  name: string
+  label: string
+  sampleDefault?: string
+  /** Only enforced once `sample` is false — every field is optional in sample mode. */
+  requiredWhenSampleFalse?: boolean
+  optional?: boolean
+}
+
+/** An optional approval pause this template supports, and whether the current
+ *  draft inputs have it turned on — echoes back what was just sent, not an
+ *  independent toggle the preflight call itself can flip. */
+export interface WorkflowApprovalGate {
+  id: string
+  label: string
+  enabled: boolean
+}
+
+export interface WorkflowConnector {
+  category: string
+  backend: string
+  configured: boolean
+  paused?: boolean
+  url?: string
+  error?: string
+}
+
+/** A dry run of "would this actually work right now" — missing access,
+ *  missing required inputs, paused backends — rendered as plain sentences
+ *  rather than the pill wall the legacy panel used. */
+export interface WorkflowPreflight {
+  ready: boolean
+  templateId: string
+  requiredCategories: string[]
+  effectiveCategories: string[]
+  legacyAllowAll: boolean
+  pausedBackends: string[]
+  missingCategories: string[]
+  requiredInputs: WorkflowInputRequirement[]
+  missingInputs: string[]
+  approvalGates: WorkflowApprovalGate[]
+  connectors: WorkflowConnector[]
+  blockers: string[]
+  warnings: string[]
+}
+
+/** `inputs` is sent as the flat request body (not wrapped) — the gateway
+ *  accepts either shape but every other caller (run, automations) uses flat,
+ *  so preflight matches for a single mental model of "what a workflow's
+ *  inputs look like on the wire." */
+export const getWorkflowPreflight = (templateId: string, inputs: Record<string, unknown>) =>
+  api.post<WorkflowPreflight>(`/workflows/${encodeURIComponent(templateId)}/preflight`, inputs)
+
+export interface WorkflowRunArtifact {
+  artifactId: string
+  filename: string
+  classification?: string[]
+  downloadUrl?: string
+}
+
+export interface WorkflowRunStep {
+  stepId: string
+  type: string
+  status: string
+  tool: string
+  title: string
+  inputs: Record<string, unknown>
+  outputs: Record<string, unknown>
+  error: string | null
+}
+
+export interface WorkflowRun {
+  runId: string
+  templateId: string
+  requestedBy: string
+  status: string
+  inputs: Record<string, unknown>
+  steps: WorkflowRunStep[]
+  artifactIds: string[]
+  approvalIds: string[]
+  createdAt: number
+  updatedAt: number
+  error: string | null
+  resumedAt: number | null
+}
+
+export interface WorkflowRunResult extends WorkflowRun {
+  artifacts?: WorkflowRunArtifact[]
+  approval?: { approvalId: string }
+}
+
+export const runWorkflow = (templateId: string, inputs: Record<string, unknown>) =>
+  api.post<WorkflowRunResult>(`/workflows/${encodeURIComponent(templateId)}/run`, inputs)
+
+/** `all` (admin-only; ignored for anyone else) lists every principal's runs
+ *  instead of just this caller's own. */
+export const listWorkflowRuns = (all = false) =>
+  api.get<{ runs: WorkflowRun[] }>(`/workflow-runs${all ? '?all=1' : ''}`)
+
+export interface WorkflowTimelineEvent {
+  kind: 'step' | 'audit' | 'policy' | 'artifact' | 'approval' | string
+  ts: number | null
+  status: string | null
+  title: string
+  tool: string
+  detail: string
+}
+
+export const getWorkflowRun = (runId: string, timeline = false) =>
+  api.get<WorkflowRun & { timeline?: WorkflowTimelineEvent[] }>(
+    `/workflow-runs/${encodeURIComponent(runId)}${timeline ? '?timeline=1' : ''}`,
+  )
+
+export const cancelWorkflowRun = (runId: string, reason: string) =>
+  api.post<WorkflowRun>(`/workflow-runs/${encodeURIComponent(runId)}/cancel`, { reason })
+
+/** Resumes a run paused on an approval gate once that approval has been
+ *  decided. 409s (as an ApiError) if it's still pending or was denied. */
+export const resumeWorkflowRun = (runId: string, approvalId: string) =>
+  api.post<WorkflowRun>(`/workflow-runs/${encodeURIComponent(runId)}/resume`, { approval_id: approvalId })
+
+export const exportWorkflowRunEvidence = (runId: string) =>
+  api.post<{ artifact: WorkflowRunArtifact; timelineEvents: number }>(
+    `/workflow-runs/${encodeURIComponent(runId)}/export-evidence`,
+  )
+
+export interface WorkflowHealthTemplate {
+  templateId: string
+  displayName: string
+  runs: number
+  completed: number
+  failed: number
+  approvalRequired: number
+  lastStatus: string
+  failureRate: number
+  artifactRate: number
+  avgDurationSec: number
+}
+
+export interface WorkflowHealth {
+  health: 'healthy' | 'degraded' | 'unhealthy'
+  totalRuns: number
+  failedRuns: number
+  approvalRequiredRuns: number
+  failureRate: number
+  approvalRate: number
+  avgDurationSec: number
+  stuckRuns: WorkflowRun[]
+  templates: WorkflowHealthTemplate[]
+}
+
+/** Admin-only — run-quality KPIs derived from persisted workflow runs. */
+export const getWorkflowHealth = () => api.get<WorkflowHealth>('/admin/workflow-health')
+
+/** Admin-only. Disabling asks for a reason (audited); enabling doesn't. */
+export const setWorkflowTemplateStatus = (
+  templateId: string,
+  action: 'enable' | 'disable',
+  reason = '',
+) => api.post<WorkflowTemplate>(`/admin/workflows/${encodeURIComponent(templateId)}/${action}`, { reason })
+
+// ── Automations ──────────────────────────────────────────────────────────────
+// A schedule that re-runs a published, active workflow on an interval — the
+// same `/workflows/{id}/run` execution path, just triggered by time instead
+// of a click.
+
+export interface Automation {
+  automationId: string
+  owner: string
+  templateId: string
+  actorType: 'user' | 'agent'
+  agentId: string
+  displayName: string
+  inputs: Record<string, unknown>
+  intervalSec: number
+  status: 'active' | 'disabled' | string
+  createdAt: number
+  updatedAt: number
+  nextRunAt: number
+  lastRunAt: number | null
+  lastRunId: string
+  lastStatus: string
+  runCount: number
+}
+
+/** Admin sees every principal's schedules by default; a non-admin only ever
+ *  sees their own regardless. */
+export const listAutomations = () => api.get<{ automations: Automation[] }>('/automations')
+
+export interface CreateAutomationInput {
+  template_id: string
+  display_name: string
+  inputs: Record<string, unknown>
+  /** Seconds between runs — the wire unit; the UI works in a plain
+   *  Daily/Weekly/Custom schedule and converts before sending. */
+  interval_sec: number
+  next_run_at?: number
+}
+
+export const createAutomation = (input: CreateAutomationInput) =>
+  api.post<Automation>('/automations', input)
+
+export const deleteAutomation = (automationId: string) =>
+  api.del<{ ok: boolean }>(`/automations/${encodeURIComponent(automationId)}`)
+
+/** Admin-only — runs every automation currently due. Local/manual trigger for
+ *  a deployment without its own external scheduler calling this on a timer. */
+export const runDueAutomations = () =>
+  api.post<{ ran: number; results: Array<{ automationId: string; status: string }> }>('/automations/run-due', {})
+
+// ── Workflow graphs ("My Workflow") ─────────────────────────────────────────
+// A user-buildable workflow: an ordered chain of steps (tool calls, an AI
+// step, an approval gate) wired trigger -> step -> step -> .... Node/edge
+// naming matches the backend's GraphNode/GraphEdge wire shape exactly
+// (governance_core/workflow_graph_models.py) so a saved graph round-trips
+// without translation.
+
+/** Where one step's input value comes from: a literal typed value, the
+ *  trigger's own raw inputs by key, or an earlier node's output by key
+ *  (gateway/workflow_graph_interpreter.py's `_resolve_binding`). */
+export type WorkflowBinding =
+  | { source: 'literal'; value: unknown }
+  | { source: 'trigger'; path: string }
+  | { source: 'node'; node_id: string; path: string }
+
+export type GraphNodeKind = 'trigger' | 'tool_call' | 'approval_gate' | 'llm_transform'
+
+export interface GraphNode {
+  nodeId: string
+  kind: GraphNodeKind
+  title: string
+  /** Canonical tool name; set iff `kind === 'tool_call'`. */
+  tool: string
+  /** Literal, non-bindable settings — an approval's reason/risk level, an AI
+   *  step's instruction, a trigger's declared input list. */
+  config: Record<string, unknown>
+  inputBindings: Record<string, WorkflowBinding>
+  /** UI-only; the interpreter ignores this. Unused by the linear builder
+   *  (kept only so a graph built here still opens if ever inspected by a
+   *  hypothetical future canvas view). */
+  position?: { x?: number; y?: number }
+}
+
+export interface GraphEdge {
+  edgeId: string
+  sourceNodeId: string
+  targetNodeId: string
+}
+
+export interface WorkflowGraph {
+  graphId: string
+  displayName: string
+  description: string
+  owner: string
+  status: 'draft' | 'active' | 'disabled' | string
+  publishedVersion: number
+  currentVersion: number
+  createdAt: number
+  updatedAt: number
+  /** Present on create, on a single-graph fetch, and on add-version — absent
+   *  on the list endpoint. */
+  nodes?: GraphNode[]
+  edges?: GraphEdge[]
+}
+
+/** Admin sees every owner's graphs by default; a non-admin only ever sees
+ *  their own. List entries never include `nodes`/`edges` — open one to edit. */
+export const listWorkflowGraphs = () => api.get<{ graphs: WorkflowGraph[] }>('/workflow-graphs?all=1')
+
+export const getWorkflowGraph = (graphId: string) =>
+  api.get<WorkflowGraph>(`/workflow-graphs/${encodeURIComponent(graphId)}`)
+
+export interface SaveWorkflowGraphInput {
+  display_name: string
+  description?: string
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  notes?: string
+}
+
+/** Creates a brand-new draft (version 1). 400s (as an ApiError) with a
+ *  human-readable reason if the graph fails build-time validation (a tool
+ *  the owner can't reach, a send-risk step with no approval gate before it,
+ *  etc.) — the message is exactly what `validateWorkflowGraph` would have
+ *  reported. */
+export const createWorkflowGraph = (input: SaveWorkflowGraphInput) =>
+  api.post<WorkflowGraph>('/workflow-graphs', input)
+
+/** Adds a new version to an existing graph (bumps `currentVersion`); does not
+ *  publish it. Same validation as create. */
+export const addWorkflowGraphVersion = (graphId: string, input: SaveWorkflowGraphInput) =>
+  api.post<WorkflowGraph>(`/workflow-graphs/${encodeURIComponent(graphId)}/versions`, input)
+
+/** Publishes a version (defaults to the current one), making the graph a
+ *  runnable workflow under `graphId` as its template id. Response never
+ *  includes `nodes`/`edges`. */
+export const publishWorkflowGraph = (graphId: string, version?: number) =>
+  api.post<WorkflowGraph>(`/workflow-graphs/${encodeURIComponent(graphId)}/publish`, version ? { version } : {})
+
+export interface WorkflowGraphValidation {
+  ready: boolean
+  blockers: string[]
+  warnings: string[]
+}
+
+/** Dry-run validation against a draft `nodes`/`edges` before saving — same
+ *  checks `createWorkflowGraph`/`addWorkflowGraphVersion` enforce, but never
+ *  writes anything. */
+export const validateWorkflowGraph = (graphId: string, nodes: GraphNode[], edges: GraphEdge[]) =>
+  api.post<WorkflowGraphValidation>(`/workflow-graphs/${encodeURIComponent(graphId)}/validate`, { nodes, edges })
+
+/** One tool on the builder's palette, scoped to the caller's own grant
+ *  (`granted: false` greys it out — a UX hint, not the security boundary;
+ *  the live governed call is what actually enforces access). */
+export interface WorkflowGraphCatalogTool {
+  name: string
+  canonical: string
+  description: string
+  riskLevel: string | null
+  approvalRequired: boolean
+  backend: string | null
+  granted: boolean
+  parameters: { type: 'object'; properties?: Record<string, { type?: string; description?: string }>; required?: string[] }
+  outputFields: string[]
+}
+
+export const getWorkflowGraphCatalog = () =>
+  api.get<{ tools: WorkflowGraphCatalogTool[] }>('/dashboard/workflow-graph-catalog')

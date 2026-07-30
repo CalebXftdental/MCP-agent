@@ -29,9 +29,6 @@
 
 .chat-composer-input {
   font: inherit;
-  /* Inter, loaded in index.html — just for the composer's own text (typed
-     and placeholder alike); the rest of the app stays on --ui-sans. */
-  font-family: 'Inter', var(--ui-sans);
   font-size: var(--ui-fs-lg);
   line-height: 1.5;
   /* Height is set from scrollHeight in JS; these bound it. */

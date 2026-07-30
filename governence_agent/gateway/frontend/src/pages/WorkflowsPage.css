@@ -1,0 +1,156 @@
+.workflows {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.5rem 1.75rem 3rem;
+  max-width: 80rem;
+}
+
+@media (max-width: 640px) {
+  .workflows {
+    padding: 1rem 1rem 2.5rem;
+  }
+}
+
+/* .workflows-run-title lives in components/workflow/WorkflowInputFields.css —
+   shared with MyWorkflowsPage's identical title-row composition (name +
+   WorkflowInfoIcon/WorkflowAlertBadge), guaranteed loaded since both pages
+   import that component. */
+
+/* ── health strip (admin only) ─────────────────────────────────────────── */
+
+.workflows-health-kpis {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.4rem;
+}
+
+.workflows-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.workflows-kpi-label {
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-faint);
+}
+
+.workflows-kpi-value {
+  font-size: var(--ui-fs-lg);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── catalog ────────────────────────────────────────────────────────────── */
+
+.workflows-catalog-loading {
+  padding: 1.5rem;
+  color: var(--ui-text-muted);
+  font-size: var(--ui-fs-sm);
+}
+
+/* Tile styling itself (.wf-tile, the hover-reveal overlay, the admin-action
+   corner affordance) lives in components/workflow/WorkflowCatalogTile.css —
+   this page only lays out the grid they sit in. */
+.workflows-catalog {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 0.75rem;
+  padding: 1.1rem;
+}
+
+/* Run-form/run-result rules (.workflows-run-form, .workflows-run-result, ...)
+   live in components/workflow/WorkflowInputFields.css — shared verbatim with
+   MyWorkflowsPage's own "Run this workflow" card, which is guaranteed to load
+   since both pages import the WorkflowInputFields component. */
+
+/* ── runs table ─────────────────────────────────────────────────────────── */
+
+.wf-run-id {
+  margin-top: 0.15rem;
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-faint);
+}
+
+.wf-run-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+/* ── run detail drawer ──────────────────────────────────────────────────── */
+
+.workflows-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.workflows-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.workflows-detail-meta {
+  margin: 0;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-muted);
+}
+
+.workflows-detail-error {
+  margin: 0;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-danger);
+}
+
+.workflows-detail-subhead {
+  margin: 0.4rem 0 0;
+  font-size: var(--ui-fs-sm);
+  font-weight: 650;
+}
+
+.workflows-detail-loading {
+  margin: 0;
+  color: var(--ui-text-muted);
+  font-size: var(--ui-fs-sm);
+}
+
+.workflows-detail-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.workflows-detail-step {
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--ui-r-sm);
+  background: var(--ui-surface-sunken);
+}
+
+.workflows-detail-step-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: var(--ui-fs-sm);
+}
+
+.workflows-detail-step-error {
+  margin: 0.3rem 0 0;
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-danger);
+}
+
+/* ── modals ─────────────────────────────────────────────────────────────── */
+
+.workflows-modal-lead {
+  margin: 0 0 1rem;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-muted);
+}

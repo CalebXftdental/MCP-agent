@@ -29,6 +29,8 @@ import HistoryPage from './HistoryPage'
 import HomePage from './HomePage'
 import KnowledgePage from './KnowledgePage'
 import MonitorPage from './MonitorPage'
+import MyWorkflowsPage from './MyWorkflowsPage'
+import AutomationsPage from './AutomationsPage'
 import PlaceholderPage from './PlaceholderPage'
 import PlaygroundPage from './PlaygroundPage'
 import RequestsPage from './RequestsPage'
@@ -36,6 +38,7 @@ import SecurityPage from './SecurityPage'
 import SendQueuePage from './SendQueuePage'
 import TemplatesPage from './TemplatesPage'
 import WhitelistPage from './WhitelistPage'
+import WorkflowsPage from './WorkflowsPage'
 import type { RouteKey } from './routes'
 import type { PageProps } from './types'
 
@@ -59,6 +62,9 @@ const PAGES: Partial<Record<RouteKey, ComponentType<PageProps>>> = {
   templates: TemplatesPage,
   files: FilesPage,
   knowledge: KnowledgePage,
+  workflows: WorkflowsPage,
+  automations: AutomationsPage,
+  my_workflows: MyWorkflowsPage,
 }
 
 export function pageFor(key: RouteKey): ComponentType<PageProps> {
@@ -84,6 +90,8 @@ export { default as HistoryPage } from './HistoryPage'
 export { default as HomePage } from './HomePage'
 export { default as KnowledgePage } from './KnowledgePage'
 export { default as MonitorPage } from './MonitorPage'
+export { default as MyWorkflowsPage } from './MyWorkflowsPage'
+export { default as AutomationsPage } from './AutomationsPage'
 export { default as PlaceholderPage } from './PlaceholderPage'
 export { default as PlaygroundPage } from './PlaygroundPage'
 export { default as RequestsPage } from './RequestsPage'
@@ -91,5 +99,6 @@ export { default as SecurityPage } from './SecurityPage'
 export { default as SendQueuePage } from './SendQueuePage'
 export { default as TemplatesPage } from './TemplatesPage'
 export { default as WhitelistPage } from './WhitelistPage'
+export { default as WorkflowsPage } from './WorkflowsPage'
 export * from './routes'
 export type { PageProps } from './types'

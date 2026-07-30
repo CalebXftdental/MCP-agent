@@ -32,6 +32,12 @@ export interface DateTimePickerProps {
   onChange: (value: string) => void
   placeholder?: string
   disabled?: boolean
+  /** `'date'` drops the hour/minute/AM-PM row entirely and reads/writes a
+   *  bare `"YYYY-MM-DD"` (no `T...` suffix) — for a field a backend only
+   *  ever treats as a calendar day (a report's start/end date), where
+   *  offering a time would just be one more control that does nothing.
+   *  Defaults to `'datetime'`, the original "YYYY-MM-DDTHH:mm" behavior. */
+  mode?: 'date' | 'datetime'
   /** Placed on the trigger button, so a `Field` label's `htmlFor` focuses it. */
   id?: string
   'aria-describedby'?: string
@@ -68,8 +74,9 @@ function parseValue(value: string): Date | null {
   return new Date(y, m - 1, d, hh || 0, mm || 0)
 }
 
-function formatValue(date: Date): string {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+function formatValue(date: Date, mode: 'date' | 'datetime'): string {
+  const datePart = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+  return mode === 'date' ? datePart : `${datePart}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 function sameDay(a: Date, b: Date): boolean {
@@ -89,8 +96,9 @@ function buildGrid(viewMonth: Date): Date[] {
 function DateTimePicker({
   value,
   onChange,
-  placeholder = 'Pick a date & time',
+  placeholder,
   disabled = false,
+  mode = 'datetime',
   id,
   'aria-describedby': describedBy,
   'aria-invalid': invalid,
@@ -168,10 +176,13 @@ function DateTimePicker({
     (day: Date) => {
       // A fresh pick with no time set yet defaults to 9am, not midnight —
       // midnight reads as "did this actually get set" more than a real time.
+      // Irrelevant in 'date' mode (formatValue drops the time entirely), but
+      // harmless to still compute.
       const base = selected ?? new Date(day.getFullYear(), day.getMonth(), day.getDate(), 9, 0)
-      onChange(formatValue(new Date(day.getFullYear(), day.getMonth(), day.getDate(), base.getHours(), base.getMinutes())))
+      onChange(formatValue(new Date(day.getFullYear(), day.getMonth(), day.getDate(), base.getHours(), base.getMinutes()), mode))
+      if (mode === 'date') close()
     },
-    [selected, onChange],
+    [selected, onChange, mode, close],
   )
 
   const hour24 = selected ? selected.getHours() : 9
@@ -191,9 +202,9 @@ function DateTimePicker({
     (nextHour12: number, nextMinute: number, nextAmpm: string) => {
       const base = selected ?? today
       const h24 = (nextHour12 % 12) + (nextAmpm === 'PM' ? 12 : 0)
-      onChange(formatValue(new Date(base.getFullYear(), base.getMonth(), base.getDate(), h24, nextMinute)))
+      onChange(formatValue(new Date(base.getFullYear(), base.getMonth(), base.getDate(), h24, nextMinute), mode))
     },
-    [selected, today, onChange],
+    [selected, today, onChange, mode],
   )
 
   const jumpToToday = useCallback(() => {
@@ -202,7 +213,9 @@ function DateTimePicker({
   }, [today, selectDay])
 
   const display = selected
-    ? selected.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+    ? mode === 'date'
+      ? selected.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+      : selected.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
     : null
 
   return (
@@ -224,7 +237,9 @@ function DateTimePicker({
           <rect x="3.5" y="5" width="17" height="15" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
           <path d="M3.5 9.5h17M8 3v3.4M16 3v3.4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
         </svg>
-        <span className={`ui-dtp-value ${display ? '' : 'ui-dtp-value--placeholder'}`}>{display ?? placeholder}</span>
+        <span className={`ui-dtp-value ${display ? '' : 'ui-dtp-value--placeholder'}`}>
+          {display ?? placeholder ?? (mode === 'date' ? 'Pick a date' : 'Pick a date & time')}
+        </span>
       </button>
 
       {open &&
@@ -235,7 +250,7 @@ function DateTimePicker({
             id={panelId}
             className="ui-dtp-panel"
             role="dialog"
-            aria-label="Choose a date and time"
+            aria-label={mode === 'date' ? 'Choose a date' : 'Choose a date and time'}
             style={{ top: rect.top, left: rect.left } as CSSProperties}
           >
             <div className="ui-dtp-header">
@@ -287,12 +302,14 @@ function DateTimePicker({
               })}
             </div>
 
-            <div className="ui-dtp-time">
-              <Dropdown value={String(hour12)} onChange={(v) => updateTime(Number(v), minute, ampm)} options={HOUR_OPTIONS} />
-              <span className="ui-dtp-time-sep">:</span>
-              <Dropdown value={String(minute)} onChange={(v) => updateTime(hour12, Number(v), ampm)} options={minuteOptions} />
-              <Dropdown value={ampm} onChange={(v) => updateTime(hour12, minute, v)} options={AMPM_OPTIONS} />
-            </div>
+            {mode === 'datetime' && (
+              <div className="ui-dtp-time">
+                <Dropdown value={String(hour12)} onChange={(v) => updateTime(Number(v), minute, ampm)} options={HOUR_OPTIONS} />
+                <span className="ui-dtp-time-sep">:</span>
+                <Dropdown value={String(minute)} onChange={(v) => updateTime(hour12, Number(v), ampm)} options={minuteOptions} />
+                <Dropdown value={ampm} onChange={(v) => updateTime(hour12, minute, v)} options={AMPM_OPTIONS} />
+              </div>
+            )}
 
             <div className="ui-dtp-footer">
               <button type="button" className="ui-dtp-text-btn" onClick={() => onChange('')}>

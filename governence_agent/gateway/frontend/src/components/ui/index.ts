@@ -105,6 +105,9 @@ export type { StatGridProps, StatProps, StatTone } from './Stat'
 export { default as Switch } from './Switch'
 export type { SwitchProps } from './Switch'
 
+export { default as TimePicker } from './TimePicker'
+export type { TimePickerProps } from './TimePicker'
+
 export { default as Tooltip } from './Tooltip'
 export type { TooltipProps, TooltipSide } from './Tooltip'
 

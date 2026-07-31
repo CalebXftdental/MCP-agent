@@ -1,0 +1,115 @@
+/* Trigger mirrors .ui-dtp-trigger (DateTimePicker) so a time field and a
+   date field are visually identical where they sit side by side — only the
+   icon and the natural width differ. */
+.ui-tp-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  font: inherit;
+  font-family: var(--ui-sans);
+  font-size: var(--ui-fs-base);
+  line-height: 1.4;
+  padding: 0.5rem 0.65rem;
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-r-sm);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color var(--ui-dur-1) var(--ui-ease-in-out),
+    box-shadow var(--ui-dur-1) var(--ui-ease-in-out);
+}
+
+.ui-tp-trigger:hover:not(:disabled) {
+  border-color: var(--ui-n-400);
+}
+
+.ui-tp-trigger:focus-visible,
+.ui-tp-trigger[aria-expanded='true'] {
+  outline: none;
+  border-color: var(--ui-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 28%, transparent);
+}
+
+.ui-tp-trigger[aria-invalid='true'] {
+  border-color: var(--ui-danger);
+}
+
+.ui-tp-trigger:disabled {
+  background: var(--ui-surface-sunken);
+  color: var(--ui-text-faint);
+  cursor: default;
+}
+
+.ui-tp-icon {
+  flex: none;
+  width: 1.05rem;
+  height: 1.05rem;
+  color: var(--ui-text-faint);
+}
+
+.ui-tp-value {
+  flex: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── popover panel ───────────────────────────────────────────────────────── */
+
+.ui-tp-panel {
+  position: fixed;
+  z-index: 85;
+  padding: 0.7rem;
+  background: var(--ui-surface-raised);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-r-md);
+  box-shadow: var(--ui-shadow-lg);
+  animation: ui-rise var(--ui-dur-2) var(--ui-ease-out) both;
+}
+
+.ui-tp-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.ui-tp-row .ui-dd-trigger {
+  width: auto;
+  min-width: 3.4rem;
+  padding: 0.4rem 0.5rem;
+}
+
+.ui-tp-sep {
+  color: var(--ui-text-faint);
+  font-weight: 650;
+}
+
+.ui-tp-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.6rem;
+}
+
+.ui-tp-done {
+  font: inherit;
+  font-size: var(--ui-fs-xs);
+  font-weight: 650;
+  padding: 0.35rem 0.8rem;
+  color: var(--ui-on-accent);
+  background: var(--ui-accent);
+  border: 0;
+  border-radius: var(--ui-r-sm);
+  cursor: pointer;
+  transition: background-color var(--ui-dur-1) var(--ui-ease-in-out);
+}
+
+.ui-tp-done:hover {
+  background: var(--ui-accent-strong);
+}
+
+.ui-tp-done:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 2px;
+}

@@ -17,7 +17,15 @@ import { SampleToggle, WorkflowInputFields, WorkflowReadiness } from '../compone
 import WorkflowAlertBadge from '../components/workflow/WorkflowAlertBadge'
 import InfoHoverIcon from '../components/workflow/InfoHoverIcon'
 import StepModal from '../components/workflow/StepModal'
-import StepFlow from '../components/workflow/StepFlow'
+import WorkflowCanvas from '../components/workflow/WorkflowCanvas'
+import { nextNodePosition, withLayout, type Point } from '../components/workflow/graphGeometry'
+import {
+  TRIGGER_NODE_ID,
+  derivedEdges,
+  nodeLabel,
+  outputPinsFor,
+  wouldCreateCycle,
+} from '../components/workflow/graphModel'
 import type { NodeSource, TriggerInput } from '../components/workflow/StepConfigFields'
 import { useWorkflowInputs } from '../hooks/useWorkflowInputs'
 import {
@@ -35,6 +43,7 @@ import {
   type GraphEdge,
   type GraphNode,
   type WorkflowGraph,
+  type WorkflowBinding,
   type WorkflowGraphCatalogTool,
   type WorkflowGraphValidation,
   type WorkflowRunResult,
@@ -43,20 +52,19 @@ import type { PageProps } from './types'
 import './MyWorkflowsPage.css'
 
 /**
- * My Workflow — replaces `renderMyWorkflows()`'s free 2D drag/dot-connect
- * canvas with a linear step list: trigger at the top, then an ordered stack
- * of step cards, each configured inline.
+ * My Workflow — a graph canvas: step cards you drag where you like, joined by
+ * curves you draw from one step's output port to a later step's input.
  *
- * The canvas gave a user-buildable workflow arbitrary graph shape (branches,
- * fan-out, a step's input wired from any node by dragging a line). That's a
- * dataflow-graph mental model — genuinely powerful, but a specialized skill
- * most non-technical builders don't have. Every real workflow this feature
- * is used for in practice is a straight sequence ("pull data → summarize →
- * draft → approve → send"), so this trades branching for "add a step, fill
- * in a small form, reorder with two arrows" — Zapier's shape, not
- * Node-RED's. The backend's graph model is untouched: a linear chain is
- * simply the degenerate case where each step's edge is exactly "the step
- * before it," generated here rather than hand-wired.
+ * This restores the legacy builder's model (`renderMyWorkflows()`) after an
+ * interim linear step-list version, and keeps its one load-bearing invariant:
+ * `edges` is DERIVED from every node's `inputBindings` at save time
+ * (`derivedEdges`), never hand-maintained. A line on the canvas IS a binding,
+ * so what's drawn and what the interpreter executes cannot disagree.
+ *
+ * What it does NOT reproduce from the legacy version is the always-visible
+ * properties panel: configuring a step is the pencil-on-hover → modal path
+ * (`StepModal`), so the canvas stays a view of the shape of the workflow
+ * rather than a form with a diagram attached.
  */
 
 function newStepId(): string {
@@ -89,48 +97,6 @@ function makeAiStep(): GraphNode {
   }
 }
 
-/** Every step's edge is just "the step before it" — sufficient for a linear
- *  chain (see module note above): it satisfies the backend's single-trigger,
- *  no-cycle, everything-reachable checks trivially, and a step's own input
- *  binding (which can point further back than its immediate predecessor)
- *  doesn't need its own edge for the topological sort to still place it
- *  correctly. */
-function chainEdges(nodes: GraphNode[]): GraphEdge[] {
-  const edges: GraphEdge[] = []
-  for (let i = 1; i < nodes.length; i++) {
-    edges.push({ edgeId: `e_${nodes[i - 1].nodeId}_${nodes[i].nodeId}`, sourceNodeId: nodes[i - 1].nodeId, targetNodeId: nodes[i].nodeId })
-  }
-  return edges
-}
-
-/** Orders a loaded graph's nodes by dependency (Kahn's algorithm), so a
- *  workflow saved by this same linear builder round-trips in the order it
- *  was authored. Falls back to the stored array order on a cycle — shouldn't
- *  happen for anything that passed `validate_graph`, but a saved order beats
- *  a blank page either way. */
-function topoOrder(nodes: GraphNode[], edges: GraphEdge[]): GraphNode[] {
-  const byId = new Map(nodes.map((n) => [n.nodeId, n]))
-  const inDeg = new Map(nodes.map((n) => [n.nodeId, 0]))
-  const out = new Map<string, string[]>(nodes.map((n) => [n.nodeId, []]))
-  for (const e of edges) {
-    if (!byId.has(e.sourceNodeId) || !byId.has(e.targetNodeId)) continue
-    out.get(e.sourceNodeId)!.push(e.targetNodeId)
-    inDeg.set(e.targetNodeId, (inDeg.get(e.targetNodeId) ?? 0) + 1)
-  }
-  const remaining = new Map(inDeg)
-  const queue = nodes.filter((n) => (inDeg.get(n.nodeId) ?? 0) === 0).map((n) => n.nodeId)
-  const order: string[] = []
-  while (queue.length) {
-    const id = queue.shift()!
-    order.push(id)
-    for (const t of out.get(id) ?? []) {
-      remaining.set(t, (remaining.get(t) ?? 0) - 1)
-      if (remaining.get(t) === 0) queue.push(t)
-    }
-  }
-  return order.length === nodes.length ? order.map((id) => byId.get(id)!) : nodes
-}
-
 function MyWorkflowsPage({ session }: PageProps) {
   const toast = useToast()
 
@@ -146,6 +112,11 @@ function MyWorkflowsPage({ session }: PageProps) {
 
   const [triggerInputs, setTriggerInputs] = useState<TriggerInput[]>([])
   const [steps, setSteps] = useState<GraphNode[]>([])
+  /** The trigger card's own canvas position. Kept apart from `steps` because
+   *  the trigger isn't a step — it's synthesized into the saved graph by
+   *  `buildGraph` — but it still has to be draggable like everything else. */
+  const [triggerPos, setTriggerPos] = useState<Point>({ x: 40, y: 36 })
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [stepModalOpen, setStepModalOpen] = useState(false)
   /** Node id being edited, or null when the modal is adding a new step. */
   const [editingStepId, setEditingStepId] = useState<string | null>(null)
@@ -191,6 +162,8 @@ function MyWorkflowsPage({ session }: PageProps) {
     setPublishedVersion(0)
     setTriggerInputs([])
     setSteps([])
+    setTriggerPos({ x: 40, y: 36 })
+    setSelectedNodeId(null)
     setValidation(null)
     setRunPhase('idle')
     setRunResult(null)
@@ -205,16 +178,20 @@ function MyWorkflowsPage({ session }: PageProps) {
       }
       try {
         const g = await getWorkflowGraph(id)
-        const allNodes = g.nodes ?? []
+        // withLayout fills in positions for a graph saved before this page had
+        // a canvas (the linear builder never stored any) — without it every
+        // card would land at 0,0 in one unreadable pile.
+        const allNodes = withLayout(g.nodes ?? [])
         const trigger = allNodes.find((n) => n.kind === 'trigger')
-        const rest = topoOrder(allNodes, g.edges ?? []).filter((n) => n.kind !== 'trigger')
         setGraphId(g.graphId)
         setDisplayName(g.displayName)
         setDescription(g.description)
         setStatus(g.status)
         setPublishedVersion(g.publishedVersion)
         setTriggerInputs((trigger?.config.inputs as TriggerInput[] | undefined) ?? [])
-        setSteps(rest)
+        setTriggerPos({ x: trigger?.position?.x ?? 40, y: trigger?.position?.y ?? 36 })
+        setSteps(allNodes.filter((n) => n.kind !== 'trigger'))
+        setSelectedNodeId(null)
         setValidation(null)
         setRunPhase('idle')
         setRunResult(null)
@@ -247,35 +224,60 @@ function MyWorkflowsPage({ session }: PageProps) {
     setStepModalOpen(true)
   }, [])
 
-  /** Upsert by node id: an edited step replaces itself in place (keeping its
-   *  position in the chain), a brand-new one appends. */
+  /** Upsert by node id: an edited step replaces itself in place, a brand-new
+   *  one lands at the next free spot on the canvas. */
   const commitStep = useCallback((step: GraphNode) => {
-    setSteps((prev) => (prev.some((s) => s.nodeId === step.nodeId) ? prev.map((s) => (s.nodeId === step.nodeId ? step : s)) : [...prev, step]))
+    setSteps((prev) => {
+      if (prev.some((s) => s.nodeId === step.nodeId)) return prev.map((s) => (s.nodeId === step.nodeId ? step : s))
+      // `prev` is every non-trigger node, which is all nextNodePosition counts.
+      return [...prev, { ...step, position: nextNodePosition(prev) }]
+    })
+    setSelectedNodeId(step.nodeId)
   }, [])
 
+  /** Removing a step also drops every binding that pointed AT it — a binding
+   *  naming a node that no longer exists would otherwise become a dangling
+   *  edge, which the server rejects the whole graph for. */
   const removeStep = useCallback((nodeId: string) => {
-    setSteps((prev) => prev.filter((s) => s.nodeId !== nodeId))
+    setSteps((prev) =>
+      prev
+        .filter((s) => s.nodeId !== nodeId)
+        .map((s) => {
+          const kept = Object.entries(s.inputBindings ?? {}).filter(
+            ([, b]) => !(b.source === 'node' && b.node_id === nodeId),
+          )
+          return kept.length === Object.keys(s.inputBindings ?? {}).length ? s : { ...s, inputBindings: Object.fromEntries(kept) }
+        }),
+    )
+    setSelectedNodeId((cur) => (cur === nodeId ? null : cur))
   }, [])
 
-  const moveStep = useCallback((nodeId: string, dir: -1 | 1) => {
-    setSteps((prev) => {
-      const i = prev.findIndex((s) => s.nodeId === nodeId)
-      const j = i + dir
-      if (i < 0 || j < 0 || j >= prev.length) return prev
-      const next = [...prev]
-      ;[next[i], next[j]] = [next[j], next[i]]
-      return next
-    })
+  const moveNode = useCallback((nodeId: string, position: Point) => {
+    if (nodeId === TRIGGER_NODE_ID) {
+      setTriggerPos(position)
+      return
+    }
+    setSteps((prev) => prev.map((s) => (s.nodeId === nodeId ? { ...s, position } : s)))
   }, [])
 
-  const insertApprovalBefore = useCallback((nodeId: string) => {
-    setSteps((prev) => {
-      const i = prev.findIndex((s) => s.nodeId === nodeId)
-      if (i < 0) return prev
-      const next = [...prev]
-      next.splice(i, 0, makeApprovalStep())
-      return next
-    })
+  /** A line drawn on the canvas — stored as the target step's input binding,
+   *  which is the single source of truth for connections. */
+  const connectNodes = useCallback((targetNodeId: string, arg: string, binding: WorkflowBinding) => {
+    setSteps((prev) => prev.map((s) => (s.nodeId === targetNodeId ? { ...s, inputBindings: { ...s.inputBindings, [arg]: binding } } : s)))
+  }, [])
+
+  /** A line pulled off its input port. The binding is dropped entirely rather
+   *  than replaced with a literal — an argument with no binding falls back to
+   *  the step's own `config` value server-side, which is what it had before
+   *  anything was wired to it. */
+  const disconnectNode = useCallback((targetNodeId: string, arg: string) => {
+    setSteps((prev) =>
+      prev.map((s) => {
+        if (s.nodeId !== targetNodeId || !s.inputBindings?.[arg]) return s
+        const { [arg]: _dropped, ...rest } = s.inputBindings
+        return { ...s, inputBindings: rest }
+      }),
+    )
   }, [])
 
   const addTriggerInput = useCallback(() => setTriggerInputs((prev) => [...prev, { name: '', label: '' }]), [])
@@ -286,41 +288,50 @@ function MyWorkflowsPage({ session }: PageProps) {
     setTriggerInputs((prev) => prev.filter((_, i) => i !== index))
   }, [])
 
-  /** Outputs of every step before position `index` — the only ones a step at
-   *  that position may bind to, since the interpreter walks the chain in
-   *  order. For a not-yet-added step, `index` is `steps.length` (everything
-   *  is "before" it). */
-  const sourcesBefore = useCallback(
-    (index: number): NodeSource[] =>
-      steps.slice(0, index).flatMap((s) => {
-        if (s.kind === 'tool_call') {
-          const meta = catalogByTool[s.tool]
-          return (meta?.outputFields ?? []).map((f) => ({ nodeId: s.nodeId, path: f, label: `${s.title || s.tool} → ${f}` }))
-        }
-        if (s.kind === 'llm_transform') return [{ nodeId: s.nodeId, path: 'text', label: `${s.title || 'AI step'} → text` }]
-        return []
-      }),
-    [steps, catalogByTool],
-  )
-
-  const editingStep = useMemo(() => steps.find((s) => s.nodeId === editingStepId) ?? null, [steps, editingStepId])
-  const modalNodeSources = useMemo(() => {
-    const index = editingStepId ? steps.findIndex((s) => s.nodeId === editingStepId) : steps.length
-    return sourcesBefore(index < 0 ? steps.length : index)
-  }, [editingStepId, steps, sourcesBefore])
-
-  const buildGraph = useCallback((): { nodes: GraphNode[]; edges: GraphEdge[] } => {
-    const trigger: GraphNode = {
-      nodeId: 'trigger',
+  /** The trigger as a real node, so it can be dragged and expose one output
+   *  port per declared input. Synthesized rather than stored in `steps`
+   *  because it isn't a step — `buildGraph` sends exactly this. */
+  const triggerNode = useMemo<GraphNode>(
+    () => ({
+      nodeId: TRIGGER_NODE_ID,
       kind: 'trigger',
       title: 'Trigger',
       tool: '',
-      config: { inputs: triggerInputs.filter((t) => t.name.trim()) },
+      config: { mode: 'manual', inputs: triggerInputs.filter((t) => t.name.trim()) },
       inputBindings: {},
-    }
-    const nodes = [trigger, ...steps]
-    return { nodes, edges: chainEdges(nodes) }
-  }, [triggerInputs, steps])
+      position: triggerPos,
+    }),
+    [triggerInputs, triggerPos],
+  )
+
+  const allNodes = useMemo(() => [triggerNode, ...steps], [triggerNode, steps])
+
+  const editingStep = useMemo(() => steps.find((s) => s.nodeId === editingStepId) ?? null, [steps, editingStepId])
+
+  /** Outputs the step being added/edited may bind to: any node whose value
+   *  could reach it without forming a loop. On a canvas there's no "steps
+   *  before this one" ordering to filter by — position is layout, not
+   *  sequence — so reachability is the real constraint, the same one
+   *  `wouldCreateCycle` enforces for a dragged line. The trigger is excluded
+   *  because its inputs bind through a `trigger` source, which
+   *  `StepConfigFields` offers separately. */
+  const modalNodeSources = useMemo<NodeSource[]>(() => {
+    const targetId = editingStepId
+    return steps
+      .filter((s) => s.nodeId !== targetId && !(targetId && wouldCreateCycle(allNodes, s.nodeId, targetId)))
+      .flatMap((s) =>
+        outputPinsFor(s, catalogByTool).map((pin) => ({
+          nodeId: s.nodeId,
+          path: pin,
+          label: `${nodeLabel(s, catalogByTool)} → ${pin}`,
+        })),
+      )
+  }, [steps, allNodes, editingStepId, catalogByTool])
+
+  const buildGraph = useCallback(
+    (): { nodes: GraphNode[]; edges: GraphEdge[] } => ({ nodes: allNodes, edges: derivedEdges(allNodes) }),
+    [allNodes],
+  )
 
   /** Persists whatever is CURRENTLY on screen (steps, trigger inputs, name,
    *  description) as a new version — the one place both `save` and `publish`
@@ -539,8 +550,9 @@ function MyWorkflowsPage({ session }: PageProps) {
 
       <Card
         title="Steps"
-        description="Runs top to bottom. Hover a step to edit, reorder, or remove it."
+        description="Drag cards to arrange them. Drag from a step's right-hand dot into another step's left-hand dot to feed its output in. Hover a card to edit or remove it."
         actions={<AddButton onClick={openAddStep} label="Add a step" size="sm" />}
+        flush
       >
         {steps.length === 0 ? (
           <EmptyState
@@ -553,14 +565,17 @@ function MyWorkflowsPage({ session }: PageProps) {
             }
           />
         ) : (
-          <StepFlow
-            steps={steps}
-            catalogByTool={catalogByTool}
-            triggerInputLabels={triggerInputs.filter((t) => t.name.trim()).map((t) => t.label || t.name)}
-            onEdit={openEditStep}
-            onMove={moveStep}
-            onRemove={removeStep}
-            onInsertApprovalBefore={insertApprovalBefore}
+          <WorkflowCanvas
+            nodes={allNodes}
+            catalog={catalogByTool}
+            selectedId={selectedNodeId}
+            onSelect={setSelectedNodeId}
+            onMoveNode={moveNode}
+            onConnect={connectNodes}
+            onDisconnect={disconnectNode}
+            onEditNode={openEditStep}
+            onDeleteNode={removeStep}
+            onRejectConnection={(reason) => toast.warn(reason)}
           />
         )}
       </Card>

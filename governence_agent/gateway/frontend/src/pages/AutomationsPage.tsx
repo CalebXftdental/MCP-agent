@@ -10,6 +10,7 @@ import {
   Input,
   Modal,
   SegmentedControl,
+  TimePicker,
   useToast,
   type Column,
   type DropdownOption,
@@ -71,6 +72,25 @@ function scheduleSentence(a: Automation): string {
   return `${cadence} · next ${formatRelative(a.nextRunAt)}`
 }
 
+/** Plain-language echo of the picked schedule, including when the first run
+ *  actually lands — the controls alone don't make "6:00 AM" obvious as
+ *  "tomorrow, because 6am already passed today". */
+function schedulePreview(kind: ScheduleKind, timeOfDay: string, customHours: string): string {
+  const first = new Date(nextRunAtFor(kind, timeOfDay) * 1000)
+  const firstText = first.toLocaleString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+  if (kind === 'custom') {
+    const h = Math.max(1, Math.round(Number(customHours) || 24))
+    return `Runs every ${h} hour${h === 1 ? '' : 's'}, starting now.`
+  }
+  return `Runs ${kind === 'weekly' ? 'weekly' : 'every day'} — first run ${firstText}.`
+}
+
 function AutomationsPage({ session }: PageProps) {
   const toast = useToast()
 
@@ -108,18 +128,18 @@ function AutomationsPage({ session }: PageProps) {
     setTemplateId(id)
   }, [])
 
-  useEffect(() => {
-    const t = templates.find((x) => x.templateId === templateId)
-    if (t) setDisplayName(t.displayName)
-  }, [templateId, templates])
-
   const create = useCallback(async () => {
     if (!templateId) return
     setCreating(true)
     try {
       await createAutomation({
         template_id: templateId,
-        display_name: displayName.trim() || templateId,
+        // Left blank on purpose (see the Name field's placeholder): fall back
+        // to the workflow's own display name rather than pre-filling the input
+        // with it, which would mean clearing someone else's text to type your
+        // own — and would hide the placeholder that says what this field is
+        // for. `templateId` is the last resort so this is never empty.
+        display_name: displayName.trim() || templates.find((t) => t.templateId === templateId)?.displayName || templateId,
         inputs: values,
         interval_sec: intervalSecFor(scheduleKind, customHours),
         next_run_at: nextRunAtFor(scheduleKind, timeOfDay),
@@ -133,7 +153,7 @@ function AutomationsPage({ session }: PageProps) {
     } finally {
       setCreating(false)
     }
-  }, [templateId, displayName, values, scheduleKind, customHours, timeOfDay, load, toast])
+  }, [templateId, displayName, templates, values, scheduleKind, customHours, timeOfDay, load, toast])
 
   const confirmDelete = useCallback(async () => {
     if (!deleteTarget) return
@@ -224,26 +244,41 @@ function AutomationsPage({ session }: PageProps) {
         actions={templateId ? <SampleToggle templateId={templateId} values={values} setValue={setValue} /> : undefined}
       >
         <div className="automations-form">
-          <Field label="Workflow">
-            {(fieldProps) => (
-              <Dropdown
-                {...fieldProps}
-                value={templateId}
-                onChange={selectTemplate}
-                options={templateOptions}
-                placeholder="Choose a workflow…"
-              />
+          {/* Workflow + Name share a row: they're both "which schedule is
+              this", and stacking them full-width made a two-field form read
+              as a long column. */}
+          <div className="automations-identity-row">
+            <div className="automations-identity-cell">
+              <Field label="Workflow">
+                {(fieldProps) => (
+                  <Dropdown
+                    {...fieldProps}
+                    value={templateId}
+                    onChange={selectTemplate}
+                    options={templateOptions}
+                    placeholder="Choose a workflow…"
+                  />
+                )}
+              </Field>
+            </div>
+            {templateId && (
+              <div className="automations-identity-cell">
+                <Field label="Automation name" hint="Optional — defaults to the workflow's own name.">
+                  {(fieldProps) => (
+                    <Input
+                      {...fieldProps}
+                      placeholder="Name your automation"
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                    />
+                  )}
+                </Field>
+              </div>
             )}
-          </Field>
+          </div>
 
           {templateId && (
             <>
-              <Field label="Name" hint="Shown in the schedule list below.">
-                {(fieldProps) => (
-                  <Input {...fieldProps} value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
-                )}
-              </Field>
-
               <WorkflowInputFields
                 templateId={templateId}
                 requiredInputs={preflight?.requiredInputs ?? []}
@@ -255,6 +290,7 @@ function AutomationsPage({ session }: PageProps) {
               <WorkflowReadiness preflight={preflight} checking={checking} error={preflightError} />
 
               <div className="automations-schedule">
+                <span className="automations-schedule-label">How often</span>
                 <SegmentedControl
                   label="How often"
                   size="md"
@@ -267,30 +303,30 @@ function AutomationsPage({ session }: PageProps) {
                   ]}
                 />
                 {scheduleKind !== 'custom' ? (
-                  <Field label="At" inline>
-                    {(fieldProps) => (
-                      <Input
-                        {...fieldProps}
-                        type="time"
-                        value={timeOfDay}
-                        onChange={(e) => setTimeOfDay(e.target.value)}
-                      />
-                    )}
-                  </Field>
+                  <span className="automations-schedule-at">
+                    <span className="automations-schedule-word">at</span>
+                    <span className="automations-schedule-control">
+                      <TimePicker value={timeOfDay} onChange={setTimeOfDay} />
+                    </span>
+                  </span>
                 ) : (
-                  <Field label="Every" inline hint="hours">
-                    {(fieldProps) => (
+                  <span className="automations-schedule-at">
+                    <span className="automations-schedule-word">every</span>
+                    <span className="automations-schedule-control automations-schedule-control--num">
                       <Input
-                        {...fieldProps}
                         type="number"
                         min={1}
                         value={customHours}
                         onChange={(e) => setCustomHours(e.target.value)}
+                        aria-label="Hours between runs"
                       />
-                    )}
-                  </Field>
+                    </span>
+                    <span className="automations-schedule-word">hours</span>
+                  </span>
                 )}
               </div>
+
+              <p className="automations-schedule-preview">{schedulePreview(scheduleKind, timeOfDay, customHours)}</p>
 
               <div className="automations-form-actions">
                 <Button onClick={create} loading={creating} disabled={!!preflight && !preflight.ready}>

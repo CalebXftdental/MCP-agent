@@ -1,0 +1,332 @@
+.wfc-wrap {
+  overflow: auto;
+  border-radius: var(--ui-r-md);
+  border: 1px solid var(--ui-border);
+  background: var(--ui-surface-sunken);
+  /* A dot grid gives the eye a reference for alignment while dragging, which
+     free-positioned cards otherwise lack. */
+  background-image: radial-gradient(var(--ui-border-strong) 1px, transparent 1px);
+  background-size: 20px 20px;
+  max-height: 32rem;
+}
+
+/* Suppresses the text-selection drag ghost and the I-beam cursor for the whole
+   gesture — set on the wrapper rather than per-node so it also covers the
+   cursor leaving the card mid-drag. */
+.wfc-wrap[data-dragging] {
+  user-select: none;
+  cursor: grabbing;
+}
+
+.wfc-wrap[data-connecting] {
+  user-select: none;
+  cursor: crosshair;
+}
+
+.wfc-surface {
+  position: relative;
+}
+
+.wfc-edges {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.wfc-edge {
+  fill: none;
+  stroke: var(--ui-accent-strong);
+  stroke-width: 2;
+}
+
+.wfc-edge--pending {
+  stroke-dasharray: 5 4;
+  opacity: 0.85;
+}
+
+/* ── node ───────────────────────────────────────────────────────────────── */
+
+/* Height comes from an inline style, computed in graphGeometry — see the note
+   in WorkflowNode. Nothing here may add to a node's box height: no padding on
+   the card itself, no margins between bands, and every border must sit inside
+   its own band's box (which `box-sizing: border-box`, set globally, ensures). */
+.wfc-node {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-r-sm);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-sm);
+  cursor: grab;
+  /* Only the paint properties transition — NOT `transform`, which is what a
+     drag animates. A transition there would make every card lag behind the
+     cursor by the transition's own duration. */
+  transition:
+    border-color var(--ui-dur-1) var(--ui-ease-out),
+    box-shadow var(--ui-dur-1) var(--ui-ease-out);
+}
+
+.wfc-node:hover {
+  box-shadow: var(--ui-shadow-md);
+}
+
+.wfc-node[data-selected] {
+  border-color: var(--ui-accent);
+  box-shadow: 0 0 0 2px var(--ui-accent);
+}
+
+.wfc-node[data-needs-gate] {
+  border-color: var(--ui-danger);
+}
+
+/* Kind accent as an overlay stripe, not a thick `border-left`. A wider border
+   would push the padding box inward, and every port is positioned against that
+   box — so trigger and gate cards would have their dots a few pixels off from
+   every other card's. */
+.wfc-node[data-kind='trigger']::before,
+.wfc-node[data-kind='approval_gate']::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  border-radius: var(--ui-r-sm) 0 0 var(--ui-r-sm);
+  pointer-events: none;
+}
+
+.wfc-node[data-kind='trigger']::before {
+  background: var(--ui-accent);
+}
+
+.wfc-node[data-kind='approval_gate']::before {
+  background: var(--ui-warn);
+}
+
+.wfc-node-head {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0 0.55rem;
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.wfc-node-icon {
+  flex: none;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.wfc-node-title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--ui-fs-sm);
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wfc-node-head-right {
+  display: flex;
+  align-items: center;
+  flex: none;
+  transition: opacity var(--ui-dur-1) var(--ui-ease-out);
+}
+
+/* Two lines then ellipsis: a summary is a sentence, not an id, so wrapping
+   reads better than truncating at the first word. The band's height is fixed,
+   so the clamp is what keeps longer text from spilling past it. */
+.wfc-node-body {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  padding: 0.3rem 0.55rem;
+  font-size: var(--ui-fs-2xs);
+  line-height: 1.3;
+  color: var(--ui-text-muted);
+}
+
+.wfc-node-body[data-unset] {
+  font-style: italic;
+  color: var(--ui-text-faint);
+}
+
+.wfc-node-warn {
+  display: flex;
+  align-items: center;
+  padding: 0 0.55rem;
+  border-top: 1px solid var(--ui-border);
+  font-size: var(--ui-fs-2xs);
+  color: var(--ui-danger);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── hover actions ──────────────────────────────────────────────────────── */
+
+.wfc-node-actions {
+  position: absolute;
+  top: 0.28rem;
+  right: 0.3rem;
+  display: flex;
+  gap: 0.2rem;
+  opacity: 0;
+  transition: opacity var(--ui-dur-1) var(--ui-ease-out);
+}
+
+.wfc-node:hover .wfc-node-actions,
+.wfc-node-actions:focus-within {
+  opacity: 1;
+}
+
+/* The pill sits where the actions appear, so it hides rather than sitting
+   underneath them. */
+.wfc-node:hover .wfc-node-head-right {
+  opacity: 0;
+}
+
+.wfc-node-btn {
+  display: grid;
+  place-items: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  padding: 0;
+  border-radius: var(--ui-r-xs);
+  border: 1px solid var(--ui-border-strong);
+  background: var(--ui-surface);
+  color: var(--ui-text-muted);
+  cursor: pointer;
+}
+
+.wfc-node-btn:hover {
+  border-color: var(--ui-accent);
+  color: var(--ui-accent-text);
+}
+
+.wfc-node-btn--danger:hover {
+  border-color: var(--ui-danger);
+  color: var(--ui-danger);
+}
+
+.wfc-node-btn:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 1px;
+}
+
+/* ── ports ──────────────────────────────────────────────────────────────── */
+
+/* The band only reserves height and draws the divider. Its rows are positioned
+   against the CARD (this element is deliberately not a containing block), so
+   their `top` is literally the same PORT_TOP the edge maths uses. */
+.wfc-node-ports {
+  border-top: 1px solid var(--ui-border);
+}
+
+.wfc-port-row {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  /* `top` is the row's CENTRE, matching graphGeometry's port centre. */
+  transform: translateY(-50%);
+}
+
+.wfc-port-row--in {
+  left: 0;
+  right: 50%;
+  padding-left: 0.5rem;
+}
+
+.wfc-port-row--out {
+  left: 50%;
+  right: 0;
+  justify-content: flex-end;
+  padding-right: 0.5rem;
+}
+
+.wfc-port-label {
+  font-size: 0.625rem;
+  line-height: 1;
+  color: var(--ui-text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.wfc-port-label[data-bound] {
+  color: var(--ui-text-muted);
+}
+
+.wfc-port-label i {
+  font-style: normal;
+  color: var(--ui-danger);
+}
+
+.wfc-port {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--ui-surface);
+  background: var(--ui-n-500);
+  cursor: crosshair;
+  /* Centred on the card's edge, which is where the curves terminate. */
+  transform: translateY(-50%);
+  transition:
+    background-color var(--ui-dur-1) var(--ui-ease-out),
+    box-shadow var(--ui-dur-1) var(--ui-ease-out);
+}
+
+/* A 12px dot is a mean target for both grabbing and dropping onto. The
+   pseudo-element enlarges the hit area without enlarging the dot — it counts as
+   part of the button for hit testing, including `elementFromPoint`, which is
+   how the drop target is resolved. Kept under the 20px row pitch so adjacent
+   ports never overlap. */
+.wfc-port::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+}
+
+.wfc-port--in {
+  left: -6px;
+}
+
+.wfc-port--out {
+  right: -6px;
+}
+
+.wfc-port:hover {
+  background: var(--ui-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 30%, transparent);
+}
+
+.wfc-port[data-bound] {
+  background: var(--ui-accent-strong);
+  /* Grab the end of a wire to move it, or pull it into empty space to drop it. */
+  cursor: grab;
+}
+
+/* While a connection is being dragged, every input on every OTHER node pulses
+   so it's obvious where the line can actually land. */
+.wfc-port[data-droppable] {
+  background: var(--ui-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 35%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wfc-port,
+  .wfc-node,
+  .wfc-node-actions {
+    transition: none !important;
+  }
+}

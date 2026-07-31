@@ -1,0 +1,48 @@
+.wf-alert-wrap {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: 0.4rem;
+}
+
+.wf-alert-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.3rem;
+  border-radius: var(--ui-r-pill);
+  border: none;
+  background: var(--ui-danger);
+  /* Deliberately not a token: this is a fixed alert-red fill (unlike the rest
+     of the kit's danger state, which is always a soft tint + colored text,
+     never a solid fill — see Badge.css), so the text needs to stay legible
+     against that same red in both themes rather than flip with them. */
+  color: #fff;
+  font-size: var(--ui-fs-2xs);
+  font-weight: 700;
+  line-height: 1;
+  cursor: default;
+}
+
+.wf-alert-btn:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 2px;
+}
+
+.wf-alert-overlay {
+  border-color: var(--ui-danger);
+}
+
+.wf-alert-overlay-line {
+  margin: 0;
+  font-size: var(--ui-fs-xs);
+  line-height: 1.4;
+  color: var(--ui-danger);
+}
+
+.wf-alert-overlay-line + .wf-alert-overlay-line {
+  padding-top: 0.3rem;
+  border-top: 1px solid var(--ui-border);
+}

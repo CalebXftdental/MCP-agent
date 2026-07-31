@@ -1,0 +1,35 @@
+.wf-info-wrap {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: 0.4rem;
+}
+
+.wf-info-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  border: 1px solid var(--ui-border-strong);
+  background: none;
+  color: var(--ui-text-faint);
+  font-size: 0.65rem;
+  font-style: italic;
+  font-family: Georgia, 'Times New Roman', serif;
+  line-height: 1;
+  cursor: default;
+  transition: border-color var(--ui-dur-1) var(--ui-ease-out), color var(--ui-dur-1) var(--ui-ease-out);
+}
+
+.wf-info-btn:hover,
+.wf-info-btn:focus-visible {
+  border-color: var(--ui-accent);
+  color: var(--ui-accent-text);
+}
+
+.wf-info-btn:focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 2px;
+}

@@ -1,0 +1,14 @@
+# Force LF regardless of the checking-out machine's core.autocrlf. This repo's
+# git installs default to core.autocrlf=true (Windows), which silently
+# rewrites LF to CRLF on checkout for anything git treats as text -- fine for
+# most files, but fatal for scripts a Linux container executes with bash:
+# a CRLF line ending becomes a literal trailing \r in every unquoted
+# expansion on that line, so `cd "$APP_ROOT/gateway"` actually tries to `cd`
+# into a path with an invisible \r appended and fails, `set -uo pipefail`
+# breaks the same way, etc. This silently broke the Azure deploy's
+# startup.sh once already (CRLF crept back in after a Windows edit) --
+# every `cd` in it failed, so the gateway process launched from the wrong
+# directory and Azure showed its "Hey, Python developers!" default page
+# instead of a real error.
+*.sh text eol=lf
+.deployment text eol=lf

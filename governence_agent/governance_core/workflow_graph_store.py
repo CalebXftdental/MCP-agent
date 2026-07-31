@@ -465,3 +465,21 @@ def set_graph_status(graph_id: str, *, status: str, actor: str = "", reason: str
     _GRAPHS[graph_id] = updated
     _save()
     return updated
+
+
+def delete_graph(graph_id: str) -> bool:
+    """Hard delete -- unlike `set_graph_status`, there is no "deleted" status;
+    the record is gone from `list_graphs`/`get_graph` immediately. Same
+    no-cleanup-elsewhere trade the rest of this codebase already makes for
+    deleting a category or department (see their own delete routes): an
+    automation or past workflow run still holding this graph_id as its
+    template_id keeps that id, but `workflows.get_template`/`get_published_graph`
+    simply stop resolving it -- nothing reaches back to prune those references.
+    Returns False for an unknown id (a silent no-op, matching
+    delete_department/delete_category's own behavior) rather than raising."""
+    _load()
+    if graph_id not in _GRAPHS:
+        return False
+    del _GRAPHS[graph_id]
+    _save()
+    return True

@@ -127,8 +127,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 4.75rem;
-  height: 4.75rem;
+  width: auto;
+  height: auto;
+  padding: 1rem 1.4rem;
   margin-bottom: 1.6rem;
   border-radius: var(--ui-r-lg);
   background: rgba(255, 250, 250, 0.87);
@@ -157,8 +158,8 @@
 }
 
 .login-mark {
-  width: 2.9rem;
-  height: 2.9rem;
+  width: auto;
+  height: 2.5rem;
   object-fit: contain;
 }
 
@@ -243,9 +244,8 @@
 
 .login-card-logo {
   display: none;
-  width: 2.4rem;
-  height: 2.4rem;
-  border-radius: var(--ui-r-sm);
+  width: auto;
+  height: 2.1rem;
   margin-bottom: 1rem;
 }
 

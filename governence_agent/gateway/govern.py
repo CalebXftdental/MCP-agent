@@ -75,6 +75,34 @@ async def _govern(canonical_tool: str, session_id: str, customer_id: str, backen
     # Break-glass: a global pause blocks agent (API-key) callers and/or specific
     # backends at this single choke point (chat + /mcp both flow through here).
     controls = get_store().get_controls()
+    if record is not None and record.consumer_id in (controls.get("paused_consumers") or []):
+        audit.log_denied(tool=namespaced, session_id=session_id, reason="paused_consumer",
+                         consumer=consumer, client_ip=ctx.ip_ctx.get(), user_agent=ctx.ua_ctx.get(),
+                         customer_id=resolved_customer)
+        return _paused_result("paused_consumer", "This consumer's access is temporarily paused by an administrator.")
+
+    # A lighter overlay than the full-consumer pause above: temporarily treats
+    # specific categories as off for THIS consumer only, without touching their
+    # permanent `categories` grant (see store/base.py's get_controls docstring).
+    # Unconditional like the other break-glass checks -- if the called tool
+    # falls under a paused category for this consumer, it's blocked even if
+    # some other category they hold would also have granted it, so a pause
+    # here always does what it looks like it does.
+    paused_categories = record is not None and (controls.get("paused_categories") or {}).get(record.consumer_id)
+    if paused_categories and policy is not None:
+        for category_id in paused_categories:
+            category = get_store().get_category(category_id)
+            if category is not None and category.backend == policy.backend and (
+                category.tools == "*" or canonical_tool in category.tools
+            ):
+                audit.log_denied(tool=namespaced, session_id=session_id, reason="paused_category",
+                                 consumer=consumer, client_ip=ctx.ip_ctx.get(), user_agent=ctx.ua_ctx.get(),
+                                 customer_id=resolved_customer)
+                return _paused_result(
+                    "paused_category",
+                    f"Access to the {category.display_name} category is temporarily paused by an administrator.",
+                )
+
     if controls.get("paused_agents") and record is not None and record.type == "agent":
         audit.log_denied(tool=namespaced, session_id=session_id, reason="paused_agents",
                          consumer=consumer, client_ip=ctx.ip_ctx.get(), user_agent=ctx.ua_ctx.get(),

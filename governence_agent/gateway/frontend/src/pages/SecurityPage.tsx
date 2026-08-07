@@ -4,9 +4,12 @@ import {
   Badge,
   Button,
   Card,
+  Chip,
   DataTable,
   Drawer,
+  Dropdown,
   EmptyState,
+  Field,
   KeyValue,
   SecretKey,
   Skeleton,
@@ -14,17 +17,22 @@ import {
   useToast,
   type BadgeTone,
   type Column,
+  type DropdownOption,
 } from '../components/ui'
 import {
   ApiError,
   getAdminControls,
   getBackendHealth,
+  getCategoryCatalog,
   getCredentialHygiene,
+  listConsumers,
   rotateConsumerKey,
   setAdminControls,
   setConsumerStatus,
   type AdminControls,
   type BackendHealth,
+  type CategoryCatalogEntry,
+  type Consumer,
   type CredentialHygieneConsumer,
 } from '../lib/api'
 import { formatRelative, formatWhen } from '../lib/format'
@@ -50,6 +58,18 @@ import './SecurityPage.css'
  *     fetches), so blocking one is an informed decision, not a bare name in
  *     a checkbox list. A backend paused by an admin also gets flagged on its
  *     health card below, so a deliberate block never reads as an outage.
+ *   - A third lever, pause specific consumers, sits alongside the other two
+ *     in the same draft/diff/Apply flow -- containment for one named agent
+ *     or user without reaching for the global agent switch or a whole
+ *     backend. Distinct from disabling a consumer on the Consumers page:
+ *     that revokes the credential/login outright, this only pauses traffic
+ *     and is meant to be flipped back off once the incident's understood.
+ *   - A fourth, narrower still: pause specific categories for ONE consumer.
+ *     This is deliberately NOT the same field as that consumer's permanent
+ *     `categories` grant on the Consumers page -- it's a temporary overlay
+ *     enforced in `_govern`, so flipping it back off restores exactly what
+ *     was there before, with no need to remember/reconstruct the original
+ *     grant the way editing `categories` directly would require.
  *   - The hygiene table was read-only in the legacy panel — no rotate/revoke
  *     of a dormant or overdue key without leaving for the Consumers tab.
  *     Both actions now live on the row, through the same confirm-then-act
@@ -79,6 +99,8 @@ function SecurityPage(_props: PageProps) {
   const [backendNames, setBackendNames] = useState<string[]>([])
   const [health, setHealth] = useState<BackendHealth[]>([])
   const [hygiene, setHygiene] = useState<CredentialHygieneConsumer[]>([])
+  const [allConsumers, setAllConsumers] = useState<Consumer[]>([])
+  const [categories, setCategories] = useState<CategoryCatalogEntry[]>([])
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [error, setError] = useState<string | null>(null)
 
@@ -86,6 +108,9 @@ function SecurityPage(_props: PageProps) {
   // until Apply is confirmed — flipping a switch is free to reconsider.
   const [pausedAgentsDraft, setPausedAgentsDraft] = useState(false)
   const [pausedBackendsDraft, setPausedBackendsDraft] = useState<Set<string>>(new Set())
+  const [pausedConsumersDraft, setPausedConsumersDraft] = useState<Set<string>>(new Set())
+  const [pausedCategoriesDraft, setPausedCategoriesDraft] = useState<Record<string, string[]>>({})
+  const [categoryEditConsumerId, setCategoryEditConsumerId] = useState('')
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [applying, setApplying] = useState(false)
 
@@ -99,15 +124,25 @@ function SecurityPage(_props: PageProps) {
     let live = true
     setState('loading')
 
-    Promise.all([getAdminControls(), getBackendHealth(), getCredentialHygiene()])
-      .then(([ctrl, bh, ch]) => {
+    Promise.all([
+      getAdminControls(),
+      getBackendHealth(),
+      getCredentialHygiene(),
+      getCategoryCatalog().catch(() => ({ categories: [] })),
+      listConsumers().catch(() => ({ consumers: [] })),
+    ])
+      .then(([ctrl, bh, ch, cats, cs]) => {
         if (!live) return
         setControls(ctrl.controls)
         setBackendNames(ctrl.backends ?? [])
         setPausedAgentsDraft(ctrl.controls.paused_agents)
         setPausedBackendsDraft(new Set(ctrl.controls.paused_backends ?? []))
+        setPausedConsumersDraft(new Set(ctrl.controls.paused_consumers ?? []))
+        setPausedCategoriesDraft({ ...(ctrl.controls.paused_categories ?? {}) })
         setHealth(bh.backends ?? [])
         setHygiene(ch.consumers ?? [])
+        setCategories(cats.categories ?? [])
+        setAllConsumers(cs.consumers ?? [])
         setError(null)
         setState('ready')
       })
@@ -131,6 +166,25 @@ function SecurityPage(_props: PageProps) {
   }, [health])
 
   const appliedPausedBackends = useMemo(() => controls?.paused_backends ?? [], [controls])
+  const appliedPausedConsumers = useMemo(() => controls?.paused_consumers ?? [], [controls])
+  const appliedPausedCategories = useMemo(() => controls?.paused_categories ?? {}, [controls])
+  const consumerName = useMemo(() => {
+    const names: Record<string, string> = {}
+    for (const c of allConsumers) names[c.consumer_id] = c.name
+    return names
+  }, [allConsumers])
+  const categoryLabel = useMemo(() => {
+    const labels: Record<string, string> = {}
+    for (const c of categories) labels[c.id] = c.display_name
+    return labels
+  }, [categories])
+  const consumerOptions = useMemo<DropdownOption[]>(
+    () => [
+      { value: '', label: 'Choose a consumer…' },
+      ...allConsumers.map((c) => ({ value: c.consumer_id, label: `${c.name} (${c.type})` })),
+    ],
+    [allConsumers],
+  )
   const agentsChanged = controls ? pausedAgentsDraft !== controls.paused_agents : false
   const addedBackends = useMemo(
     () => [...pausedBackendsDraft].filter((b) => !appliedPausedBackends.includes(b)),
@@ -140,15 +194,74 @@ function SecurityPage(_props: PageProps) {
     () => appliedPausedBackends.filter((b) => !pausedBackendsDraft.has(b)),
     [appliedPausedBackends, pausedBackendsDraft],
   )
-  const dirty = agentsChanged || addedBackends.length > 0 || removedBackends.length > 0
-  const containmentActive = (controls?.paused_agents ?? false) || appliedPausedBackends.length > 0
-  const escalating = (agentsChanged && pausedAgentsDraft) || addedBackends.length > 0
+  const addedConsumers = useMemo(
+    () => [...pausedConsumersDraft].filter((id) => !appliedPausedConsumers.includes(id)),
+    [pausedConsumersDraft, appliedPausedConsumers],
+  )
+  const removedConsumers = useMemo(
+    () => appliedPausedConsumers.filter((id) => !pausedConsumersDraft.has(id)),
+    [appliedPausedConsumers, pausedConsumersDraft],
+  )
+
+  // Category pauses are keyed by consumer, each holding a list of category
+  // ids — flattened to (consumerId, categoryId) pairs so the diff/dirty logic
+  // below can treat them the same way as the flat backend/consumer lists.
+  const flattenCategoryPairs = useCallback(
+    (map: Record<string, string[]>) =>
+      Object.entries(map).flatMap(([consumerId, categoryIds]) => categoryIds.map((categoryId) => ({ consumerId, categoryId }))),
+    [],
+  )
+  const pairKey = useCallback((p: { consumerId: string; categoryId: string }) => `${p.consumerId} ${p.categoryId}`, [])
+  const appliedCategoryPairs = useMemo(() => flattenCategoryPairs(appliedPausedCategories), [appliedPausedCategories, flattenCategoryPairs])
+  const draftCategoryPairs = useMemo(() => flattenCategoryPairs(pausedCategoriesDraft), [pausedCategoriesDraft, flattenCategoryPairs])
+  const appliedCategoryPairKeys = useMemo(() => new Set(appliedCategoryPairs.map(pairKey)), [appliedCategoryPairs, pairKey])
+  const draftCategoryPairKeys = useMemo(() => new Set(draftCategoryPairs.map(pairKey)), [draftCategoryPairs, pairKey])
+  const addedCategoryPairs = useMemo(
+    () => draftCategoryPairs.filter((p) => !appliedCategoryPairKeys.has(pairKey(p))),
+    [draftCategoryPairs, appliedCategoryPairKeys, pairKey],
+  )
+  const removedCategoryPairs = useMemo(
+    () => appliedCategoryPairs.filter((p) => !draftCategoryPairKeys.has(pairKey(p))),
+    [appliedCategoryPairs, draftCategoryPairKeys, pairKey],
+  )
+
+  const dirty =
+    agentsChanged || addedBackends.length > 0 || removedBackends.length > 0 ||
+    addedConsumers.length > 0 || removedConsumers.length > 0 ||
+    addedCategoryPairs.length > 0 || removedCategoryPairs.length > 0
+  const containmentActive =
+    (controls?.paused_agents ?? false) || appliedPausedBackends.length > 0 || appliedPausedConsumers.length > 0 ||
+    appliedCategoryPairs.length > 0
+  const escalating =
+    (agentsChanged && pausedAgentsDraft) || addedBackends.length > 0 || addedConsumers.length > 0 ||
+    addedCategoryPairs.length > 0
 
   const toggleBackendDraft = useCallback((name: string) => {
     setPausedBackendsDraft((prev) => {
       const next = new Set(prev)
       if (next.has(name)) next.delete(name)
       else next.add(name)
+      return next
+    })
+  }, [])
+
+  const toggleConsumerDraft = useCallback((consumerId: string) => {
+    setPausedConsumersDraft((prev) => {
+      const next = new Set(prev)
+      if (next.has(consumerId)) next.delete(consumerId)
+      else next.add(consumerId)
+      return next
+    })
+  }, [])
+
+  const toggleCategoryDraft = useCallback((consumerId: string, categoryId: string) => {
+    setPausedCategoriesDraft((prev) => {
+      const current = new Set(prev[consumerId] ?? [])
+      if (current.has(categoryId)) current.delete(categoryId)
+      else current.add(categoryId)
+      const next = { ...prev }
+      if (current.size === 0) delete next[consumerId]
+      else next[consumerId] = [...current]
       return next
     })
   }, [])
@@ -165,6 +278,8 @@ function SecurityPage(_props: PageProps) {
     if (!controls) return
     setPausedAgentsDraft(controls.paused_agents)
     setPausedBackendsDraft(new Set(controls.paused_backends ?? []))
+    setPausedConsumersDraft(new Set(controls.paused_consumers ?? []))
+    setPausedCategoriesDraft({ ...(controls.paused_categories ?? {}) })
   }, [controls])
 
   const applyControls = useCallback(async () => {
@@ -173,10 +288,14 @@ function SecurityPage(_props: PageProps) {
       const result = await setAdminControls({
         paused_agents: pausedAgentsDraft,
         paused_backends: [...pausedBackendsDraft],
+        paused_consumers: [...pausedConsumersDraft],
+        paused_categories: pausedCategoriesDraft,
       })
       setControls(result.controls)
       setPausedAgentsDraft(result.controls.paused_agents)
       setPausedBackendsDraft(new Set(result.controls.paused_backends ?? []))
+      setPausedConsumersDraft(new Set(result.controls.paused_consumers ?? []))
+      setPausedCategoriesDraft({ ...(result.controls.paused_categories ?? {}) })
       toast.success('Controls applied')
       setConfirmOpen(false)
     } catch (cause) {
@@ -184,7 +303,7 @@ function SecurityPage(_props: PageProps) {
     } finally {
       setApplying(false)
     }
-  }, [pausedAgentsDraft, pausedBackendsDraft, toast])
+  }, [pausedAgentsDraft, pausedBackendsDraft, pausedConsumersDraft, pausedCategoriesDraft, toast])
 
   const openRowAction = useCallback((consumer: CredentialHygieneConsumer, action: RowActionKind) => {
     setMintedKey(null)
@@ -236,9 +355,18 @@ function SecurityPage(_props: PageProps) {
         header: 'Status',
         width: '7rem',
         render: (c) => (
-          <Badge tone={c.status === 'active' ? 'ok' : 'danger'} dot>
-            {c.status}
-          </Badge>
+          <>
+            <Badge tone={c.status === 'active' ? 'ok' : 'danger'} dot>
+              {c.status}
+            </Badge>
+            {appliedPausedConsumers.includes(c.consumer_id) && (
+              <div>
+                <Badge tone="warn" subtle>
+                  paused
+                </Badge>
+              </div>
+            )}
+          </>
         ),
       },
       {
@@ -297,7 +425,7 @@ function SecurityPage(_props: PageProps) {
         ),
       },
     ],
-    [openRowAction],
+    [openRowAction, appliedPausedConsumers],
   )
 
   if (state === 'loading') {
@@ -377,6 +505,68 @@ function SecurityPage(_props: PageProps) {
                 )
               })}
             </div>
+          </div>
+
+          <div className="security-subsection">
+            <p className="ui-eyebrow security-subsection-label">Pause specific consumers</p>
+            <p className="security-subsection-hint">
+              Blocks one consumer everywhere — agent or human — regardless of the switches above. Independent of
+              disabling a consumer on the Consumers page: this is instantly reversible and meant for containment,
+              not credential revocation.
+            </p>
+            {allConsumers.length === 0 ? (
+              <p className="security-note">No consumers yet.</p>
+            ) : (
+              <div className="security-consumer-grid">
+                {allConsumers.map((c) => (
+                  <Chip
+                    key={c.consumer_id}
+                    selected={pausedConsumersDraft.has(c.consumer_id)}
+                    onClick={() => toggleConsumerDraft(c.consumer_id)}
+                    title={`${c.name} — ${c.type}`}
+                  >
+                    {c.name}
+                  </Chip>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="security-subsection">
+            <p className="ui-eyebrow security-subsection-label">Pause specific categories for a consumer</p>
+            <p className="security-subsection-hint">
+              Temporarily narrows one consumer's access to just these categories' tools, without touching their
+              permanent category grant on the Consumers page.
+            </p>
+            <Field label="Consumer">
+              {(fieldProps) => (
+                <Dropdown {...fieldProps} value={categoryEditConsumerId} onChange={setCategoryEditConsumerId} options={consumerOptions} />
+              )}
+            </Field>
+            {categoryEditConsumerId && (
+              <div className="security-consumer-grid">
+                {categories.map((cat) => (
+                  <Chip
+                    key={cat.id}
+                    selected={(pausedCategoriesDraft[categoryEditConsumerId] ?? []).includes(cat.id)}
+                    onClick={() => toggleCategoryDraft(categoryEditConsumerId, cat.id)}
+                    title={cat.display_name}
+                  >
+                    {cat.display_name}
+                  </Chip>
+                ))}
+              </div>
+            )}
+            {Object.keys(pausedCategoriesDraft).length > 0 && (
+              <div className="security-paused-categories-summary">
+                {Object.entries(pausedCategoriesDraft).map(([consumerId, categoryIds]) => (
+                  <p className="security-note" key={consumerId}>
+                    <strong>{consumerName[consumerId] ?? consumerId}:</strong>{' '}
+                    {categoryIds.map((id) => categoryLabel[id] ?? id).join(', ')}
+                  </p>
+                ))}
+              </div>
+            )}
           </div>
 
           {dirty && (
@@ -495,6 +685,38 @@ function SecurityPage(_props: PageProps) {
                 Resuming
               </Badge>
               <span className="ui-mono">{name}</span>
+            </p>
+          ))}
+          {addedConsumers.map((id) => (
+            <p className="security-diff-row" key={`add-consumer-${id}`}>
+              <Badge tone="danger" dot>
+                Pausing
+              </Badge>
+              {consumerName[id] ?? id}
+            </p>
+          ))}
+          {removedConsumers.map((id) => (
+            <p className="security-diff-row" key={`rm-consumer-${id}`}>
+              <Badge tone="ok" dot>
+                Resuming
+              </Badge>
+              {consumerName[id] ?? id}
+            </p>
+          ))}
+          {addedCategoryPairs.map((p) => (
+            <p className="security-diff-row" key={`add-cat-${pairKey(p)}`}>
+              <Badge tone="danger" dot>
+                Pausing
+              </Badge>
+              {categoryLabel[p.categoryId] ?? p.categoryId} for {consumerName[p.consumerId] ?? p.consumerId}
+            </p>
+          ))}
+          {removedCategoryPairs.map((p) => (
+            <p className="security-diff-row" key={`rm-cat-${pairKey(p)}`}>
+              <Badge tone="ok" dot>
+                Resuming
+              </Badge>
+              {categoryLabel[p.categoryId] ?? p.categoryId} for {consumerName[p.consumerId] ?? p.consumerId}
             </p>
           ))}
           <p className="security-note">This takes effect on the very next governed call — no rollout delay.</p>

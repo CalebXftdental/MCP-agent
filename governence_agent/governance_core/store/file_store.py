@@ -165,7 +165,9 @@ class FilePolicyStore(PolicyStore):
     def get_controls(self) -> dict:
         c = self._controls or {}
         return {"paused_agents": bool(c.get("paused_agents")),
-                "paused_backends": list(c.get("paused_backends") or [])}
+                "paused_backends": list(c.get("paused_backends") or []),
+                "paused_consumers": list(c.get("paused_consumers") or []),
+                "paused_categories": {cid: list(cats) for cid, cats in (c.get("paused_categories") or {}).items() if cats}}
 
     def chat_sessions(self) -> list[ChatSession]:
         return list(self._chat_sessions.values())
@@ -207,8 +209,12 @@ class FilePolicyStore(PolicyStore):
         self._persist()
 
     def set_controls(self, controls: dict) -> None:
+        raw_categories = controls.get("paused_categories") or {}
         self._controls = {"paused_agents": bool(controls.get("paused_agents")),
-                          "paused_backends": [b for b in (controls.get("paused_backends") or []) if b]}
+                          "paused_backends": [b for b in (controls.get("paused_backends") or []) if b],
+                          "paused_consumers": [c for c in (controls.get("paused_consumers") or []) if c],
+                          "paused_categories": {cid: [c for c in (cats or []) if c]
+                                                for cid, cats in raw_categories.items() if cats}}
         self._persist()
 
     def list_access_requests(self) -> list[dict]:

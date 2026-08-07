@@ -218,7 +218,7 @@ function LoginPage({ session }: LoginPageProps) {
         <div className="login-blob login-blob--c" />
         <div className="login-brand-content">
           <div className="login-mark-tile">
-            <img className="login-mark" src="/frontier-mark.png" alt="" />
+            <img className="login-mark" src="/frontier-logo.png" alt="" />
           </div>
           <p className="login-brand-eyebrow">Frontier Dental</p>
           <h1 className="login-brand-title">Frontier MCP Workspace</h1>
@@ -245,7 +245,7 @@ function LoginPage({ session }: LoginPageProps) {
       <div className="login-panel login-panel--form">
         <div className="login-card-wrap">
           <div className="login-card" key={mode}>
-            <img className="login-card-logo" src="/frontier-mark.png" alt="Frontier MCP Workspace" />
+            <img className="login-card-logo" src="/frontier-logo.png" alt="Frontier MCP Workspace" />
 
             {mode === 'signin' ? (
               <>

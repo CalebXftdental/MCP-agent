@@ -18,26 +18,13 @@
   gap: 1.1rem;
 }
 
-.whitelist-add-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-/* ── tray ────────────────────────────────────────────────────────────────── */
-
-.whitelist-tray {
-  padding-top: 0.9rem;
-  border-top: 1px solid var(--ui-border);
-}
+/* ── tray header (entry count above the CidrListEditor) ─────────────────── */
 
 .whitelist-tray-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.6rem;
-  margin-bottom: 0.6rem;
 }
 
 .whitelist-tray-count {
@@ -47,23 +34,12 @@
   color: var(--ui-text-faint);
 }
 
-.whitelist-tray-empty {
-  margin: 0;
-  font-size: var(--ui-fs-sm);
-  color: var(--ui-text-faint);
-}
-
+/* Diff chips in the confirm drawer (Adding/Removing) — the entry tray
+   itself is now CidrListEditor's own markup/CSS. */
 .whitelist-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
-}
-
-/* Entrance for a chip landing in the tray, same rhythm as the request
-   picker's own tray so adding an entry here reads the same way. */
-.whitelist-chip {
-  display: inline-flex;
-  animation: ui-pop var(--ui-dur-3) var(--ui-ease-spring) both;
 }
 
 /* ── dirty bar ───────────────────────────────────────────────────────────── */

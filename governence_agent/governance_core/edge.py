@@ -41,10 +41,11 @@ _DEFAULT_RATE_LIMIT_PER_HOUR = int(os.getenv("GOVERNANCE_DEFAULT_RATE_LIMIT_PER_
 _RATE_LIMIT_WINDOW_SEC = 3600
 _MAX_BODY_BYTES = int(os.getenv("GOVERNANCE_MAX_BODY_BYTES") or str(64 * 1024))
 
-# Paths that skip Layer 1 entirely: /health is an infra liveness probe, and
-# /dashboard is just the static HTML shell (it calls /admin/* for data, which
-# IS gated below).
-PUBLIC_PATHS = {"/health", "/dashboard"}
+# Paths that skip the IP allowlist + Layer 1 entirely: /health is an infra
+# liveness probe (may be called from an internal IP that isn't the company
+# allowlist, e.g. a platform health checker) and must never itself be gated,
+# or an outage looks like an unhealthy instance and gets recycled.
+PUBLIC_PATHS = {"/health"}
 
 # Read-only monitoring routes: still require a valid API key (below), but
 # don't consume the caller's rate-limit quota. Without this, leaving the
@@ -138,14 +139,27 @@ def rate_limit_snapshot() -> list[dict]:
 
 class EdgeMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
+        client_ip = ctx.client_ip(request)
+        user_agent = request.headers.get("user-agent", "")
+
+        if request.url.path in PUBLIC_PATHS:
+            return await call_next(request)
+
+        # The IP allowlist gates EVERY surface -- MCP tool calls, the login
+        # page, the dashboard, and /admin/* -- not just machine traffic. A
+        # caller outside the allowlist never even reaches the session-cookie
+        # login check below.
+        if not ip_allowed(client_ip):
+            audit.log_auth_denied(path=request.url.path, client_ip=client_ip, user_agent=user_agent,
+                                   reason="ip_not_allowlisted")
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+
         # Layer 1 (API-key auth + rate limit) guards ONLY the MCP endpoint -- machines.
         # The human dashboard surface (/dashboard*, /admin/*) authenticates with a
-        # session cookie inside its own route handlers; /health is an open probe.
+        # session cookie inside its own route handlers.
         if not request.url.path.startswith("/mcp"):
             return await call_next(request)
 
-        client_ip = ctx.client_ip(request)
-        user_agent = request.headers.get("user-agent", "")
         request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:12]
 
         store = get_store()
@@ -153,11 +167,6 @@ class EdgeMiddleware(BaseHTTPMiddleware):
             audit.log_auth_denied(path=request.url.path, client_ip=client_ip, user_agent=user_agent,
                                    reason="server_misconfigured_no_keys")
             return JSONResponse({"error": "no governance API keys are configured on the server"}, status_code=500)
-
-        if not ip_allowed(client_ip):
-            audit.log_auth_denied(path=request.url.path, client_ip=client_ip, user_agent=user_agent,
-                                   reason="ip_not_allowlisted")
-            return JSONResponse({"error": "forbidden"}, status_code=403)
 
         content_length = request.headers.get("content-length")
         if content_length and content_length.isdigit() and int(content_length) > _MAX_BODY_BYTES:

@@ -857,14 +857,22 @@ export const decideApproval = (id: string, action: 'approve' | 'deny', note: str
 // derived report over which API-key consumers are dormant, never used, or
 // overdue for rotation.
 
-/** The two independent kill switches `_govern()` checks on every call.
+/** The four independent kill switches `_govern()` checks on every call.
  *  `paused_agents` blocks every agent (API-key) caller everywhere; humans and
  *  admins are unaffected. `paused_backends` blocks calls to those named
- *  backends for EVERYONE, agent or human. Neither disables a specific
- *  consumer — that's `setConsumerStatus`, a different lever entirely. */
+ *  backends for EVERYONE, agent or human. `paused_consumers` blocks one or
+ *  more specific consumers (by `consumer_id`), agent or human, regardless of
+ *  the other two switches -- a lighter, instantly-reversible containment
+ *  lever distinct from `setConsumerStatus('disabled')`, which revokes the
+ *  consumer's credential/login entirely rather than just pausing it.
+ *  `paused_categories` is narrower still: `{consumer_id: [category_id, ...]}`
+ *  temporarily blocks just those categories' tools for that one consumer,
+ *  without touching their permanent `categories` grant (Consumers page). */
 export interface AdminControls {
   paused_agents: boolean
   paused_backends: string[]
+  paused_consumers: string[]
+  paused_categories: Record<string, string[]>
 }
 
 /** `backends` is every known backend name (`sorted(manifest.backends())`),
@@ -873,9 +881,9 @@ export interface AdminControls {
 export const getAdminControls = () =>
   api.get<{ controls: AdminControls; backends: string[] }>('/admin/controls')
 
-/** Applies both switches together; takes effect on the very next governed
- *  call. 409s (as an ApiError) when the policy store is read-only (no
- *  persistence configured for this deployment). */
+/** Applies all three switches together; takes effect on the very next
+ *  governed call. 409s (as an ApiError) when the policy store is read-only
+ *  (no persistence configured for this deployment). */
 export const setAdminControls = (controls: AdminControls) =>
   api.put<{ ok: boolean; controls: AdminControls }>('/admin/controls', controls)
 
@@ -927,6 +935,22 @@ export const setConsumerStatus = (consumerId: string, status: 'active' | 'disabl
  *  backend/deps.py). `categories` is what THIS record holds directly;
  *  `department` is the other, additive half of its grant (see module note
  *  above) — a consumer can have both at once. */
+
+/** Per-backend fine-tuning on top of the categories union (policy/resolve.py):
+ *  `grantTools`/`grantLevels` add, `denyTools`/`denyLevels` always win. Keyed
+ *  by backend, not category — two categories that share a backend (e.g.
+ *  `email_send_external`/`email_send_internal`, both backend `email`) share
+ *  the SAME deny list, so denying a tool here removes it regardless of which
+ *  held category would otherwise have granted it. */
+export interface ConsumerOverrides {
+  [backend: string]: {
+    grantTools?: string[]
+    denyTools?: string[]
+    grantLevels?: string[]
+    denyLevels?: string[]
+  }
+}
+
 export interface Consumer {
   consumer_id: string
   name: string
@@ -941,7 +965,7 @@ export interface Consumer {
   effective_backends: string[]
   rate_limit_per_hour: number | null
   ip_allowlist: string[]
-  overrides: Record<string, unknown>
+  overrides: ConsumerOverrides
   allowed_levels: string[]
   has_key: boolean
   has_login: boolean
@@ -957,6 +981,13 @@ export interface CreateConsumerInput {
   categories: string[]
   department?: string
   rate_limit_per_hour?: number | null
+  /** Restricts this one consumer's /mcp calls to these CIDRs/IPs, on top of
+   *  whatever the global allowlist already permits. Empty/omitted = no
+   *  restriction beyond the global list. */
+  ip_allowlist?: string[]
+  /** Excludes specific tools from an otherwise-granted category (see
+   *  ConsumerOverrides) — e.g. hold `orders` but deny `cancel_order`. */
+  overrides?: ConsumerOverrides
   /** Only needed if this consumer should also be able to sign into the
    *  console itself, separately from its API key. */
   password?: string | null
@@ -976,6 +1007,8 @@ export interface UpdateConsumerInput {
   department?: string
   rate_limit_per_hour?: number | null
   full_name?: string
+  ip_allowlist?: string[]
+  overrides?: ConsumerOverrides
 }
 
 /** Partial update — only the fields present in `patch` change. */

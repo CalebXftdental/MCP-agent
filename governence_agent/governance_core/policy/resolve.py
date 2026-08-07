@@ -64,9 +64,23 @@ class EffectiveGrant:
 def resolve(record, get_category: Callable[[str], object],
             get_department: Callable[[str], object] | None = None) -> EffectiveGrant:
     """`record` is duck-typed (ConsumerRecord): .categories, .department, .overrides,
-    .allowed_levels. `get_department` is optional (defaults to None, i.e. no
+    .allowed_levels, .role. `get_department` is optional (defaults to None, i.e. no
     department contribution) so callers/tests that only care about categories
-    (e.g. _smoke/test_categories.py) don't need to pass one."""
+    (e.g. _smoke/test_categories.py) don't need to pass one.
+
+    role="admin" is an unconditional full-access bypass -- every tool, every
+    classification level, regardless of whatever categories/department/
+    overrides also happen to be set on the record. Deliberately checked
+    FIRST, before any of that is even read: an admin's access must not
+    silently narrow just because they (or their department) also picked up
+    a category for organizational/bookkeeping reasons. This is the only
+    place `role` is ever consulted for tool-calling access -- everywhere
+    else (rate limits, IP allowlist, break-glass pause, disable) still
+    applies to an admin exactly like anyone else; this bypass is scoped to
+    the PDP grant only."""
+    if getattr(record, "role", None) == "admin":
+        return EffectiveGrant(all_tools=True, default_levels=manifest.ALL_LEVELS)
+
     category_ids = list(getattr(record, "categories", None) or [])
     department_id = getattr(record, "department", None) or ""
     if department_id and get_department is not None:

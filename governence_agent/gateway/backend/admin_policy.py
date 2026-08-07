@@ -164,13 +164,18 @@ async def _admin_consumers(request):
     api_key = generate_api_key()
     password = body.get("password")
     _now = time.time()
+    # role="admin" is an unconditional full-access bypass in policy/resolve.py --
+    # categories/department/overrides/allowed_levels below are stored as given
+    # (useful for bookkeeping, e.g. which department an admin nominally sits
+    # in) but never narrow an admin's actual tool-calling access.
     record = ConsumerRecord(
         consumer_id=consumer_id, name=name, key_hash=hash_api_key(api_key),
         status=body.get("status", "active"), role=body.get("role", "user"),
         type=body.get("type", "agent"), categories=list(body.get("categories") or []),
+        department=body.get("department") or "",
         rate_limit_per_hour=body.get("rate_limit_per_hour"),
         ip_allowlist=list(body.get("ip_allowlist") or []),
-        overrides=body.get("overrides") or {},
+        overrides=body.get("overrides") or {}, allowed_levels=frozenset(body.get("allowed_levels") or []),
         login_password_hash=hash_password(password) if password else None,
         key_created_at=_now, key_rotated_at=_now,
     )
@@ -197,7 +202,6 @@ async def _admin_consumer_item(request):
         return JSONResponse({"ok": True})
 
     body = await request.json()
-    from dataclasses import replace
     fields = {}
     for f in ("status", "role", "type", "categories", "rate_limit_per_hour", "overrides", "full_name", "department"):
         if f in body:
@@ -208,6 +212,7 @@ async def _admin_consumer_item(request):
         fields["allowed_levels"] = frozenset(body["allowed_levels"] or [])
     if body.get("password"):
         fields["login_password_hash"] = hash_password(body["password"])
+
     store.upsert_consumer(replace(existing, **fields))
     audit.log_policy_change(actor=claims["name"], action="update_consumer", target=cid,
                             detail=",".join(sorted(fields)))

@@ -73,7 +73,7 @@ function AppShell({ session, router, children }: AppShellProps) {
               just the toggle below without a hidden sibling still claiming
               space. */}
           <div className="shell-brand-mark">
-            <img className="shell-logo" src="/frontier-mark.png" alt="Frontier MCP Workspace" />
+            <img className="shell-logo" src="/frontier-logo.png" alt="Frontier MCP Workspace" />
             <span className="ui-eyebrow">Frontier MCP Workspace</span>
           </div>
           {/* Lives in the sidebar itself, not docked at its border — when

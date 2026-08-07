@@ -45,6 +45,9 @@ export type { CollapseToggleProps } from './CollapseToggle'
 export { default as CidrInput } from './CidrInput'
 export type { CidrInputProps } from './CidrInput'
 
+export { default as CidrListEditor } from './CidrListEditor'
+export type { CidrListEditorProps } from './CidrListEditor'
+
 export { CodeBlock, SecretKey } from './CodeBlock'
 export type { CodeBlockProps, SecretKeyProps } from './CodeBlock'
 

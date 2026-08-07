@@ -145,8 +145,12 @@ class PolicyStore(ABC):
     def get_controls(self) -> dict:
         """Global runtime controls enforced on the hot path. `paused_agents`
         blocks all agent (API-key) tool calls; `paused_backends` blocks calls to
-        the named backends. Humans/admins are unaffected by `paused_agents`."""
-        return {"paused_agents": False, "paused_backends": []}
+        the named backends; `paused_consumers` blocks one or more specific
+        consumers (agent or human) outright; `paused_categories` is a lighter,
+        per-consumer override -- `{consumer_id: [category_id, ...]}` -- that
+        temporarily narrows just that consumer's access to those categories'
+        tools, without touching their permanent `categories` grant."""
+        return {"paused_agents": False, "paused_backends": [], "paused_consumers": [], "paused_categories": {}}
 
     def set_controls(self, controls: dict) -> None:
         raise NotImplementedError("this policy store is read-only")

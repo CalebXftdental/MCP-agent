@@ -41,6 +41,25 @@
   gap: 0.5rem 1.25rem;
 }
 
+.security-subsection-hint {
+  margin: -0.3rem 0 0.7rem;
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-faint);
+}
+
+.security-consumer-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.security-paused-categories-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.7rem;
+}
+
 /* Each row fades up on mount, staggered by its position in the backend list —
    the same rhythm DataTable rows and the health cards below use, so the whole
    page feels like one system rather than three components that happen to

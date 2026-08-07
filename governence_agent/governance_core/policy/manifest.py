@@ -34,6 +34,13 @@ PII = "PII"              # personal data (names, emails, phones, street addresse
 SENSITIVE = "SENSITIVE"  # financial figures (order totals, spend)
 PCI = "PCI"              # card data (none today; reserved)
 
+# Every classification level -- the set a genuinely unrestricted principal
+# (an admin relying on resolve.py's category-less "allow all tools"
+# fallback) needs in `allowed_levels` to actually see unredacted data, not
+# just have tool calls succeed while every classified field comes back
+# masked because `allowed_levels` was left at its empty default.
+ALL_LEVELS = frozenset({PUBLIC, INTERNAL, PII, SENSITIVE, PCI})
+
 # Default redaction action per level. PII/PCI are masked (shape preserved),
 # everything else is dropped. A tool field may override via FieldRule.action.
 _DEFAULT_ACTION = {PII: "mask", PCI: "mask", SENSITIVE: "drop", INTERNAL: "drop", PUBLIC: "drop"}

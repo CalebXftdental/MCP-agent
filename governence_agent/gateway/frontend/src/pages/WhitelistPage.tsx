@@ -1,18 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  Badge,
-  Button,
-  Card,
-  Chip,
-  CidrInput,
-  Drawer,
-  EmptyState,
-  Field,
-  Skeleton,
-  useToast,
-} from '../components/ui'
+import { Badge, Button, Card, CidrListEditor, Drawer, EmptyState, Skeleton, useToast } from '../components/ui'
 import { ApiError, getWhitelist, setWhitelist } from '../lib/api'
-import { validateCidr } from '../lib/cidr'
 import type { PageProps } from './types'
 import './WhitelistPage.css'
 
@@ -45,9 +33,6 @@ function WhitelistPage(_props: PageProps) {
   const [draft, setDraft] = useState<string[]>([])
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [error, setError] = useState<string | null>(null)
-
-  const [inputValue, setInputValue] = useState('')
-  const [inputError, setInputError] = useState<string | null>(null)
 
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -84,30 +69,8 @@ function WhitelistPage(_props: PageProps) {
   const activating = saved.length === 0 && draft.length > 0
   const deactivating = saved.length > 0 && draft.length === 0
 
-  const addEntry = useCallback(() => {
-    const value = inputValue.trim()
-    const validationError = validateCidr(value)
-    if (validationError) {
-      setInputError(validationError)
-      return
-    }
-    if (draft.some((d) => d.toLowerCase() === value.toLowerCase())) {
-      setInputError('Already on the list')
-      return
-    }
-    setDraft((prev) => [...prev, value])
-    setInputValue('')
-    setInputError(null)
-  }, [inputValue, draft])
-
-  const removeEntry = useCallback((cidr: string) => {
-    setDraft((prev) => prev.filter((d) => d !== cidr))
-  }, [])
-
   const discard = useCallback(() => {
     setDraft(saved)
-    setInputValue('')
-    setInputError(null)
   }, [saved])
 
   const doSave = useCallback(async () => {
@@ -130,7 +93,7 @@ function WhitelistPage(_props: PageProps) {
     <div className="whitelist">
       <Card
         title="IP Allowlist"
-        description="Global CIDR allowlist enforced on /mcp traffic. The dashboard itself uses your session cookie and is unaffected."
+        description="Global CIDR allowlist enforced on every request -- MCP tool calls, the login page, and the dashboard alike."
         actions={
           state === 'ready' ? (
             <Badge tone={saved.length > 0 ? 'warn' : 'neutral'} dot>
@@ -153,50 +116,14 @@ function WhitelistPage(_props: PageProps) {
           />
         ) : (
           <div className="whitelist-stack">
-            <Field
-              label="Add a CIDR or IP"
-              hint="Leave the prefix blank for a single address — press Enter or Add."
-              error={inputError ?? undefined}
-            >
-              {(fieldProps) => (
-                <div className="whitelist-add-row">
-                  <CidrInput
-                    {...fieldProps}
-                    value={inputValue}
-                    onChange={(next) => {
-                      setInputValue(next)
-                      setInputError(null)
-                    }}
-                    onSubmit={addEntry}
-                  />
-                  <Button size="sm" onClick={addEntry}>
-                    Add
-                  </Button>
-                </div>
-              )}
-            </Field>
-
-            <div className="whitelist-tray">
-              <div className="whitelist-tray-head">
-                <span className="ui-eyebrow">Current list</span>
-                <span className="whitelist-tray-count">
-                  {draft.length === 0 ? 'allow all' : `${draft.length} ${draft.length === 1 ? 'entry' : 'entries'}`}
-                </span>
-              </div>
-              {draft.length === 0 ? (
-                <p className="whitelist-tray-empty">No entries — every IP can reach the MCP edge.</p>
-              ) : (
-                <div className="whitelist-chips">
-                  {draft.map((cidr) => (
-                    <span className="whitelist-chip" key={cidr}>
-                      <Chip size="sm" onRemove={() => removeEntry(cidr)} removeLabel={`Remove ${cidr} from the allowlist`}>
-                        <span className="ui-mono">{cidr}</span>
-                      </Chip>
-                    </span>
-                  ))}
-                </div>
-              )}
+            <div className="whitelist-tray-head">
+              <span className="ui-eyebrow">Current list</span>
+              <span className="whitelist-tray-count">
+                {draft.length === 0 ? 'allow all' : `${draft.length} ${draft.length === 1 ? 'entry' : 'entries'}`}
+              </span>
             </div>
+
+            <CidrListEditor value={draft} onChange={setDraft} emptyHint="No entries — every IP can reach the MCP edge." />
 
             {dirty && (
               <div className="whitelist-dirty-bar">
@@ -234,13 +161,14 @@ function WhitelistPage(_props: PageProps) {
         <div className="whitelist-decision-body">
           {activating && (
             <p className="whitelist-warning whitelist-warning--danger">
-              This is the first entry — every IP not listed here will be blocked from /mcp the moment this saves.
-              The dashboard is unaffected.
+              This is the first entry — every IP not listed here will be blocked the moment this saves,
+              including the login page and this dashboard. Make sure your own IP is in the list before saving.
             </p>
           )}
           {deactivating && (
             <p className="whitelist-warning">
-              Removing the last entry returns to allow-all — every IP will be able to reach /mcp.
+              Removing the last entry returns to allow-all — every IP will be able to reach the login page,
+              dashboard, and /mcp.
             </p>
           )}
 
@@ -270,7 +198,7 @@ function WhitelistPage(_props: PageProps) {
             </div>
           )}
 
-          <p className="whitelist-note">Takes effect on the next /mcp request — no rollout delay.</p>
+          <p className="whitelist-note">Takes effect on the next request — no rollout delay.</p>
         </div>
       </Drawer>
     </div>

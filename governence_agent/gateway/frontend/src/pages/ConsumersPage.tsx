@@ -4,6 +4,7 @@ import {
   Badge,
   Button,
   Card,
+  CidrListEditor,
   DataTable,
   Drawer,
   Dropdown,
@@ -19,7 +20,7 @@ import {
   type Column,
   type DropdownOption,
 } from '../components/ui'
-import CategoryPicker from '../components/access/CategoryPicker'
+import CategoryAccessPicker from '../components/access/CategoryAccessPicker'
 import {
   ApiError,
   createConsumer,
@@ -33,6 +34,7 @@ import {
   updateConsumer,
   type CategoryCatalogEntry,
   type Consumer,
+  type ConsumerOverrides,
   type ConsumerProfile,
   type Department,
 } from '../lib/api'
@@ -51,9 +53,12 @@ import './ConsumersPage.css'
  * mistake, and nothing checked what you typed against real category ids
  * either way. Editing an existing consumer's categories was worse: a native
  * `prompt()` box pre-filled with the same comma string. Both are replaced
- * here by the same `CategoryPicker` — a row of toggleable chips sourced from
- * the real catalog, so what's selectable and what's selected are the same
- * thing to look at.
+ * here by `CategoryAccessPicker` — a row of toggleable category chips
+ * sourced from the real catalog (same base pattern as `CategoryPicker`,
+ * which Departments still uses for its simpler whole-category-only case),
+ * plus an expand control per category that drills into its individual tools
+ * so a specific tool can be carved out of an otherwise-granted category —
+ * for when an agent should have a category's access EXCEPT one tool in it.
  *
  * The other half of a consumer's grant — its department, which contributes
  * that department's CURRENT categories live (governance_core/policy/
@@ -114,6 +119,8 @@ function ConsumersPage(_props: PageProps) {
   const [newPassword, setNewPassword] = useState('')
   const [newDepartment, setNewDepartment] = useState('')
   const [newCategories, setNewCategories] = useState<Set<string>>(new Set())
+  const [newOverrides, setNewOverrides] = useState<ConsumerOverrides>({})
+  const [newIpAllowlist, setNewIpAllowlist] = useState<string[]>([])
   const [creating, setCreating] = useState(false)
   const [mintedKey, setMintedKey] = useState<{ name: string; key: string } | null>(null)
 
@@ -125,7 +132,9 @@ function ConsumersPage(_props: PageProps) {
 
   const [editDepartment, setEditDepartment] = useState('')
   const [editCategories, setEditCategories] = useState<Set<string>>(new Set())
+  const [editOverrides, setEditOverrides] = useState<ConsumerOverrides>({})
   const [editRate, setEditRate] = useState('')
+  const [editIpAllowlist, setEditIpAllowlist] = useState<string[]>([])
   const [savingAccess, setSavingAccess] = useState(false)
 
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
@@ -199,6 +208,36 @@ function ConsumersPage(_props: PageProps) {
     })
   }, [])
 
+  // Toggling a tool off inside an expanded category writes its name into
+  // that category's BACKEND deny list (overrides is keyed by backend, not
+  // category — see ConsumerOverrides/CategoryAccessPicker), not the
+  // category itself.
+  const toggleOverrideTool = useCallback(
+    (setOverrides: (updater: (prev: ConsumerOverrides) => ConsumerOverrides) => void, backend: string, toolName: string) => {
+      setOverrides((prev) => {
+        const current = new Set(prev[backend]?.denyTools ?? [])
+        if (current.has(toolName)) current.delete(toolName)
+        else current.add(toolName)
+        if (current.size === 0) {
+          const { [backend]: _dropped, ...rest } = prev
+          return rest
+        }
+        return { ...prev, [backend]: { ...prev[backend], denyTools: [...current] } }
+      })
+    },
+    [],
+  )
+
+  const toggleNewOverrideTool = useCallback(
+    (backend: string, toolName: string) => toggleOverrideTool(setNewOverrides, backend, toolName),
+    [toggleOverrideTool],
+  )
+
+  const toggleEditOverrideTool = useCallback(
+    (backend: string, toolName: string) => toggleOverrideTool(setEditOverrides, backend, toolName),
+    [toggleOverrideTool],
+  )
+
   const closeCreateModal = useCallback(() => {
     setCreateOpen(false)
     setMintedKey(null)
@@ -209,6 +248,8 @@ function ConsumersPage(_props: PageProps) {
     setNewPassword('')
     setNewDepartment('')
     setNewCategories(new Set())
+    setNewOverrides({})
+    setNewIpAllowlist([])
   }, [])
 
   const submitCreate = useCallback(async () => {
@@ -226,6 +267,8 @@ function ConsumersPage(_props: PageProps) {
         categories: [...newCategories],
         department: newDepartment || undefined,
         rate_limit_per_hour: newRate.trim() ? Number(newRate) : null,
+        overrides: newOverrides,
+        ip_allowlist: newIpAllowlist,
         password: newPassword || null,
       })
       setMintedKey({ name: result.consumer.name, key: result.api_key })
@@ -234,6 +277,8 @@ function ConsumersPage(_props: PageProps) {
       setNewPassword('')
       setNewDepartment('')
       setNewCategories(new Set())
+      setNewOverrides({})
+      setNewIpAllowlist([])
       toast.success('Consumer created')
       load()
     } catch (cause) {
@@ -241,13 +286,15 @@ function ConsumersPage(_props: PageProps) {
     } finally {
       setCreating(false)
     }
-  }, [newName, newRole, newType, newCategories, newDepartment, newRate, newPassword, toast, load])
+  }, [newName, newRole, newType, newCategories, newDepartment, newRate, newOverrides, newIpAllowlist, newPassword, toast, load])
 
   const openManage = useCallback((consumer: Consumer) => {
     setManageId(consumer.consumer_id)
     setEditDepartment(consumer.department || '')
     setEditCategories(new Set(consumer.categories))
+    setEditOverrides({ ...consumer.overrides })
     setEditRate(consumer.rate_limit_per_hour != null ? String(consumer.rate_limit_per_hour) : '')
+    setEditIpAllowlist([...consumer.ip_allowlist])
     setPendingAction(null)
     setRotatedKey(null)
     setProfile(null)
@@ -286,6 +333,8 @@ function ConsumersPage(_props: PageProps) {
         department: editDepartment,
         categories: [...editCategories],
         rate_limit_per_hour: editRate.trim() ? Number(editRate) : null,
+        overrides: editOverrides,
+        ip_allowlist: editIpAllowlist,
       })
       toast.success('Access updated')
       load()
@@ -294,7 +343,7 @@ function ConsumersPage(_props: PageProps) {
     } finally {
       setSavingAccess(false)
     }
-  }, [manageTarget, editDepartment, editCategories, editRate, toast, load])
+  }, [manageTarget, editDepartment, editCategories, editOverrides, editRate, editIpAllowlist, toast, load])
 
   const confirmPendingAction = useCallback(async () => {
     if (!manageTarget || !pendingAction) return
@@ -396,6 +445,19 @@ function ConsumersPage(_props: PageProps) {
         width: '7rem',
         muted: true,
         render: (c) => (c.has_key ? 'API key' : c.has_login ? 'Login' : '—'),
+      },
+      {
+        key: 'ip',
+        header: 'IP',
+        width: '6rem',
+        render: (c) =>
+          c.ip_allowlist.length > 0 ? (
+            <Badge tone="warn" subtle>
+              {c.ip_allowlist.length} range{c.ip_allowlist.length === 1 ? '' : 's'}
+            </Badge>
+          ) : (
+            <span className="consumers-none">—</span>
+          ),
       },
       {
         key: 'actions',
@@ -534,6 +596,13 @@ function ConsumersPage(_props: PageProps) {
             <div className="consumers-drawer-body">
               <div className="consumers-section">
                 <p className="ui-eyebrow consumers-section-label">Access</p>
+                {manageTarget?.role === 'admin' && (
+                  <p className="consumers-note">
+                    Admin always has full tool access and unredacted data, unconditionally — Department, Categories,
+                    and tool overrides below don't restrict them. Set for bookkeeping only, e.g. which department
+                    they nominally belong to.
+                  </p>
+                )}
                 <Field label="Department" hint="Adds that department's current categories on top of the ones below.">
                   {(fieldProps) => (
                     <Dropdown {...fieldProps} value={editDepartment} onChange={setEditDepartment} options={departmentOptions} />
@@ -541,7 +610,13 @@ function ConsumersPage(_props: PageProps) {
                 </Field>
                 <Field label="Categories" hint="Granted directly, independent of the department above.">
                   {() => (
-                    <CategoryPicker categories={categories} selected={editCategories} onToggle={toggleEditCategory} />
+                    <CategoryAccessPicker
+                      categories={categories}
+                      selected={editCategories}
+                      onToggle={toggleEditCategory}
+                      overrides={editOverrides}
+                      onToggleTool={toggleEditOverrideTool}
+                    />
                   )}
                 </Field>
                 <Field label="Rate limit / hr" hint="Blank = default limit.">
@@ -553,6 +628,18 @@ function ConsumersPage(_props: PageProps) {
                       placeholder="default"
                       value={editRate}
                       onChange={(e) => setEditRate(e.target.value)}
+                    />
+                  )}
+                </Field>
+                <Field
+                  label="IP allowlist"
+                  hint="Restricts this consumer's /mcp calls to these CIDRs/IPs, on top of the global allowlist. Empty = no extra restriction."
+                >
+                  {() => (
+                    <CidrListEditor
+                      value={editIpAllowlist}
+                      onChange={setEditIpAllowlist}
+                      emptyHint="No restriction beyond the global allowlist."
                     />
                   )}
                 </Field>
@@ -668,7 +755,14 @@ function ConsumersPage(_props: PageProps) {
               {(fieldProps) => <Input {...fieldProps} value={newName} onChange={(e) => setNewName(e.target.value)} />}
             </Field>
 
-            <Field label="Role">
+            <Field
+              label="Role"
+              hint={
+                newRole === 'admin'
+                  ? 'Admin gets full tool access and unredacted data unconditionally, plus the admin dashboard/API. Department, Categories, and tool overrides below are optional bookkeeping for an admin — they never restrict them.'
+                  : undefined
+              }
+            >
               {(fieldProps) => <Dropdown {...fieldProps} value={newRole} onChange={setNewRole} options={ROLE_OPTIONS} />}
             </Field>
 
@@ -683,7 +777,15 @@ function ConsumersPage(_props: PageProps) {
             </Field>
 
             <Field label="Categories" hint="Granted directly to this consumer, independent of any department above.">
-              {() => <CategoryPicker categories={categories} selected={newCategories} onToggle={toggleNewCategory} />}
+              {() => (
+                <CategoryAccessPicker
+                  categories={categories}
+                  selected={newCategories}
+                  onToggle={toggleNewCategory}
+                  overrides={newOverrides}
+                  onToggleTool={toggleNewOverrideTool}
+                />
+              )}
             </Field>
 
             <Field label="Rate limit / hr" hint="Blank = default limit.">
@@ -695,6 +797,19 @@ function ConsumersPage(_props: PageProps) {
                   placeholder="default"
                   value={newRate}
                   onChange={(e) => setNewRate(e.target.value)}
+                />
+              )}
+            </Field>
+
+            <Field
+              label="IP allowlist"
+              hint="Restricts this consumer's /mcp calls to these CIDRs/IPs, on top of the global allowlist. Empty = no extra restriction."
+            >
+              {() => (
+                <CidrListEditor
+                  value={newIpAllowlist}
+                  onChange={setNewIpAllowlist}
+                  emptyHint="No restriction beyond the global allowlist."
                 />
               )}
             </Field>

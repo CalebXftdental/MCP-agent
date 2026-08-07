@@ -172,8 +172,9 @@ async def _admin_backend_health(request):
 
 
 async def _admin_controls(request):
-    """Break-glass controls: pause all agents and/or specific backends. GET reads
-    current state + the backend list; PUT sets it (enforced in _govern)."""
+    """Break-glass controls: pause all agents, specific backends, specific
+    consumers, and/or specific categories for one consumer. GET reads current
+    state + the backend list; PUT sets it (enforced in _govern)."""
     claims, err = _require_admin(request)
     if err:
         return err
@@ -184,8 +185,21 @@ async def _admin_controls(request):
     if err:
         return err
     body = await request.json()
+    known_consumer_ids = {c.consumer_id for c in store.consumers()}
+    known_category_ids = {c.id for c in store.categories()}
+    raw_paused_categories = body.get("paused_categories") or {}
+    paused_categories = {}
+    if isinstance(raw_paused_categories, dict):
+        for consumer_id, category_ids in raw_paused_categories.items():
+            if consumer_id not in known_consumer_ids:
+                continue
+            valid = [c for c in (category_ids or []) if c in known_category_ids]
+            if valid:
+                paused_categories[consumer_id] = valid
     controls = {"paused_agents": bool(body.get("paused_agents")),
-                "paused_backends": [b for b in (body.get("paused_backends") or []) if b in manifest.backends()]}
+                "paused_backends": [b for b in (body.get("paused_backends") or []) if b in manifest.backends()],
+                "paused_consumers": [c for c in (body.get("paused_consumers") or []) if c in known_consumer_ids],
+                "paused_categories": paused_categories}
     store.set_controls(controls)
     audit.log_policy_change(actor=claims["name"], action="set_controls", target="global",
                             detail=json.dumps(controls))

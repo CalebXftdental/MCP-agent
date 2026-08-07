@@ -1,0 +1,74 @@
+.cap-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.cap-row-head {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.cap-expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  height: 1.6rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-r-pill);
+  background: transparent;
+  color: var(--ui-text-faint);
+  font-size: var(--ui-fs-xs);
+  cursor: pointer;
+  transition:
+    background var(--ui-dur-1) var(--ui-ease-out),
+    border-color var(--ui-dur-1) var(--ui-ease-out);
+}
+
+.cap-expand:hover {
+  background: var(--ui-surface-sunken);
+  border-color: var(--ui-border-strong);
+}
+
+.cap-expand-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.cap-chevron {
+  width: 0.55rem;
+  height: 0.55rem;
+  background-image: linear-gradient(45deg, transparent 50%, currentcolor 50%),
+    linear-gradient(135deg, currentcolor 50%, transparent 50%);
+  background-position:
+    0 55%,
+    0.32rem 55%;
+  background-size: 0.32rem 0.32rem;
+  background-repeat: no-repeat;
+  transition: transform var(--ui-dur-2) var(--ui-ease-out);
+}
+
+.cap-chevron--open {
+  transform: rotate(180deg);
+}
+
+.cap-tools {
+  margin: 0.4rem 0 0.5rem 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-left: 2px solid var(--ui-border);
+  animation: ui-rise var(--ui-dur-2) var(--ui-ease-out) both;
+}
+
+.cap-tools-note {
+  margin: 0 0 0.5rem;
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-warn);
+}
+
+.cap-tools-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}

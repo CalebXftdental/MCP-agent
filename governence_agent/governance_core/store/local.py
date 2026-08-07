@@ -16,7 +16,7 @@ import re
 
 from auth.passwords import hash_password
 from policy import entitlements
-from policy.manifest import INTERNAL, PCI, PII, PUBLIC, SENSITIVE
+from policy.manifest import ALL_LEVELS
 from store.base import PolicyStore
 from store.keys import hash_api_key
 from store.models import ChatSession, ConsumerRecord
@@ -27,7 +27,7 @@ from store.models import ChatSession, ConsumerRecord
 # this unset (the ConsumerRecord field default is an EMPTY frozenset) silently drops
 # every classified field for every tool call, even though the tool call itself is
 # allowed -- looks like "found the record but every field is missing", not a denial.
-_ADMIN_LEVELS = frozenset({PUBLIC, INTERNAL, PII, SENSITIVE, PCI})
+_ADMIN_LEVELS = ALL_LEVELS
 
 _DEFAULT_RATE_LIMIT_PER_HOUR = int(os.getenv("GOVERNANCE_DEFAULT_RATE_LIMIT_PER_HOUR") or "100")
 

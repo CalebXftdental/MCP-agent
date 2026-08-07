@@ -1,0 +1,47 @@
+.ui-cidrlist {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.ui-cidrlist-add-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.ui-cidrlist-bulk {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  animation: ui-rise var(--ui-dur-3) var(--ui-ease-out) both;
+}
+
+.ui-cidrlist-bulk-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.ui-cidrlist-tray {
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--ui-border);
+}
+
+.ui-cidrlist-empty {
+  margin: 0;
+  font-size: var(--ui-fs-sm);
+  color: var(--ui-text-faint);
+}
+
+.ui-cidrlist-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.ui-cidrlist-chip {
+  display: inline-flex;
+  animation: ui-pop var(--ui-dur-3) var(--ui-ease-spring) both;
+}

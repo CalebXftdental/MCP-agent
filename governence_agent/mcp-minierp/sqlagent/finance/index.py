@@ -8,12 +8,19 @@ company 11 (CA) legal entities. Every tool accepts an optional company_id and
 otherwise searches both.
 
 Access note: as of this build, the credential behind this backend can read
-Account, GLTran, Branch, APInvoice, Vendor, POOrder. It cannot read APBill,
-VendorClass, POLine, POReceipt (confirmed FORBIDDEN by direct probe against
-db-api.frontierdental.com) -- so there is no line-item detail for AP invoices
-or POs yet, and no payment-record table. Tools below are scoped to what's
-actually reachable; extend MINIERP_ENTITIES/MINIERP_FIELDS and add tools once
-those tables are granted.
+Account, GLTran, Branch, APInvoice, Vendor, POOrder, ARSalesPrice. It cannot
+read APBill, VendorClass, POLine, POReceipt (confirmed FORBIDDEN by direct
+probe against db-api.frontierdental.com) -- so there is no line-item detail
+for AP invoices or POs yet, and no payment-record table. Tools below are
+scoped to what's actually reachable; extend MINIERP_ENTITIES/MINIERP_FIELDS
+and add tools once those tables are granted.
+
+ARSalesPrice note (2026-08): confirmed reachable ONLY under the "admin"
+credential profile bound in this module (find_with_offset_pagination below) --
+the default/calsoft profile used by mcp-minierp's orders/accounts/shipments
+tools gets FORBIDDEN on this table. Same profile as every other tool in this
+file, so nothing extra to configure; just don't move get_sales_price to a
+different domain module without also moving the admin-profile binding.
 """
 
 from __future__ import annotations
@@ -40,6 +47,7 @@ MINIERP_ENTITIES: dict[str, str] = {
     "account":   "Account",
     "gl_tran":   "GLTran",
     "ar_invoice": "ARInvoice",
+    "ar_sales_price": "ARSalesPrice",
 }
 
 MINIERP_FIELDS: dict[str, str] = {
@@ -106,6 +114,18 @@ MINIERP_FIELDS: dict[str, str] = {
     "ar_terms_id":           "termsId",
     "ar_credit_hold":        "creditHold",
     "ar_payment_method_id":  "paymentMethodId",
+    # ARSalesPrice -- one row per price tier (price class / customer / break
+    # quantity combination), unlike the header tables above.
+    "sp_inventory_id":       "inventoryId",
+    "sp_customer_id":        "customerId",
+    "sp_cust_price_class_id": "custPriceClassId",
+    "sp_sales_price":        "salesPrice",
+    "sp_cury_id":            "curyId",
+    "sp_uom":                "uom",
+    "sp_effective_date":     "effectiveDate",
+    "sp_expiration_date":    "expirationDate",
+    "sp_price_type":         "priceType",
+    "sp_break_qty":          "breakQty",
 }
 
 _DEFAULT_LIST_PAGE_SIZE = 10
@@ -550,4 +570,80 @@ async def get_gl_account_transactions(
             "hasMore for a full-range total."
             if pagination["hasMore"] else None
         ),
+    )
+
+
+# ── ARSalesPrice (list by inventory item -- multiple price tiers per item) ─────
+
+
+async def get_sales_price(
+    inventory_id: str,
+    cust_price_class_id: str | None = None,
+    customer_id: str | None = None,
+    company_id: int | None = None,
+    page: int = 1,
+    page_size: int = _DEFAULT_LIST_PAGE_SIZE,
+) -> str:
+    """List sales price records for one inventory item.
+
+    Unlike the header lookups above, ARSalesPrice legitimately returns more
+    than one row per item (one per price class / customer / break-quantity
+    tier), so this is a paginated list, not a single-record fetch. Narrow with
+    cust_price_class_id and/or customer_id when the caller knows which tier
+    they want."""
+    f = MINIERP_FIELDS
+    for candidate in _identifier_candidates(inventory_id):
+        where: dict[str, Any] = {f["sp_inventory_id"]: candidate}
+        if cust_price_class_id:
+            where[f["sp_cust_price_class_id"]] = cust_price_class_id.strip().upper()
+        if customer_id:
+            where[f["sp_customer_id"]] = customer_id.strip()
+        if company_id is not None:
+            where[MINIERP_FIELDS["company_id"]] = company_id
+
+        options = {
+            "select": _select_all_for(
+                "sp_inventory_id", "sp_customer_id", "sp_cust_price_class_id",
+                "sp_sales_price", "sp_cury_id", "sp_uom",
+                "sp_effective_date", "sp_expiration_date",
+                "sp_price_type", "sp_break_qty",
+            ),
+            "where": where,
+            "page": _clamp_page(page),
+            "pageSize": _clamp_page_size(page_size),
+        }
+        result = await find_with_offset_pagination(MINIERP_ENTITIES["ar_sales_price"], options)
+        items = result.get("items") or []
+        if not items:
+            continue
+
+        records = [
+            {
+                "inventoryId": it.get(f["sp_inventory_id"]),
+                "customerId": it.get(f["sp_customer_id"]),
+                "custPriceClassId": it.get(f["sp_cust_price_class_id"]),
+                "salesPrice": float(it.get(f["sp_sales_price"]) or 0),
+                "curyId": it.get(f["sp_cury_id"]),
+                "uom": it.get(f["sp_uom"]),
+                "effectiveDate": it.get(f["sp_effective_date"]),
+                "expirationDate": it.get(f["sp_expiration_date"]),
+                "priceType": it.get(f["sp_price_type"]),
+                "breakQty": it.get(f["sp_break_qty"]),
+            }
+            for it in items
+        ]
+        pagination = {
+            "page": result.get("page") or page,
+            "pageSize": result.get("pageSize") or page_size,
+            "returned": len(records),
+            "hasMore": bool(result.get("hasMore")),
+        }
+        return _json_tool_result(
+            status="success", intent="sales_price",
+            inventoryId=inventory_id, records=records, pagination=pagination,
+        )
+    return _json_tool_result(
+        status="not_found", intent="sales_price",
+        message=f"No sales price records found for inventory item {inventory_id}.",
+        inventoryId=inventory_id, records=[],
     )

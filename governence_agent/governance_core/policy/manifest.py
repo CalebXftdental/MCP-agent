@@ -465,6 +465,25 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
             "netMovementThisPage": SENSITIVE,
         },
     ),
+    "get_sales_price": ToolPolicy(
+        backend="minierp_finance",
+        intent="sales_price",
+        account_scoped=False,
+        risk=READ_SENSITIVE,
+        description="Looks up the negotiated sales price(s) for a product, by price class and/or customer.",
+        fields={
+            "inventoryId": INTERNAL,
+            "customerId": INTERNAL,
+            "custPriceClassId": INTERNAL,
+            "salesPrice": SENSITIVE,
+            "curyId": INTERNAL,
+            "uom": INTERNAL,
+            "effectiveDate": INTERNAL,
+            "expirationDate": INTERNAL,
+            "priceType": INTERNAL,
+            "breakQty": INTERNAL,
+        },
+    ),
     # Office artifact generation. These tools receive already-governed,
     # already-redacted structured data and persist generated files through the
     # artifact store. The artifact's own classification is returned so the UI can

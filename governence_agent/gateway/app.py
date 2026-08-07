@@ -571,6 +571,24 @@ async def minierp_finance_get_gl_account_transactions(
     })
 
 
+@mcp.tool(name="minierp_finance_get_sales_price")
+async def minierp_finance_get_sales_price(
+    session_id: str,
+    inventory_id: str,
+    cust_price_class_id: str = "",
+    customer_id: str = "",
+    company_id: int | None = None,
+    page: int = 1,
+    page_size: int = 10,
+) -> str:
+    """List sales price records (price class, currency, UOM, break quantity) for one inventory item, optionally narrowed to a price class or customer."""
+    return await _govern("get_sales_price", session_id, "", {
+        "inventory_id": inventory_id, "cust_price_class_id": cust_price_class_id,
+        "customer_id": customer_id, "company_id": company_id,
+        "page": page, "page_size": page_size,
+    })
+
+
 app = mcp.streamable_http_app()
 
 # FastMCP's own lifespan (app.router.lifespan_context) runs its stateless-http

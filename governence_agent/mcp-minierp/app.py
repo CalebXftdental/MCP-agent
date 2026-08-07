@@ -60,6 +60,7 @@ from sqlagent.finance.index import (
     get_gl_account_transactions as _fin_get_gl_account_transactions,
     get_invoice_details as _fin_get_invoice_details,
     get_po_order_status as _fin_get_po_order_status,
+    get_sales_price as _fin_get_sales_price,
     get_vendor_ap_invoices as _fin_get_vendor_ap_invoices,
     get_vendor_details as _fin_get_vendor_details,
 )
@@ -287,6 +288,29 @@ async def get_gl_account_transactions(
         account_cd.strip(),
         start_date=start_date or None,
         end_date=end_date or None,
+        company_id=company_id,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@mcp.tool()
+async def get_sales_price(
+    inventory_id: str,
+    cust_price_class_id: str = "",
+    customer_id: str = "",
+    company_id: int | None = None,
+    page: int = 1,
+    page_size: int = 10,
+) -> str:
+    """List sales price records (price class, currency, UOM, break quantity) for
+    one inventory item, optionally narrowed to a price class or customer."""
+    if not inventory_id.strip():
+        return _missing("inventory_id", "sales_price")
+    return await _fin_get_sales_price(
+        inventory_id.strip(),
+        cust_price_class_id=cust_price_class_id or None,
+        customer_id=customer_id or None,
         company_id=company_id,
         page=page,
         page_size=page_size,

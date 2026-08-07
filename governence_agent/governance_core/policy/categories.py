@@ -55,7 +55,7 @@ CATEGORIES: dict[str, Category] = {
     "finance": Category(
         id="finance", display_name="Finance", backend="minierp_finance",
         tools="*", levels=_FIN,   # AR/AP/GL/PO financial figures; no contact PII
-        data_domains=["ARInvoice", "APInvoice", "Vendor", "POOrder", "GLTran", "Account"],
+        data_domains=["ARInvoice", "APInvoice", "Vendor", "POOrder", "GLTran", "Account", "ARSalesPrice"],
     ),
     # Cross-customer analytics (ranking/aggregates). Seeded but NOT assigned to any
     # principal by default -- an admin grants "analytics" explicitly to enable

@@ -19,9 +19,24 @@ from store import get_store
 import audit
 import mcp_clients
 import json
+import os
 import request_context as ctx
 import scope_store
 import time
+
+# Temporary kill switch for get_sales_price (ARSalesPrice): the pricing surface
+# was wired up ahead of a full security review of that data, so it defaults to
+# OFF here at the single gateway choke point (not in the backend) regardless of
+# what any category/consumer grants. Flip ALLOW_PRICE_QUERY=true once reviewed
+# -- no code change needed to re-enable.
+_GATED_TOOLS_ENV_FLAGS = {"get_sales_price": "ALLOW_PRICE_QUERY"}
+
+
+def _tool_gated_off(canonical_tool: str) -> bool:
+    env_var = _GATED_TOOLS_ENV_FLAGS.get(canonical_tool)
+    if env_var is None:
+        return False
+    return (os.getenv(env_var) or "false").strip().lower() not in ("1", "true", "yes", "on")
 
 
 def _refusal(verdict) -> str:
@@ -113,6 +128,15 @@ async def _govern(canonical_tool: str, session_id: str, customer_id: str, backen
                          consumer=consumer, client_ip=ctx.ip_ctx.get(), user_agent=ctx.ua_ctx.get(),
                          customer_id=resolved_customer)
         return _paused_result("backend_paused", f"The {policy.backend} backend is temporarily paused.")
+
+    if _tool_gated_off(canonical_tool):
+        audit.log_denied(tool=namespaced, session_id=session_id, reason="feature_disabled",
+                         consumer=consumer, client_ip=ctx.ip_ctx.get(), user_agent=ctx.ua_ctx.get(),
+                         customer_id=resolved_customer)
+        return _paused_result(
+            "feature_disabled",
+            f"{namespaced} is temporarily disabled pending a full security review.",
+        )
 
     verdict = decide(consumer, canonical_tool, backend_args, Scope(customer_id=resolved_customer), grant=grant)
     if not verdict.allowed:

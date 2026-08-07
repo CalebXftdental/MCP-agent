@@ -1,6 +1,7 @@
 """HTML pages and static assets: the SPA shell, legacy pages, logo, health probe."""
 from __future__ import annotations
 
+from starlette.responses import FileResponse
 from starlette.responses import HTMLResponse
 from starlette.responses import JSONResponse
 from starlette.responses import RedirectResponse
@@ -10,6 +11,8 @@ from .deps import _APP_HTML, _CHAT_HTML, _FRONTEND_DIST_DIR, _LEGACY_APP_HTML, _
 
 _FAVICON_PATH = _FRONTEND_DIST_DIR / "favicon.png"
 _FAVICON_BYTES = _FAVICON_PATH.read_bytes() if _FAVICON_PATH.exists() else b""
+
+_DIST_ROOT = _FRONTEND_DIST_DIR.resolve()
 
 
 async def _chat_page(request):
@@ -108,13 +111,55 @@ async def _catch_all(request):
       - Serve the shell for what looks like a missing static file (a dotted
         last segment, e.g. a typo'd image or script path) -- same reasoning,
         a broken asset should read as a 404, not as this page's markup.
+
+    A dotted last segment isn't necessarily missing, though: `gateway/frontend/
+    public/*` (favicon aside, which has its own route) ships flat into
+    `dist/` alongside `index.html` -- e.g. `frontier-mark.png` -- and nothing
+    else serves those, so check the dist dir for the file before 404ing.
     """
     path = request.url.path
     if path.startswith(_RESERVED_PREFIXES):
         return Response(status_code=404)
     if "." in path.rsplit("/", 1)[-1]:
+        candidate = (_FRONTEND_DIST_DIR / path.lstrip("/")).resolve()
+        if candidate.is_file() and candidate.is_relative_to(_DIST_ROOT):
+            return FileResponse(candidate, headers={"Cache-Control": "public, max-age=86400"})
         return Response(status_code=404)
     return HTMLResponse(_APP_HTML, headers={"Cache-Control": "no-store"})
+
+
+def _wants_html(request) -> bool:
+    """True for a real browser page load (address bar, refresh, bookmark, a
+    shared link) as opposed to a JS `fetch()` call -- both of which can hit
+    the very same bare legacy path (see `spa_or` below). `Sec-Fetch-Mode:
+    navigate` is sent by every modern browser for the former and never for
+    `fetch()`; the Accept check is only a fallback for clients that omit it.
+    """
+    if request.headers.get("sec-fetch-mode") == "navigate":
+        return True
+    accept = request.headers.get("accept", "")
+    return "text/html" in accept and "application/json" not in accept
+
+
+def spa_or(handler):
+    """Wraps a legacy bare-path JSON handler so a real page load gets the SPA
+    shell instead of a raw JSON dump.
+
+    Some bare legacy paths (`/workflows`, `/automations`, `/templates`,
+    `/approvals`, `/code-plans` -- see backend/__init__.py's `api(..., spa=True)`
+    call sites) are ALSO client-side tab paths in the React router
+    (frontend/src/pages/routes.ts's RouteKey list). Both `static/app.html`'s
+    own `fetch()` calls and a browser navigating straight to that URL hit the
+    same route; without this, refreshing or deep-linking to e.g. `/workflows`
+    served the JSON API response instead of the app.
+    """
+
+    async def _wrapped(request):
+        if request.method == "GET" and _wants_html(request):
+            return await _app_shell(request)
+        return await handler(request)
+
+    return _wrapped
 
 
 async def _logo(_request):

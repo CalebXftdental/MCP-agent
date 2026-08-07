@@ -43,12 +43,23 @@ API_PREFIX = "/backend"
 def register(app) -> None:
     """Mount every HTTP route on `app`. Called once from app.py."""
 
-    def api(path: str, handler, methods: list[str] | None = None, *, legacy: bool = True) -> None:
-        """A JSON/data endpoint: under /backend, plus its legacy bare path."""
+    def api(
+        path: str, handler, methods: list[str] | None = None, *, legacy: bool = True, spa: bool = False
+    ) -> None:
+        """A JSON/data endpoint: under /backend, plus its legacy bare path.
+
+        `spa=True` for a bare path the React router ALSO treats as a client-side
+        tab (e.g. `/workflows` -- see frontend/src/pages/routes.ts's RouteKey
+        list). A real page load to that exact path (refresh, bookmark, shared
+        link) must get the SPA shell, not this handler's raw JSON, or the tab
+        renders as a JSON dump instead of the app -- see `pages.spa_or`. Only
+        the bare alias needs wrapping; the canonical /backend path is never
+        navigated to directly.
+        """
         kwargs = {} if methods is None else {"methods": methods}
         app.add_route(f"{API_PREFIX}{path}", handler, **kwargs)
         if legacy:
-            app.add_route(path, handler, **kwargs)
+            app.add_route(path, pages.spa_or(handler) if spa else handler, **kwargs)
 
     def page(path: str, handler, methods: list[str] | None = None) -> None:
         """An HTML page or static asset. Deliberately NOT mirrored under /backend:
@@ -158,7 +169,7 @@ def register(app) -> None:
     api("/admin/controls", admin_security._admin_controls, methods=["GET", "PUT"])
 
     # ── Workflows ─────────────────────────────────────────────────────────────
-    api("/workflows", workflow_api._workflows)
+    api("/workflows", workflow_api._workflows, spa=True)
     api("/workflows/{tid}", workflow_api._workflow_template)
     api("/workflows/{tid}/preflight", workflow_api._workflow_preflight, methods=["GET", "POST"])
     api("/workflows/{tid}/run", workflow_api._workflow_run_start, methods=["POST"])
@@ -202,13 +213,13 @@ def register(app) -> None:
     api("/artifacts/{aid}/onlyoffice/callback", artifacts._artifact_onlyoffice_callback, methods=["POST"])
 
     # ── Approvals, automations, templates, knowledge, code, sends ─────────────
-    api("/approvals", approvals._approvals, methods=["GET", "POST"])
+    api("/approvals", approvals._approvals, methods=["GET", "POST"], spa=True)
     api("/approvals/{aid}/{action}", approvals._approval_decide, methods=["POST"])
     # Before the {aid} route below: {aid} would also match "run-due".
     api("/automations/run-due", automations._automation_run_due, methods=["POST"])
-    api("/automations", automations._automations, methods=["GET", "POST"])
+    api("/automations", automations._automations, methods=["GET", "POST"], spa=True)
     api("/automations/{aid}", automations._automation_item, methods=["GET", "DELETE"])
-    api("/templates", templates._templates, methods=["GET", "POST"])
+    api("/templates", templates._templates, methods=["GET", "POST"], spa=True)
     api("/templates/{tid}", templates._template_item, methods=["GET", "PATCH"])
     api("/templates/{tid}/versions", templates._template_versions, methods=["POST"])
     api("/templates/{tid}/disable", templates._template_disable, methods=["POST"])
@@ -216,7 +227,7 @@ def register(app) -> None:
     api("/knowledge/documents/{did}", knowledge._knowledge_document_item, methods=["GET", "DELETE"])
     api("/knowledge/search", knowledge._knowledge_search, methods=["POST"])
     api("/knowledge/answer", knowledge._knowledge_answer, methods=["POST"])
-    api("/code-plans", code_plans._code_plans)
+    api("/code-plans", code_plans._code_plans, spa=True)
     api("/code-plans/{pid}", code_plans._code_plan_item)
     api("/code-plans/{pid}/request-approval", code_plans._code_plan_request_approval, methods=["POST"])
     api("/email-sends", sends._email_sends)

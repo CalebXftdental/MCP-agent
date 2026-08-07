@@ -9,6 +9,7 @@ import {
   Field,
   Input,
   Modal,
+  SegmentedControl,
   Spinner,
   useToast,
   type DropdownOption,
@@ -18,6 +19,9 @@ import WorkflowAlertBadge from '../components/workflow/WorkflowAlertBadge'
 import InfoHoverIcon from '../components/workflow/InfoHoverIcon'
 import StepModal from '../components/workflow/StepModal'
 import StepFlow from '../components/workflow/StepFlow'
+import WorkflowCanvas from '../components/workflow/WorkflowCanvas'
+import { nextNodePosition, withLayout, type Point } from '../components/workflow/graphGeometry'
+import { TRIGGER_NODE_ID, derivedEdges, nodeLabel, outputPinsFor, wouldCreateCycle } from '../components/workflow/graphModel'
 import type { NodeSource, TriggerInput } from '../components/workflow/StepConfigFields'
 import { useWorkflowInputs } from '../hooks/useWorkflowInputs'
 import {
@@ -34,6 +38,7 @@ import {
   validateWorkflowGraph,
   type GraphEdge,
   type GraphNode,
+  type WorkflowBinding,
   type WorkflowGraph,
   type WorkflowGraphCatalogTool,
   type WorkflowGraphValidation,
@@ -43,20 +48,25 @@ import type { PageProps } from './types'
 import './MyWorkflowsPage.css'
 
 /**
- * My Workflow — replaces `renderMyWorkflows()`'s free 2D drag/dot-connect
- * canvas with a linear step list: trigger at the top, then an ordered stack
- * of step cards, each configured inline.
+ * My Workflow — two views over the same node list, switched with a toggle:
  *
- * The canvas gave a user-buildable workflow arbitrary graph shape (branches,
- * fan-out, a step's input wired from any node by dragging a line). That's a
- * dataflow-graph mental model — genuinely powerful, but a specialized skill
- * most non-technical builders don't have. Every real workflow this feature
- * is used for in practice is a straight sequence ("pull data → summarize →
- * draft → approve → send"), so this trades branching for "add a step, fill
- * in a small form, reorder with two arrows" — Zapier's shape, not
- * Node-RED's. The backend's graph model is untouched: a linear chain is
- * simply the degenerate case where each step's edge is exactly "the step
- * before it," generated here rather than hand-wired.
+ * - **Step**: trigger at the top, then an ordered stack of step cards
+ *   reordered with two arrows — Zapier's shape. A step's edge is always "the
+ *   step right before it" (`chainEdges`), generated here rather than
+ *   hand-wired, trading branching (a specialized skill most non-technical
+ *   builders don't have) for "add a step, fill in a small form."
+ * - **Canvas**: step cards dragged anywhere and wired by drawing a curve from
+ *   one card's output dot to another's input dot — Node-RED's shape, ported
+ *   from the legacy free-positioned builder. Edges are DERIVED from every
+ *   node's `inputBindings` (`derivedEdges`), never hand-maintained, so a line
+ *   on screen and what the interpreter executes can't disagree.
+ *
+ * Both views edit the exact same `steps`/`triggerInputs` state and the exact
+ * same backend graph model (`GraphNode.inputBindings` is the one source of
+ * truth for what feeds what on either view — `edges` is just a derived
+ * execution order, resolved independently by each view's own strategy).
+ * Switching the toggle never touches saved data; only the next
+ * Save/Check/Publish writes edges in the active view's shape.
  */
 
 function newStepId(): string {
@@ -146,6 +156,30 @@ function MyWorkflowsPage({ session }: PageProps) {
 
   const [triggerInputs, setTriggerInputs] = useState<TriggerInput[]>([])
   const [steps, setSteps] = useState<GraphNode[]>([])
+  /** The trigger card's own canvas position. Kept apart from `steps` because
+   *  the trigger isn't a step — it's synthesized into the saved graph by
+   *  `triggerNode` below — but it still has to be draggable in Canvas view. */
+  const [triggerPos, setTriggerPos] = useState<Point>({ x: 40, y: 36 })
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  /** Which of the two views is active — a display preference, not part of
+   *  the saved graph, so it's persisted in localStorage rather than round
+   *  -tripped through the backend (same pattern as `useCollapsed`'s sidebar
+   *  state). Defaults to Step so nobody's workflow changes look on upgrade. */
+  const [viewMode, setViewMode] = useState<'step' | 'canvas'>(() => {
+    try {
+      return localStorage.getItem('mw:viewMode') === 'canvas' ? 'canvas' : 'step'
+    } catch {
+      return 'step'
+    }
+  })
+  const changeViewMode = useCallback((mode: 'step' | 'canvas') => {
+    setViewMode(mode)
+    try {
+      localStorage.setItem('mw:viewMode', mode)
+    } catch {
+      // Private-mode quota failure: the in-memory toggle still works for this tab.
+    }
+  }, [])
   const [stepModalOpen, setStepModalOpen] = useState(false)
   /** Node id being edited, or null when the modal is adding a new step. */
   const [editingStepId, setEditingStepId] = useState<string | null>(null)
@@ -191,6 +225,8 @@ function MyWorkflowsPage({ session }: PageProps) {
     setPublishedVersion(0)
     setTriggerInputs([])
     setSteps([])
+    setTriggerPos({ x: 40, y: 36 })
+    setSelectedNodeId(null)
     setValidation(null)
     setRunPhase('idle')
     setRunResult(null)
@@ -205,16 +241,21 @@ function MyWorkflowsPage({ session }: PageProps) {
       }
       try {
         const g = await getWorkflowGraph(id)
-        const allNodes = g.nodes ?? []
-        const trigger = allNodes.find((n) => n.kind === 'trigger')
-        const rest = topoOrder(allNodes, g.edges ?? []).filter((n) => n.kind !== 'trigger')
+        // withLayout fills in positions for a graph saved before this page had
+        // a Canvas view (Step-only saves never wrote one) — without it every
+        // card would land at 0,0 in one unreadable pile if Canvas is opened.
+        const loadedNodes = withLayout(g.nodes ?? [])
+        const trigger = loadedNodes.find((n) => n.kind === 'trigger')
+        const rest = topoOrder(loadedNodes, g.edges ?? []).filter((n) => n.kind !== 'trigger')
         setGraphId(g.graphId)
         setDisplayName(g.displayName)
         setDescription(g.description)
         setStatus(g.status)
         setPublishedVersion(g.publishedVersion)
         setTriggerInputs((trigger?.config.inputs as TriggerInput[] | undefined) ?? [])
+        setTriggerPos({ x: trigger?.position?.x ?? 40, y: trigger?.position?.y ?? 36 })
         setSteps(rest)
+        setSelectedNodeId(null)
         setValidation(null)
         setRunPhase('idle')
         setRunResult(null)
@@ -248,13 +289,62 @@ function MyWorkflowsPage({ session }: PageProps) {
   }, [])
 
   /** Upsert by node id: an edited step replaces itself in place (keeping its
-   *  position in the chain), a brand-new one appends. */
+   *  position in the chain), a brand-new one lands at the next free spot on
+   *  the canvas — harmless in Step view, which ignores `position`. */
   const commitStep = useCallback((step: GraphNode) => {
-    setSteps((prev) => (prev.some((s) => s.nodeId === step.nodeId) ? prev.map((s) => (s.nodeId === step.nodeId ? step : s)) : [...prev, step]))
+    setSteps((prev) => {
+      if (prev.some((s) => s.nodeId === step.nodeId)) return prev.map((s) => (s.nodeId === step.nodeId ? step : s))
+      return [...prev, { ...step, position: nextNodePosition(prev) }]
+    })
+    setSelectedNodeId(step.nodeId)
   }, [])
 
+  /** Removing a step also drops every binding that pointed AT it — a binding
+   *  naming a node that no longer exists would otherwise become a dangling
+   *  reference the interpreter silently resolves to nothing, rather than
+   *  being cleaned up here at edit time. */
   const removeStep = useCallback((nodeId: string) => {
-    setSteps((prev) => prev.filter((s) => s.nodeId !== nodeId))
+    setSteps((prev) =>
+      prev
+        .filter((s) => s.nodeId !== nodeId)
+        .map((s) => {
+          const kept = Object.entries(s.inputBindings ?? {}).filter(
+            ([, b]) => !(b.source === 'node' && b.node_id === nodeId),
+          )
+          return kept.length === Object.keys(s.inputBindings ?? {}).length ? s : { ...s, inputBindings: Object.fromEntries(kept) }
+        }),
+    )
+    setSelectedNodeId((cur) => (cur === nodeId ? null : cur))
+  }, [])
+
+  /** Canvas-only: dragging a card. The trigger isn't in `steps`, so its own
+   *  position is tracked separately. */
+  const moveNode = useCallback((nodeId: string, position: Point) => {
+    if (nodeId === TRIGGER_NODE_ID) {
+      setTriggerPos(position)
+      return
+    }
+    setSteps((prev) => prev.map((s) => (s.nodeId === nodeId ? { ...s, position } : s)))
+  }, [])
+
+  /** Canvas-only: a line drawn on the canvas — stored as the target step's
+   *  input binding, which is the single source of truth for connections. */
+  const connectNodes = useCallback((targetNodeId: string, arg: string, binding: WorkflowBinding) => {
+    setSteps((prev) => prev.map((s) => (s.nodeId === targetNodeId ? { ...s, inputBindings: { ...s.inputBindings, [arg]: binding } } : s)))
+  }, [])
+
+  /** Canvas-only: a line pulled off its input port. The binding is dropped
+   *  entirely rather than replaced with a literal — an argument with no
+   *  binding falls back to the step's own `config` value server-side, which
+   *  is what it had before anything was wired to it. */
+  const disconnectNode = useCallback((targetNodeId: string, arg: string) => {
+    setSteps((prev) =>
+      prev.map((s) => {
+        if (s.nodeId !== targetNodeId || !s.inputBindings?.[arg]) return s
+        const { [arg]: _dropped, ...rest } = s.inputBindings
+        return { ...s, inputBindings: rest }
+      }),
+    )
   }, [])
 
   const moveStep = useCallback((nodeId: string, dir: -1 | 1) => {
@@ -303,24 +393,61 @@ function MyWorkflowsPage({ session }: PageProps) {
     [steps, catalogByTool],
   )
 
-  const editingStep = useMemo(() => steps.find((s) => s.nodeId === editingStepId) ?? null, [steps, editingStepId])
-  const modalNodeSources = useMemo(() => {
-    const index = editingStepId ? steps.findIndex((s) => s.nodeId === editingStepId) : steps.length
-    return sourcesBefore(index < 0 ? steps.length : index)
-  }, [editingStepId, steps, sourcesBefore])
-
-  const buildGraph = useCallback((): { nodes: GraphNode[]; edges: GraphEdge[] } => {
-    const trigger: GraphNode = {
-      nodeId: 'trigger',
+  /** The trigger as a real node, so Canvas view can drag it and give it one
+   *  output port per declared input. Synthesized rather than stored in
+   *  `steps` because it isn't a step — `buildGraph` sends exactly this. */
+  const triggerNode = useMemo<GraphNode>(
+    () => ({
+      nodeId: TRIGGER_NODE_ID,
       kind: 'trigger',
       title: 'Trigger',
       tool: '',
       config: { inputs: triggerInputs.filter((t) => t.name.trim()) },
       inputBindings: {},
+      position: triggerPos,
+    }),
+    [triggerInputs, triggerPos],
+  )
+
+  const allNodes = useMemo(() => [triggerNode, ...steps], [triggerNode, steps])
+
+  const editingStep = useMemo(() => steps.find((s) => s.nodeId === editingStepId) ?? null, [steps, editingStepId])
+
+  /** Outputs the step being added/edited may bind to.
+   *  - Step view: only steps strictly before it in the list (`sourcesBefore`)
+   *    — unchanged from today, since the interpreter walks that same array.
+   *  - Canvas view: any node that wouldn't create a cycle with it — position
+   *    on a canvas isn't sequence, so reachability is the real constraint,
+   *    the same one `wouldCreateCycle` enforces for a dragged line. */
+  const modalNodeSources = useMemo<NodeSource[]>(() => {
+    if (viewMode === 'canvas') {
+      const targetId = editingStepId
+      return steps
+        .filter((s) => s.nodeId !== targetId && !(targetId && wouldCreateCycle(allNodes, s.nodeId, targetId)))
+        .flatMap((s) =>
+          outputPinsFor(s, catalogByTool).map((pin) => ({
+            nodeId: s.nodeId,
+            path: pin,
+            label: `${nodeLabel(s, catalogByTool)} → ${pin}`,
+          })),
+        )
     }
-    const nodes = [trigger, ...steps]
-    return { nodes, edges: chainEdges(nodes) }
-  }, [triggerInputs, steps])
+    const index = editingStepId ? steps.findIndex((s) => s.nodeId === editingStepId) : steps.length
+    return sourcesBefore(index < 0 ? steps.length : index)
+  }, [viewMode, editingStepId, steps, allNodes, catalogByTool, sourcesBefore])
+
+  /** `edges` is the one thing the two views compute differently: Step view
+   *  keeps its existing strict chain (`chainEdges`, unchanged), Canvas view
+   *  derives them from the real bindings (`derivedEdges`). Either way
+   *  `nodes` is the same `allNodes`, and `inputBindings` — the actual data
+   *  flow — never depends on which one is active. */
+  const buildGraph = useCallback(
+    (): { nodes: GraphNode[]; edges: GraphEdge[] } => ({
+      nodes: allNodes,
+      edges: viewMode === 'canvas' ? derivedEdges(allNodes) : chainEdges(allNodes),
+    }),
+    [viewMode, allNodes],
+  )
 
   /** Persists whatever is CURRENTLY on screen (steps, trigger inputs, name,
    *  description) as a new version — the one place both `save` and `publish`
@@ -539,8 +666,27 @@ function MyWorkflowsPage({ session }: PageProps) {
 
       <Card
         title="Steps"
-        description="Runs top to bottom. Hover a step to edit, reorder, or remove it."
-        actions={<AddButton onClick={openAddStep} label="Add a step" size="sm" />}
+        description={
+          viewMode === 'canvas'
+            ? "Drag cards to arrange them. Drag from a step's right-hand dot into another step's left-hand dot to feed its output in. Hover a card to edit or remove it."
+            : 'Runs top to bottom. Hover a step to edit, reorder, or remove it.'
+        }
+        actions={
+          <div className="mw-header-actions">
+            <SegmentedControl
+              segments={[
+                { value: 'step', label: 'Step' },
+                { value: 'canvas', label: 'Canvas' },
+              ]}
+              value={viewMode}
+              onChange={changeViewMode}
+              label="Workflow editor view"
+              size="sm"
+            />
+            <AddButton onClick={openAddStep} label="Add a step" size="sm" />
+          </div>
+        }
+        flush={viewMode === 'canvas'}
       >
         {steps.length === 0 ? (
           <EmptyState
@@ -551,6 +697,19 @@ function MyWorkflowsPage({ session }: PageProps) {
                 + Add a step
               </Button>
             }
+          />
+        ) : viewMode === 'canvas' ? (
+          <WorkflowCanvas
+            nodes={allNodes}
+            catalog={catalogByTool}
+            selectedId={selectedNodeId}
+            onSelect={setSelectedNodeId}
+            onMoveNode={moveNode}
+            onConnect={connectNodes}
+            onDisconnect={disconnectNode}
+            onEditNode={openEditStep}
+            onDeleteNode={removeStep}
+            onRejectConnection={(reason) => toast.warn(reason)}
           />
         ) : (
           <StepFlow

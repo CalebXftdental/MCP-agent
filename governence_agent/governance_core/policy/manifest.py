@@ -12,11 +12,13 @@ backend's sqlagent/structured.py and index.py's `_json_tool_result` shapes).
 Any returned field NOT listed here is treated as INTERNAL (visible to any
 consumer entitled to INTERNAL). Only fields that need protection must be listed.
 
-As of 2026-07 the miniERP tool surface is split into four domain backends --
-mcp-minierp-orders, mcp-minierp-accounts, mcp-minierp-shipments,
-mcp-minierp-finance -- instead of one "minierp" backend. Each canonical tool
-name is unique across all of them (see canonical()), so backend here is the
-single source of truth for which server actually owns a given tool.
+The miniERP tool surface is served by ONE consolidated backend process
+(mcp-minierp/), but `backend` below still uses four logical domain tags --
+minierp_orders, minierp_accounts, minierp_shipments, minierp_finance -- because
+that's what the PDP and category grants (departments.py) authorize by. Each
+canonical tool name is unique across all four domains (see canonical()), so
+`backend` here is the single source of truth for which domain owns a given
+tool, independent of how many processes actually serve it.
 
 The gateway exposes each tool namespaced as "<backend>_<canonical>"
 (e.g. minierp_orders_get_customer_orders) -- see namespaced()/canonical().

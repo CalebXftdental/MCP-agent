@@ -27,11 +27,13 @@ extension.
   `mcp-code/` (the other local-only backends `startup.sh` launches),
   `minierp_core/` (shared DB client), `startup.sh`, `requirements.txt`,
   `.deployment`.
-- **Exclude:** `.venv/`, `**/__pycache__/`, `_smoke/`, the four legacy
-  `mcp-minierp-orders|accounts|finance|shipments/` folders, `governance_service/`,
+- **Exclude:** `.venv/`, `**/__pycache__/`, `_smoke/`, `governance_service/`,
   `gateway/frontend/node_modules/`, `gateway/frontend/src/` (only the built
   `dist/` is served at runtime), `**/.env.local`, `**/*.pyc`. The VS Code
-  extension's zip-ignore (`.vscode/settings.json`) already has these.
+  extension's zip-ignore (`.vscode/settings.json`) already has these. (The four
+  legacy per-domain `mcp-minierp-orders|accounts|finance|shipments/` folders
+  this used to also list were deleted outright — superseded by the consolidated
+  `mcp-minierp/`, nothing referenced them.)
 
 ## Dependency versions are exact-pinned, not floating
 

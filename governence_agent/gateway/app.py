@@ -29,8 +29,10 @@ import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Annotated
 
 from dotenv import load_dotenv
+from pydantic import Field
 
 load_dotenv(os.getenv("GATEWAY_ENV_FILE") or ".env.local")
 
@@ -59,11 +61,36 @@ from mcp_server import mcp
 # its args and defers all policy to _govern (govern.py). Tool names are namespaced
 # "<backend>_<canonical>" (policy.manifest.namespaced) -- the backend prefix here
 # MUST match each tool's ToolPolicy.backend in policy/manifest.py.
+#
+# Every tool below takes session_id and most take customer_id -- both are
+# annotated once here so every tool's MCP input schema documents them the same
+# way, instead of relying on a docstring sentence that only some tools happen to
+# have. session_id can't be scoped down to "the one tool that needs it": every
+# call is required to pass one because _govern (govern.py) uses it for THREE
+# things on every single call, not just customer_id memory -- scope resolution
+# (_resolve_scope), the audit trail (audit.log_call/log_denied), and break-glass
+# pause bookkeeping (scope_store.touch). Drop it from a tool's signature and that
+# call becomes unaudited and unscoped, not merely less convenient.
+SessionId = Annotated[str, Field(description=(
+    "Caller-generated id for this conversation. Use any unique string (e.g. a "
+    "UUID) and reuse the SAME value for every tool call in the conversation -- "
+    "the gateway uses it to (1) remember a resolved customer_id across calls so "
+    "you don't have to re-resolve it every time, and (2) correlate this call "
+    "with the rest of the conversation in the audit trail. A new value starts a "
+    "fresh session with no remembered customer_id."
+))]
+
+CustomerId = Annotated[str, Field(description=(
+    "Internal customer id (acctCd). Only required the first time in a session; "
+    "once supplied it is remembered for this session_id and later calls may "
+    "omit it. If you only have a name/email/phone, call "
+    "minierp_accounts_find_customer first and use the customerId it returns."
+))]
 
 @mcp.tool(name="minierp_orders_get_customer_orders")
 async def minierp_orders_get_customer_orders(
-    session_id: str,
-    customer_id: str = "",
+    session_id: SessionId,
+    customer_id: CustomerId = "",
     start_date: str = "",
     end_date: str = "",
     order_status: str = "",
@@ -83,7 +110,7 @@ async def minierp_orders_get_customer_orders(
 
 @mcp.tool(name="minierp_orders_get_customer_order_total")
 async def minierp_orders_get_customer_order_total(
-    session_id: str, customer_id: str = "", start_date: str = "", end_date: str = "",
+    session_id: SessionId, customer_id: CustomerId = "", start_date: str = "", end_date: str = "",
 ) -> str:
     """Calculate a customer's total spend across completed orders, optionally within a date range."""
     return await _govern("get_customer_order_total", session_id, customer_id, {
@@ -92,7 +119,7 @@ async def minierp_orders_get_customer_order_total(
 
 
 @mcp.tool(name="minierp_orders_get_order_details")
-async def minierp_orders_get_order_details(session_id: str, order_number: str, company_id: int | None = None) -> str:
+async def minierp_orders_get_order_details(session_id: SessionId, order_number: str, company_id: int | None = None) -> str:
     """Get header-level details (status, total, date) for one sales order by order number."""
     return await _govern("get_order_details", session_id, "", {
         "order_number": order_number, "company_id": company_id,
@@ -101,7 +128,7 @@ async def minierp_orders_get_order_details(session_id: str, order_number: str, c
 
 @mcp.tool(name="minierp_orders_get_product_details_in_order")
 async def minierp_orders_get_product_details_in_order(
-    session_id: str, order_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10,
+    session_id: SessionId, order_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10,
 ) -> str:
     """List the line items (products, quantities, prices) inside one sales order."""
     return await _govern("get_product_details_in_order", session_id, "", {
@@ -110,26 +137,26 @@ async def minierp_orders_get_product_details_in_order(
 
 
 @mcp.tool(name="minierp_accounts_get_customer_profile")
-async def minierp_accounts_get_customer_profile(session_id: str, customer_id: str = "") -> str:
+async def minierp_accounts_get_customer_profile(session_id: SessionId, customer_id: CustomerId = "") -> str:
     """Get a customer's billing/credit profile: credit limit, terms, default payment method, statement cycle."""
     return await _govern("get_customer_profile", session_id, customer_id, {})
 
 
 @mcp.tool(name="minierp_accounts_get_contacts")
-async def minierp_accounts_get_contacts(session_id: str, customer_id: str = "", page: int = 1, page_size: int = 10) -> str:
+async def minierp_accounts_get_contacts(session_id: SessionId, customer_id: CustomerId = "", page: int = 1, page_size: int = 10) -> str:
     """List contacts (name, role, phone, email) on a customer's account."""
     return await _govern("get_contacts", session_id, customer_id, {"page": page, "page_size": page_size})
 
 
 @mcp.tool(name="minierp_accounts_get_addresses")
-async def minierp_accounts_get_addresses(session_id: str, customer_id: str = "", page: int = 1, page_size: int = 10) -> str:
+async def minierp_accounts_get_addresses(session_id: SessionId, customer_id: CustomerId = "", page: int = 1, page_size: int = 10) -> str:
     """List addresses on file for a customer's account."""
     return await _govern("get_addresses", session_id, customer_id, {"page": page, "page_size": page_size})
 
 
 @mcp.tool(name="minierp_accounts_find_customer")
 async def minierp_accounts_find_customer(
-    session_id: str, query: str, by: str = "auto", company_id: str = "", page: int = 1, page_size: int = 10,
+    session_id: SessionId, query: str, by: str = "auto", company_id: str = "", page: int = 1, page_size: int = 10,
 ) -> str:
     """Find candidate customers by name, email, phone, or customer id (acctCd).
 
@@ -143,7 +170,7 @@ async def minierp_accounts_find_customer(
 
 @mcp.tool(name="minierp_accounts_resolve_contact")
 async def minierp_accounts_resolve_contact(
-    session_id: str, query: str, by: str = "auto", page: int = 1, page_size: int = 10,
+    session_id: SessionId, query: str, by: str = "auto", page: int = 1, page_size: int = 10,
 ) -> str:
     """Find the people (contacts) behind an email, phone, or name: name, title, and their account."""
     return await _govern("resolve_contact", session_id, "", {
@@ -152,20 +179,20 @@ async def minierp_accounts_resolve_contact(
 
 
 @mcp.tool(name="minierp_accounts_get_order_addresses")
-async def minierp_accounts_get_order_addresses(session_id: str, order_number: str) -> str:
+async def minierp_accounts_get_order_addresses(session_id: SessionId, order_number: str) -> str:
     """Get the ship-to and bill-to addresses for a sales order by order number."""
     return await _govern("get_order_addresses", session_id, "", {"order_number": order_number})
 
 
 @mcp.tool(name="minierp_accounts_get_customer_overview")
-async def minierp_accounts_get_customer_overview(session_id: str, customer_id: str = "") -> str:
+async def minierp_accounts_get_customer_overview(session_id: SessionId, customer_id: CustomerId = "") -> str:
     """One-call 360 view of a customer: profile, primary contact, addresses, recent
     orders, and total spend. Prefer this over separate profile/contacts/orders calls."""
     return await _govern("get_customer_overview", session_id, customer_id, {})
 
 
 @mcp.tool(name="minierp_accounts_get_order_overview")
-async def minierp_accounts_get_order_overview(session_id: str, order_number: str, company_id: int | None = None) -> str:
+async def minierp_accounts_get_order_overview(session_id: SessionId, order_number: str, company_id: int | None = None) -> str:
     """One-call 360 view of an order: header, line items, ship/bill addresses, and
     shipment/tracking. Prefer this over separate order/product/shipping calls."""
     return await _govern("get_order_overview", session_id, "", {
@@ -175,7 +202,7 @@ async def minierp_accounts_get_order_overview(session_id: str, order_number: str
 
 @mcp.tool(name="minierp_orders_get_customer_order_summary")
 async def minierp_orders_get_customer_order_summary(
-    session_id: str, customer_id: str = "", start_date: str = "", end_date: str = "",
+    session_id: SessionId, customer_id: CustomerId = "", start_date: str = "", end_date: str = "",
 ) -> str:
     """Aggregate a customer's orders: counts by status, total/average spend, first/last
     order date, and month-by-month buckets over a date range."""
@@ -186,7 +213,7 @@ async def minierp_orders_get_customer_order_summary(
 
 @mcp.tool(name="minierp_orders_get_product_sales")
 async def minierp_orders_get_product_sales(
-    session_id: str, inventory_id: str, start_date: str = "", end_date: str = "",
+    session_id: SessionId, inventory_id: str, start_date: str = "", end_date: str = "",
 ) -> str:
     """How a product is selling: total quantity, revenue, distinct orders/customers."""
     return await _govern("get_product_sales", session_id, "", {
@@ -196,7 +223,7 @@ async def minierp_orders_get_product_sales(
 
 @mcp.tool(name="minierp_orders_get_orders_by_product")
 async def minierp_orders_get_orders_by_product(
-    session_id: str, inventory_id: str, page: int = 1, page_size: int = 25,
+    session_id: SessionId, inventory_id: str, page: int = 1, page_size: int = 25,
 ) -> str:
     """Which orders (and customers) bought a given product, by inventory id."""
     return await _govern("get_orders_by_product", session_id, "", {
@@ -206,7 +233,7 @@ async def minierp_orders_get_orders_by_product(
 
 @mcp.tool(name="minierp_accounts_get_customers_by_region")
 async def minierp_accounts_get_customers_by_region(
-    session_id: str, country: str = "", state: str = "", city: str = "", page: int = 1, page_size: int = 25,
+    session_id: SessionId, country: str = "", state: str = "", city: str = "", page: int = 1, page_size: int = 25,
 ) -> str:
     """Customers in a territory, filtered by country, state, and/or city."""
     return await _govern("get_customers_by_region", session_id, "", {
@@ -216,7 +243,7 @@ async def minierp_accounts_get_customers_by_region(
 
 @mcp.tool(name="minierp_shipments_get_customer_shipment_status")
 async def minierp_shipments_get_customer_shipment_status(
-    session_id: str, customer_id: str = "", max_orders: int = 5,
+    session_id: SessionId, customer_id: CustomerId = "", max_orders: int = 5,
 ) -> str:
     """Shipment/tracking status of a customer's most recent orders."""
     return await _govern("get_customer_shipment_status", session_id, customer_id, {
@@ -226,7 +253,7 @@ async def minierp_shipments_get_customer_shipment_status(
 
 @mcp.tool(name="minierp_analytics_get_top_customers_by_spend")
 async def minierp_analytics_get_top_customers_by_spend(
-    session_id: str, start_date: str = "", end_date: str = "", limit: int = 10,
+    session_id: SessionId, start_date: str = "", end_date: str = "", limit: int = 10,
 ) -> str:
     """Rank customers by total spend over a period (cross-customer analytics; requires
     the analytics entitlement)."""
@@ -237,7 +264,7 @@ async def minierp_analytics_get_top_customers_by_spend(
 
 @mcp.tool(name="office_create_excel_report")
 async def office_create_excel_report(
-    session_id: str,
+    session_id: SessionId,
     title: str,
     tables: list[dict],
     classification: list[str] | None = None,
@@ -255,7 +282,7 @@ async def office_create_excel_report(
 
 @mcp.tool(name="office_create_powerpoint_deck")
 async def office_create_powerpoint_deck(
-    session_id: str,
+    session_id: SessionId,
     title: str,
     sections: list[dict],
     classification: list[str] | None = None,
@@ -273,7 +300,7 @@ async def office_create_powerpoint_deck(
 
 @mcp.tool(name="office_create_word_report")
 async def office_create_word_report(
-    session_id: str,
+    session_id: SessionId,
     title: str,
     sections: list[dict],
     tables: list[dict] | None = None,
@@ -293,7 +320,7 @@ async def office_create_word_report(
 
 @mcp.tool(name="office_create_pdf_packet")
 async def office_create_pdf_packet(
-    session_id: str,
+    session_id: SessionId,
     title: str,
     sections: list[dict],
     tables: list[dict] | None = None,
@@ -312,7 +339,7 @@ async def office_create_pdf_packet(
 
 
 @mcp.tool(name="office_convert_artifact")
-async def office_convert_artifact(session_id: str, artifact_id: str, target_format: str = "txt", title: str = "") -> str:
+async def office_convert_artifact(session_id: SessionId, artifact_id: str, target_format: str = "txt", title: str = "") -> str:
     """Convert a governed artifact to TXT or PDF."""
     return await _govern("convert_artifact", session_id, "", {
         "owner": ctx.consumer_ctx.get() or "unknown",
@@ -323,7 +350,7 @@ async def office_convert_artifact(session_id: str, artifact_id: str, target_form
 
 
 @mcp.tool(name="office_extract_tables_from_document")
-async def office_extract_tables_from_document(session_id: str, artifact_id: str, create_json_artifact: bool = False) -> str:
+async def office_extract_tables_from_document(session_id: SessionId, artifact_id: str, create_json_artifact: bool = False) -> str:
     """Extract table-like data from a governed XLSX/DOCX artifact."""
     return await _govern("extract_tables_from_document", session_id, "", {
         "owner": ctx.consumer_ctx.get() or "unknown",
@@ -334,7 +361,7 @@ async def office_extract_tables_from_document(session_id: str, artifact_id: str,
 
 @mcp.tool(name="email_create_email_draft")
 async def email_create_email_draft(
-    session_id: str,
+    session_id: SessionId,
     to: list[str],
     cc: list[str] | None = None,
     subject: str = "",
@@ -355,7 +382,7 @@ async def email_create_email_draft(
 
 
 @mcp.tool(name="email_send_email_draft")
-async def email_send_email_draft(session_id: str, draft_id: str, approval_id: str = "") -> str:
+async def email_send_email_draft(session_id: SessionId, draft_id: str, approval_id: str = "") -> str:
     """Request delivery for an email draft. External sending is approval-gated in this scaffold."""
     return await _govern("send_email_draft", session_id, "", {
         "owner": ctx.consumer_ctx.get() or "unknown",
@@ -366,7 +393,7 @@ async def email_send_email_draft(session_id: str, draft_id: str, approval_id: st
 
 @mcp.tool(name="calendar_draft_calendar_invite")
 async def calendar_draft_calendar_invite(
-    session_id: str,
+    session_id: SessionId,
     title: str,
     start: str,
     end: str,
@@ -391,7 +418,7 @@ async def calendar_draft_calendar_invite(
 
 
 @mcp.tool(name="calendar_send_calendar_invite")
-async def calendar_send_calendar_invite(session_id: str, draft_id: str, approval_id: str = "") -> str:
+async def calendar_send_calendar_invite(session_id: SessionId, draft_id: str, approval_id: str = "") -> str:
     """Queue an approved calendar invite for connector-backed event creation."""
     return await _govern("send_calendar_invite", session_id, "", {
         "owner": ctx.consumer_ctx.get() or "unknown",
@@ -402,7 +429,7 @@ async def calendar_send_calendar_invite(session_id: str, draft_id: str, approval
 
 @mcp.tool(name="calendar_create_meeting_brief")
 async def calendar_create_meeting_brief(
-    session_id: str,
+    session_id: SessionId,
     title: str,
     meeting_time: str = "",
     attendees: list[str] | None = None,
@@ -426,7 +453,7 @@ async def calendar_create_meeting_brief(
 
 
 @mcp.tool(name="calendar_list_upcoming_meetings")
-async def calendar_list_upcoming_meetings(session_id: str, within_days: int = 14, limit: int = 20) -> str:
+async def calendar_list_upcoming_meetings(session_id: SessionId, within_days: int = 14, limit: int = 20) -> str:
     """List this user's drafted calendar invites starting within the next N days."""
     return await _govern("list_upcoming_meetings", session_id, "", {
         "owner": ctx.consumer_ctx.get() or "unknown",
@@ -436,7 +463,7 @@ async def calendar_list_upcoming_meetings(session_id: str, within_days: int = 14
 
 
 @mcp.tool(name="knowledge_search_knowledge")
-async def knowledge_search_knowledge(session_id: str, query: str, limit: int = 5, document_id: str = "") -> str:
+async def knowledge_search_knowledge(session_id: SessionId, query: str, limit: int = 5, document_id: str = "") -> str:
     """Search indexed local knowledge chunks visible to this consumer."""
     return await _govern("search_knowledge", session_id, "", {
         "owner": ctx.consumer_ctx.get() or "unknown",
@@ -447,7 +474,7 @@ async def knowledge_search_knowledge(session_id: str, query: str, limit: int = 5
 
 
 @mcp.tool(name="knowledge_answer_from_knowledge")
-async def knowledge_answer_from_knowledge(session_id: str, query: str, limit: int = 5, document_id: str = "") -> str:
+async def knowledge_answer_from_knowledge(session_id: SessionId, query: str, limit: int = 5, document_id: str = "") -> str:
     """Return a citation-backed extractive answer from indexed local documents."""
     return await _govern("answer_from_knowledge", session_id, "", {
         "owner": ctx.consumer_ctx.get() or "unknown",
@@ -458,7 +485,7 @@ async def knowledge_answer_from_knowledge(session_id: str, query: str, limit: in
 
 
 @mcp.tool(name="code_opencode_plan_change")
-async def code_opencode_plan_change(session_id: str, request: str, target_area: str = "", risk_level: str = "medium") -> str:
+async def code_opencode_plan_change(session_id: SessionId, request: str, target_area: str = "", risk_level: str = "medium") -> str:
     """Create a read-only opencode implementation plan for a requested codebase change."""
     return await _govern("opencode_plan_change", session_id, "", {
         "owner": ctx.consumer_ctx.get() or "unknown",
@@ -469,7 +496,7 @@ async def code_opencode_plan_change(session_id: str, request: str, target_area: 
 
 
 @mcp.tool(name="code_opencode_review_repo")
-async def code_opencode_review_repo(session_id: str, focus: str = "", paths: list[str] | None = None) -> str:
+async def code_opencode_review_repo(session_id: SessionId, focus: str = "", paths: list[str] | None = None) -> str:
     """Create a read-only repository review plan."""
     return await _govern("opencode_review_repo", session_id, "", {
         "owner": ctx.consumer_ctx.get() or "unknown",
@@ -479,7 +506,7 @@ async def code_opencode_review_repo(session_id: str, focus: str = "", paths: lis
 
 
 @mcp.tool(name="code_opencode_generate_template")
-async def code_opencode_generate_template(session_id: str, goal: str, template_type: str = "workflow") -> str:
+async def code_opencode_generate_template(session_id: SessionId, goal: str, template_type: str = "workflow") -> str:
     """Generate a governed workflow/template draft without applying code changes."""
     return await _govern("opencode_generate_template", session_id, "", {
         "owner": ctx.consumer_ctx.get() or "unknown",
@@ -489,7 +516,7 @@ async def code_opencode_generate_template(session_id: str, goal: str, template_t
 
 
 @mcp.tool(name="minierp_shipments_get_shipping_by_shipment")
-async def minierp_shipments_get_shipping_by_shipment(session_id: str, shipment_number: str, customer_id: str = "") -> str:
+async def minierp_shipments_get_shipping_by_shipment(session_id: SessionId, shipment_number: str, customer_id: CustomerId = "") -> str:
     """Get tracking/invoice details for a shipment by shipment number.
 
     Requires a customer_id in scope -- the shipment is only released if it is
@@ -500,7 +527,7 @@ async def minierp_shipments_get_shipping_by_shipment(session_id: str, shipment_n
 
 
 @mcp.tool(name="minierp_shipments_get_shipping_by_order")
-async def minierp_shipments_get_shipping_by_order(session_id: str, order_number: str, company_id: int | None = None) -> str:
+async def minierp_shipments_get_shipping_by_order(session_id: SessionId, order_number: str, company_id: int | None = None) -> str:
     """Get shipment/tracking/invoice numbers linked to a sales order by order number."""
     return await _govern("get_shipping_by_order", session_id, "", {
         "order_number": order_number, "company_id": company_id,
@@ -508,7 +535,7 @@ async def minierp_shipments_get_shipping_by_order(session_id: str, order_number:
 
 
 @mcp.tool(name="minierp_finance_get_invoice_details")
-async def minierp_finance_get_invoice_details(session_id: str, invoice_number: str, company_id: int | None = None) -> str:
+async def minierp_finance_get_invoice_details(session_id: SessionId, invoice_number: str, company_id: int | None = None) -> str:
     """Get header-level details (total, tax, unpaid balance, terms) for one AR invoice by invoice/reference number.
 
     Not customer-ownership-gated (ARInvoice has no customer link field in this
@@ -519,14 +546,14 @@ async def minierp_finance_get_invoice_details(session_id: str, invoice_number: s
 
 
 @mcp.tool(name="minierp_finance_get_vendor_details")
-async def minierp_finance_get_vendor_details(session_id: str, vendor_code: str) -> str:
+async def minierp_finance_get_vendor_details(session_id: SessionId, vendor_code: str) -> str:
     """Get a vendor's profile: class, terms, currency, default payment method, 1099 flag."""
     return await _govern("get_vendor_details", session_id, "", {"vendor_code": vendor_code})
 
 
 @mcp.tool(name="minierp_finance_get_vendor_ap_invoices")
 async def minierp_finance_get_vendor_ap_invoices(
-    session_id: str, vendor_code: str, page: int = 1, page_size: int = 10,
+    session_id: SessionId, vendor_code: str, page: int = 1, page_size: int = 10,
 ) -> str:
     """List AP invoices/bills for a vendor by vendor code."""
     return await _govern("get_vendor_ap_invoices", session_id, "", {
@@ -536,7 +563,7 @@ async def minierp_finance_get_vendor_ap_invoices(
 
 @mcp.tool(name="minierp_finance_get_ap_invoice_details")
 async def minierp_finance_get_ap_invoice_details(
-    session_id: str, invoice_number: str, company_id: int | None = None,
+    session_id: SessionId, invoice_number: str, company_id: int | None = None,
 ) -> str:
     """Get header-level details (total, tax, due date, paid status) for one AP invoice by invoice/reference number."""
     return await _govern("get_ap_invoice_details", session_id, "", {
@@ -546,7 +573,7 @@ async def minierp_finance_get_ap_invoice_details(
 
 @mcp.tool(name="minierp_finance_get_po_order_status")
 async def minierp_finance_get_po_order_status(
-    session_id: str, po_number: str, company_id: int | None = None,
+    session_id: SessionId, po_number: str, company_id: int | None = None,
 ) -> str:
     """Get header-level status (status, total, vendor, ship-via, hold) for one purchase order by PO number."""
     return await _govern("get_po_order_status", session_id, "", {
@@ -556,7 +583,7 @@ async def minierp_finance_get_po_order_status(
 
 @mcp.tool(name="minierp_finance_get_gl_account_transactions")
 async def minierp_finance_get_gl_account_transactions(
-    session_id: str,
+    session_id: SessionId,
     account_cd: str,
     start_date: str = "",
     end_date: str = "",
@@ -573,10 +600,10 @@ async def minierp_finance_get_gl_account_transactions(
 
 @mcp.tool(name="minierp_finance_get_sales_price")
 async def minierp_finance_get_sales_price(
-    session_id: str,
+    session_id: SessionId,
     inventory_id: str,
     cust_price_class_id: str = "",
-    customer_id: str = "",
+    customer_id: CustomerId = "",
     company_id: int | None = None,
     page: int = 1,
     page_size: int = 10,

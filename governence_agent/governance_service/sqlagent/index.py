@@ -25,6 +25,7 @@ from __future__ import annotations
 from calendar import month_name
 from datetime import datetime
 import json
+import os
 import re
 import time
 from typing import Any
@@ -45,7 +46,10 @@ from sqlagent.graphql_client import (
 # "CA" → Canada only (companyId 11)
 # "US" → United States only (companyId 2)
 # None → both companies (default behaviour)
-REGION: str | None = "CA"
+# MINIERP_REGION overrides the default below; set it to "ALL" (or "") to see
+# both companies instead of Canada-only.
+_REGION_ENV = os.getenv("MINIERP_REGION", "CA")
+REGION: str | None = None if _REGION_ENV in ("", "ALL") else _REGION_ENV
 
 MINIERP_ENTITIES: dict[str, str] = {
     "baccount":         "baccount",

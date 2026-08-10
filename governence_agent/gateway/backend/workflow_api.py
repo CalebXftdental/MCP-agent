@@ -28,6 +28,37 @@ from .deps import (
 )
 
 
+def _missing_required_categories(grant, effective_categories: set[str], required_categories: list[str], get_category) -> list[str]:
+    """Override-aware per-category check for the hardcoded workflow templates.
+
+    A plain `required_set - effective_categories` diff (the old behavior) only
+    sees categories added to `record.categories`/department -- it's blind to a
+    self-service request approved via `overrides.grantTools` (session.py/
+    admin_policy.py's current "selections" flow never touches `record.categories`
+    at all), so a principal who was actually granted a category's tools through
+    that path still showed up as missing it here, even though the exact same
+    grant already satisfies graph-backed workflows' missing_tool_access() and
+    direct tool calls' allows_tool(). Falls back to effective_categories (rather
+    than treating it as satisfied) for backend-less "route marker" categories
+    (files/workflow_runner/...), which have no tools for allows_tool() to check.
+    """
+    if grant.all_tools:
+        return []
+    missing = []
+    for cid in required_categories:
+        if cid in effective_categories:
+            continue
+        category = get_category(cid)
+        if category is None or not category.backend:
+            missing.append(cid)
+            continue
+        needed_tools = manifest.tools_for_backend(category.backend) if category.tools == "*" else category.tools
+        if needed_tools and all(grant.allows_tool(category.backend, t) for t in needed_tools):
+            continue
+        missing.append(cid)
+    return missing
+
+
 async def _execute_workflow_for_record(record, template_id: str, body: dict, source: str = "manual") -> dict:
     template = workflows.get_template(template_id)
     if template is None:
@@ -172,7 +203,6 @@ def _workflow_preflight_for(record, template_id: str, inputs: dict | None = None
     grant = resolve_grant(record, store.get_category, store.get_department)
     effective_categories = sorted(_effective_category_ids(store, record))
     required_categories = list(template.get("requiredCategories") or template.get("required_categories") or [])
-    required_set = set(required_categories)
     if workflows.is_graph_backed(template_id):
         # A graph's derived requiredCategories is a UNION across tool_call nodes,
         # and for a tool grantable by more than one category (e.g. send_email_draft
@@ -185,7 +215,9 @@ def _workflow_preflight_for(record, template_id: str, inputs: dict | None = None
         version = graph.version_record(graph.published_version) if graph else None
         missing_categories = [] if grant.all_tools else workflow_graph_store.missing_tool_access(version, grant)
     else:
-        missing_categories = [] if grant.all_tools else sorted(required_set - set(effective_categories))
+        missing_categories = sorted(_missing_required_categories(
+            grant, set(effective_categories), required_categories, store.get_category,
+        ))
     # Opt-in blanket gate (expansion.md §7.1 "workflow_runner"), off by default so
     # existing per-template requiredCategories keep working unchanged for
     # deployments that haven't explicitly turned this on.

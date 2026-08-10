@@ -8,11 +8,16 @@ Address), not any one department's private backend.
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 
 from minierp_core import find_with_offset_pagination
 
-REGION: str | None = "CA"
+# "CA" -> company 11 only, "US" -> company 2 only, None -> both.
+# MINIERP_REGION overrides the default below; set it to "ALL" (or "") to see
+# both companies instead of Canada-only.
+_REGION_ENV = os.getenv("MINIERP_REGION", "CA")
+REGION: str | None = None if _REGION_ENV in ("", "ALL") else _REGION_ENV
 
 MINIERP_ENTITIES: dict[str, str] = {
     "baccount": "baccount",

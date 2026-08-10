@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
+import os
 from typing import Any
 
 from minierp_core import (
@@ -26,7 +27,10 @@ from minierp_core import (
 )
 
 # "CA" -> company 11 only, "US" -> company 2 only, None -> both.
-REGION: str | None = "CA"
+# MINIERP_REGION overrides the default below; set it to "ALL" (or "") to see
+# both companies instead of Canada-only.
+_REGION_ENV = os.getenv("MINIERP_REGION", "CA")
+REGION: str | None = None if _REGION_ENV in ("", "ALL") else _REGION_ENV
 
 MINIERP_ENTITIES: dict[str, str] = {
     "baccount":         "baccount",

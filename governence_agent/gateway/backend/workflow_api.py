@@ -325,7 +325,6 @@ async def _workflow_suggestions(request):
     except (TypeError, ValueError):
         limit = 4
     suggestions = workflows.workflow_suggestions(message, limit=limit)
-    audit.log_policy_change(actor=claims["name"], action="suggest_workflows", target="assistant", detail=message[:120])
     return JSONResponse({"suggestions": suggestions})
 
 

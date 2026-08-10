@@ -69,8 +69,12 @@ export function portsBandHeight(rows: number): number {
   return rows > 0 ? PORTS_PAD_TOP + rows * PORT_GAP + PORTS_PAD_BOTTOM : 0
 }
 
-export function nodeHeight(node: GraphNode, catalog: CatalogIndex, needsGate = false): number {
-  const bands = HEAD_H + BODY_H + portsBandHeight(portRowCount(node, catalog)) + (needsGate ? WARN_H : 0)
+/** `warnLines` is a count, not a flag: a node can carry more than one warning
+ *  band at once (e.g. needs an approval gate AND has an unfilled required
+ *  arg), stacked rather than merged into one, so each keeps its own full-width
+ *  line instead of truncating together. */
+export function nodeHeight(node: GraphNode, catalog: CatalogIndex, warnLines = 0): number {
+  const bands = HEAD_H + BODY_H + portsBandHeight(portRowCount(node, catalog)) + warnLines * WARN_H
   return bands + NODE_BORDER * 2
 }
 
@@ -97,18 +101,20 @@ export function edgePath(from: Point, to: Point): string {
 }
 
 /** Canvas extent — enough room for every node plus space to drag into. Takes
- *  the ungated set because a warning band makes a card taller. */
+ *  the warning sets because each one present on a node makes its card taller. */
 export function canvasSize(
   nodes: GraphNode[],
   catalog: CatalogIndex,
   needsGate?: Set<string>,
+  missingRequired?: Set<string>,
 ): { width: number; height: number } {
   let maxX = 0
   let maxY = 0
   for (const node of nodes) {
     const { x, y } = nodePosition(node)
+    const warnLines = (needsGate?.has(node.nodeId) ? 1 : 0) + (missingRequired?.has(node.nodeId) ? 1 : 0)
     maxX = Math.max(maxX, x + NODE_W)
-    maxY = Math.max(maxY, y + nodeHeight(node, catalog, needsGate?.has(node.nodeId)))
+    maxY = Math.max(maxY, y + nodeHeight(node, catalog, warnLines))
   }
   return { width: Math.max(900, maxX + 260), height: Math.max(420, maxY + 160) }
 }

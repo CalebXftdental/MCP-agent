@@ -20,6 +20,7 @@ import InfoHoverIcon from '../components/workflow/InfoHoverIcon'
 import StepModal from '../components/workflow/StepModal'
 import StepFlow from '../components/workflow/StepFlow'
 import WorkflowCanvas from '../components/workflow/WorkflowCanvas'
+import WorkflowCanvasLegend from '../components/workflow/WorkflowCanvasLegend'
 import { nextNodePosition, withLayout, type Point } from '../components/workflow/graphGeometry'
 import { TRIGGER_NODE_ID, derivedEdges, nodeLabel, outputPinsFor, wouldCreateCycle } from '../components/workflow/graphModel'
 import type { NodeSource, TriggerInput } from '../components/workflow/StepConfigFields'
@@ -699,18 +700,21 @@ function MyWorkflowsPage({ session }: PageProps) {
             }
           />
         ) : viewMode === 'canvas' ? (
-          <WorkflowCanvas
-            nodes={allNodes}
-            catalog={catalogByTool}
-            selectedId={selectedNodeId}
-            onSelect={setSelectedNodeId}
-            onMoveNode={moveNode}
-            onConnect={connectNodes}
-            onDisconnect={disconnectNode}
-            onEditNode={openEditStep}
-            onDeleteNode={removeStep}
-            onRejectConnection={(reason) => toast.warn(reason)}
-          />
+          <>
+            <WorkflowCanvasLegend />
+            <WorkflowCanvas
+              nodes={allNodes}
+              catalog={catalogByTool}
+              selectedId={selectedNodeId}
+              onSelect={setSelectedNodeId}
+              onMoveNode={moveNode}
+              onConnect={connectNodes}
+              onDisconnect={disconnectNode}
+              onEditNode={openEditStep}
+              onDeleteNode={removeStep}
+              onRejectConnection={(reason) => toast.warn(reason)}
+            />
+          </>
         ) : (
           <StepFlow
             steps={steps}

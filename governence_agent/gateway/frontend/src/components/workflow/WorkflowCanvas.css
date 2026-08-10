@@ -78,7 +78,8 @@
   box-shadow: 0 0 0 2px var(--ui-accent);
 }
 
-.wfc-node[data-needs-gate] {
+.wfc-node[data-needs-gate],
+.wfc-node[data-missing-required] {
   border-color: var(--ui-danger);
 }
 

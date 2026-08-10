@@ -1,4 +1,5 @@
 import { Badge } from '../ui'
+import { missingRequiredArgs } from './graphModel'
 import { stepIcon, stepKindLabel, stepSummary } from './stepMeta'
 import type { GraphNode, WorkflowGraphCatalogTool } from '../../lib/api'
 import './StepFlow.css'
@@ -58,6 +59,7 @@ function StepFlow({
       {steps.map((step, i) => {
         const tool = step.kind === 'tool_call' ? catalogByTool[step.tool] : undefined
         const needsGate = tool?.riskLevel === 'send' && !steps.slice(0, i).some((s) => s.kind === 'approval_gate')
+        const missingRequired = missingRequiredArgs(step, catalogByTool)
         const summary = stepSummary(step, tool)
         const unknownTool = step.kind === 'tool_call' && !tool
 
@@ -65,7 +67,7 @@ function StepFlow({
           <div key={step.nodeId} className="step-flow-item">
             <span className="step-flow-connector" aria-hidden="true" />
 
-            <div className="step-flow-node" data-needs-gate={needsGate || undefined}>
+            <div className="step-flow-node" data-needs-gate={needsGate || undefined} data-missing-required={missingRequired.length > 0 || undefined}>
               <span className="step-flow-index">{i + 1}</span>
               <span className="step-flow-icon" aria-hidden="true">
                 {stepIcon(step.kind, tool)}
@@ -84,6 +86,11 @@ function StepFlow({
               {needsGate && (
                 <Badge tone="danger" subtle>
                   Needs approval before it
+                </Badge>
+              )}
+              {missingRequired.length > 0 && (
+                <Badge tone="danger" subtle title={`Missing: ${missingRequired.map((s) => s.label).join(', ')}`}>
+                  Missing required value
                 </Badge>
               )}
 

@@ -1,4 +1,5 @@
 import type { GraphNode, WorkflowBinding, WorkflowGraphCatalogTool } from '../../lib/api'
+import { isArgFilled } from './graphModel'
 
 /** Display helpers shared by the flow nodes and the add/edit modal, so a step
  *  reads the same in both places. */
@@ -59,12 +60,6 @@ export function stepSummary(step: GraphNode, tool: WorkflowGraphCatalogTool | un
 
   const argNames = Object.keys(tool?.parameters?.properties ?? {})
   if (argNames.length === 0) return 'No inputs needed'
-  const set = argNames.filter((a) => {
-    const b = step.inputBindings[a]
-    if (!b) return false
-    // A literal that was never typed into counts as unset — otherwise
-    // choosing "Type a value" and leaving it blank would read as configured.
-    return b.source !== 'literal' || String(b.value ?? '').trim() !== ''
-  }).length
+  const set = argNames.filter((a) => isArgFilled(step.inputBindings[a])).length
   return set === 0 ? null : `${set} of ${argNames.length} input${argNames.length === 1 ? '' : 's'} set`
 }

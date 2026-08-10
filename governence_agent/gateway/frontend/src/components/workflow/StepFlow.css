@@ -46,7 +46,8 @@
   box-shadow: var(--ui-shadow-sm);
 }
 
-.step-flow-node[data-needs-gate] {
+.step-flow-node[data-needs-gate],
+.step-flow-node[data-missing-required] {
   border-color: var(--ui-danger);
 }
 

@@ -74,6 +74,31 @@ export function bindingSourceNodeId(binding: WorkflowBinding | undefined): strin
   return null
 }
 
+/** Does this argument actually have a value — a wire, a trigger reference, or
+ *  a literal that was actually typed into (not just "Type a value" selected
+ *  and left blank)? Distinct from `bindingSourceNodeId(...) != null`, which
+ *  only answers "is there a WIRE" — a filled-in literal has no source node
+ *  but is still a set value, and treating it as unset (the canvas's original
+ *  behavior) kept the required-field asterisk lit after someone had already
+ *  filled the field in. */
+export function isArgFilled(binding: WorkflowBinding | undefined): boolean {
+  if (!binding) return false
+  if (binding.source === 'literal') return binding.value !== undefined && binding.value !== null && String(binding.value).trim() !== ''
+  return true
+}
+
+/** Required input slots with no value at all yet — a build-time gap
+ *  `validate_graph` does not check server-side (see workflow_graph_store.py),
+ *  so surfacing it live here is the only warning a builder gets before a run
+ *  silently resolves the missing arg to nothing. */
+export function missingRequiredArgs(node: GraphNode, catalog: CatalogIndex): InputSlot[] {
+  return inputSlotsFor(node, catalog).filter((slot) => slot.required && !isArgFilled(node.inputBindings?.[slot.name]))
+}
+
+export function nodesWithMissingRequired(nodes: GraphNode[], catalog: CatalogIndex): Set<string> {
+  return new Set(nodes.filter((n) => missingRequiredArgs(n, catalog).length > 0).map((n) => n.nodeId))
+}
+
 let edgeSeq = 0
 function nextEdgeId(): string {
   edgeSeq += 1
@@ -135,6 +160,30 @@ export function wouldCreateCycle(nodes: GraphNode[], fromId: string, toId: strin
     }
   }
   return false
+}
+
+/** Node-level half of "can this wire land here" — self-loop and cycle, the
+ *  same two rejections `WorkflowCanvas`'s drop handler already enforces
+ *  after the fact. Exposed separately so the canvas can also ask it BEFORE
+ *  the drop, while a connection is still being dragged, to only light up
+ *  ports that would actually be accepted. */
+export function canConnectNodes(nodes: GraphNode[], sourceNodeId: string, targetNodeId: string): boolean {
+  if (sourceNodeId === targetNodeId) return false
+  return !wouldCreateCycle(nodes, sourceNodeId, targetNodeId)
+}
+
+/** Slot-level half of "can this wire land here" — mirrors `validate_graph`'s
+ *  one binding-kind rule (workflow_graph_store.py): an `llm_transform`'s
+ *  `input_text` may be sourced from a `tool_call`/`llm_transform` node (or the
+ *  trigger, which never reaches this check — `bindingFromPort` gives it a
+ *  `trigger` source, not a `node` one), but never from an `approval_gate`'s
+ *  output. Every other slot/source combination has no server-side kind
+ *  restriction. */
+export function isBindingKindAllowed(targetNode: GraphNode, slot: InputSlot, sourceNode: GraphNode): boolean {
+  if (targetNode.kind === 'llm_transform' && slot.name === 'input_text' && sourceNode.kind === 'approval_gate') {
+    return false
+  }
+  return true
 }
 
 export function nodeLabel(node: GraphNode, catalog: CatalogIndex): string {

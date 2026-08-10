@@ -1757,7 +1757,11 @@ export interface WorkflowGraphCatalogTool {
   approvalRequired: boolean
   backend: string | null
   granted: boolean
-  parameters: { type: 'object'; properties?: Record<string, { type?: string; description?: string }>; required?: string[] }
+  parameters: {
+    type: 'object'
+    properties?: Record<string, { type?: string; description?: string; enum?: unknown[] }>
+    required?: string[]
+  }
   outputFields: string[]
 }
 

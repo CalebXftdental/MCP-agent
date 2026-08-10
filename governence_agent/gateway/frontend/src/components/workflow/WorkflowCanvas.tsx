@@ -5,7 +5,11 @@ import { canvasSize, edgePath, inPortPoint, nodePosition, outPortPoint, type Poi
 import {
   bindingFromPort,
   bindingSourceNodeId,
+  canConnectNodes,
   inputSlotsFor,
+  isBindingKindAllowed,
+  missingRequiredArgs,
+  nodesWithMissingRequired,
   outputPinsFor,
   ungatedSendNodeIds,
   wouldCreateCycle,
@@ -88,7 +92,44 @@ function WorkflowCanvas({
 
   const byId = useMemo(() => new Map(nodes.map((n) => [n.nodeId, n])), [nodes])
   const ungated = useMemo(() => ungatedSendNodeIds(nodes, catalog), [nodes, catalog])
-  const size = useMemo(() => canvasSize(nodes, catalog, ungated), [nodes, catalog, ungated])
+  const missingReqIds = useMemo(() => nodesWithMissingRequired(nodes, catalog), [nodes, catalog])
+  const missingReqByNode = useMemo(
+    () => new Map(nodes.map((n) => [n.nodeId, missingRequiredArgs(n, catalog)])),
+    [nodes, catalog],
+  )
+  const size = useMemo(() => canvasSize(nodes, catalog, ungated, missingReqIds), [nodes, catalog, ungated, missingReqIds])
+
+  /** The graph as it will be once the wire in the user's hand is actually
+   *  dropped -- same "pretend the picked-up binding is already gone" shape
+   *  `finishConnect`'s own cycle check builds below, needed here too so a
+   *  wire being MOVED doesn't grey out the input it's currently occupying (a
+   *  self-referencing "cycle" that only exists because the old binding is
+   *  still in `nodes` while the drag is in flight). */
+  const connectingSourceNode = connect ? byId.get(connect.sourceNodeId) : undefined
+  const dropCheckNodes = useMemo(() => {
+    if (!connect?.detach) return nodes
+    const { nodeId, arg } = connect.detach
+    return nodes.map((n) =>
+      n.nodeId === nodeId
+        ? { ...n, inputBindings: Object.fromEntries(Object.entries(n.inputBindings ?? {}).filter(([key]) => key !== arg)) }
+        : n,
+    )
+  }, [nodes, connect])
+
+  /** Which of each node's input slots would actually be accepted if the wire
+   *  in flight were dropped on it right now — computed once per render while
+   *  connecting, rather than "every input on every other node" (the previous
+   *  behavior), so a drag only invites drops that will really succeed. */
+  const dropTargets = useMemo(() => {
+    const map = new Map<string, Set<string>>()
+    if (!connect || !connectingSourceNode) return map
+    for (const node of nodes) {
+      if (!canConnectNodes(dropCheckNodes, connectingSourceNode.nodeId, node.nodeId)) continue
+      const slots = inputSlotsFor(node, catalog).filter((slot) => isBindingKindAllowed(node, slot, connectingSourceNode))
+      if (slots.length) map.set(node.nodeId, new Set(slots.map((s) => s.name)))
+    }
+    return map
+  }, [connect, connectingSourceNode, dropCheckNodes, nodes, catalog])
 
   /** Client coords -> canvas coords. The surface element scrolls with its
    *  content, so its own rect already accounts for scroll offset. */
@@ -242,6 +283,15 @@ function WorkflowCanvas({
 
       const sourceNode = byId.get(pending.sourceNodeId)
       if (!sourceNode) return
+      const targetNode = byId.get(targetNodeId)
+      // Backstop for the one binding-kind rule the drop-target highlighting
+      // already keeps a drag away from -- a drop can still land here by
+      // precisely targeting a port that was never lit up, so this is what
+      // actually turns it away rather than only the eventual save/publish 400.
+      if (targetNode && !isBindingKindAllowed(targetNode, { name: arg, label: arg }, sourceNode)) {
+        onRejectConnection("An AI step's input text can't come from an approval gate's output.")
+        return
+      }
       if (detach) onDisconnect(detach.nodeId, detach.arg)
       onConnect(targetNodeId, arg, bindingFromPort(sourceNode, pending.pin))
     }
@@ -328,7 +378,8 @@ function WorkflowCanvas({
             tool={node.kind === 'tool_call' ? catalog[node.tool] : undefined}
             selected={node.nodeId === selectedId}
             needsGate={ungated.has(node.nodeId)}
-            connecting={connect != null && connect.sourceNodeId !== node.nodeId}
+            missingRequired={missingReqByNode.get(node.nodeId) ?? []}
+            dropTargetArgs={dropTargets.get(node.nodeId)}
             onPointerDownNode={onPointerDownNode}
             onPointerDownOutPort={onPointerDownOutPort}
             onPointerDownInPort={onPointerDownInPort}

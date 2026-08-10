@@ -13,7 +13,15 @@ import {
   portRowCount,
   portsBandHeight,
 } from './graphGeometry'
-import { bindingSourceNodeId, inputSlotsFor, nodeLabel, outputPinsFor, type CatalogIndex } from './graphModel'
+import {
+  bindingSourceNodeId,
+  inputSlotsFor,
+  isArgFilled,
+  nodeLabel,
+  outputPinsFor,
+  type CatalogIndex,
+  type InputSlot,
+} from './graphModel'
 import { stepIcon, stepSummary } from './stepMeta'
 
 /**
@@ -49,8 +57,14 @@ export interface WorkflowNodeProps {
   /** Reachable by a send-risk path with no approval gate — outlined in red,
    *  mirroring what the server's own validation would reject. */
   needsGate: boolean
-  /** Highlights valid drop targets while a connection is being dragged. */
-  connecting: boolean
+  /** Required input slots this node has no value for yet — outlined in red,
+   *  same treatment as `needsGate`, stacked alongside it if both apply. */
+  missingRequired: InputSlot[]
+  /** While a connection is being dragged: which of THIS node's input slots
+   *  would actually be accepted if dropped on now (self-loop/cycle/binding-
+   *  kind already ruled out) — undefined/empty when none are, so a wire in
+   *  flight only lights up ports that would really connect. */
+  dropTargetArgs: Set<string> | undefined
   onPointerDownNode: (e: ReactPointerEvent, nodeId: string) => void
   onPointerDownOutPort: (e: ReactPointerEvent, nodeId: string, pin: string) => void
   /** Grabbing a wired input picks that connection's end up so it can be moved
@@ -66,7 +80,8 @@ function WorkflowNode({
   tool,
   selected,
   needsGate,
-  connecting,
+  missingRequired,
+  dropTargetArgs,
   onPointerDownNode,
   onPointerDownOutPort,
   onPointerDownInPort,
@@ -88,11 +103,12 @@ function WorkflowNode({
       className="wfc-node"
       data-selected={selected || undefined}
       data-needs-gate={needsGate || undefined}
+      data-missing-required={missingRequired.length > 0 || undefined}
       data-kind={node.kind}
       style={{
         transform: `translate3d(${x}px, ${y}px, 0)`,
         width: NODE_W,
-        height: nodeHeight(node, catalog, needsGate),
+        height: nodeHeight(node, catalog, (needsGate ? 1 : 0) + (missingRequired.length > 0 ? 1 : 0)),
       }}
       onPointerDown={(e) => onPointerDownNode(e, node.nodeId)}
     >
@@ -126,7 +142,14 @@ function WorkflowNode({
       {rows > 0 && (
         <div className="wfc-node-ports" style={{ height: portsBandHeight(rows) }}>
           {inputs.map((slot, i) => {
-            const bound = bindingSourceNodeId(node.inputBindings?.[slot.name]) != null
+            const binding = node.inputBindings?.[slot.name]
+            // "Wired" (has a line to another node) drives the dot's filled
+            // look and whether grabbing it detaches a connection. "Filled"
+            // (wired OR a literal that was actually typed in) is what the
+            // required-slot asterisk should track instead -- a filled-in
+            // literal has no wire, but it isn't missing a value either.
+            const wired = bindingSourceNodeId(binding) != null
+            const filled = isArgFilled(binding)
             return (
               <div
                 key={slot.name}
@@ -138,11 +161,11 @@ function WorkflowNode({
                   className="wfc-port wfc-port--in"
                   data-in-port={slot.name}
                   data-node-id={node.nodeId}
-                  data-bound={bound || undefined}
-                  data-droppable={connecting || undefined}
+                  data-bound={wired || undefined}
+                  data-droppable={dropTargetArgs?.has(slot.name) || undefined}
                   data-no-drag
                   title={
-                    bound
+                    wired
                       ? `${slot.label} — drag this dot away to disconnect`
                       : `${slot.label}${slot.required ? ' (required)' : ''}`
                   }
@@ -150,9 +173,9 @@ function WorkflowNode({
                   tabIndex={-1}
                   onPointerDown={(e) => onPointerDownInPort(e, node.nodeId, slot.name)}
                 />
-                <span className="wfc-port-label" data-bound={bound || undefined}>
+                <span className="wfc-port-label" data-bound={wired || undefined}>
                   {slot.name}
-                  {slot.required && !bound ? <i aria-hidden="true"> *</i> : null}
+                  {slot.required && !filled ? <i aria-hidden="true"> *</i> : null}
                 </span>
               </div>
             )
@@ -182,6 +205,12 @@ function WorkflowNode({
       {needsGate && (
         <div className="wfc-node-warn" style={{ height: WARN_H }}>
           Needs an approval gate before this
+        </div>
+      )}
+
+      {missingRequired.length > 0 && (
+        <div className="wfc-node-warn" style={{ height: WARN_H }} title={`Missing: ${missingRequired.map((s) => s.label).join(', ')}`}>
+          Missing required value: {missingRequired.map((s) => s.label).join(', ')}
         </div>
       )}
 
@@ -228,6 +257,7 @@ function WorkflowNode({
         {label}. {inputs.length} input{inputs.length === 1 ? '' : 's'}, {outputs.length} output
         {outputs.length === 1 ? '' : 's'}.
         {needsGate ? ' Needs an approval gate before it.' : ''}
+        {missingRequired.length > 0 ? ` Missing required value: ${missingRequired.map((s) => s.label).join(', ')}.` : ''}
       </span>
     </div>
   )

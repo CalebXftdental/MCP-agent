@@ -1,0 +1,58 @@
+.wfc-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.1rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--ui-border);
+  background: var(--ui-surface);
+  font-size: var(--ui-fs-2xs);
+  color: var(--ui-text-muted);
+}
+
+.wfc-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+
+/* Same geometry as a real port dot (WorkflowCanvas.css's .wfc-port), so the
+   key actually looks like what it's pointing at on the canvas below it. */
+.wfc-legend-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--ui-surface);
+  background: var(--ui-n-500);
+  box-shadow: 0 0 0 1px var(--ui-border-strong);
+}
+
+.wfc-legend-dot--bound {
+  background: var(--ui-accent-strong);
+  box-shadow: none;
+}
+
+.wfc-legend-mark {
+  flex: none;
+  font-weight: 700;
+  color: var(--ui-danger);
+}
+
+.wfc-legend-mark--ring {
+  display: grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ui-danger);
+  font-size: 0.55rem;
+  line-height: 1;
+}
+
+@media (max-width: 720px) {
+  .wfc-legend {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

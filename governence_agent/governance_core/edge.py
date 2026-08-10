@@ -187,7 +187,7 @@ class EdgeMiddleware(BaseHTTPMiddleware):
         # Per-principal IP allowlist (in addition to the global one), when set.
         if record.ip_allowlist and not _ip_in(client_ip, record.ip_allowlist):
             audit.log_auth_denied(path=request.url.path, client_ip=client_ip, user_agent=user_agent,
-                                   reason="ip_not_allowlisted_for_consumer")
+                                   reason="ip_not_allowlisted_for_consumer", consumer=consumer)
             return JSONResponse({"error": "forbidden"}, status_code=403)
 
         effective_limit = record.rate_limit_per_hour or _DEFAULT_RATE_LIMIT_PER_HOUR
@@ -211,6 +211,14 @@ class EdgeMiddleware(BaseHTTPMiddleware):
         tok_rid = ctx.request_id_ctx.set(request_id)
         try:
             response = await call_next(request)
+            if response.status_code >= 500:
+                # Auth/quota already passed (no auth_denied to log) and no
+                # @mcp.tool() handler ran (no call/denied to log either) -- this
+                # is the MCP transport itself (e.g. the SDK's own initialize
+                # handling) failing beneath both layers. Without this, that
+                # failure class never appears on /dashboard.
+                audit.log_transport_error(path=request.url.path, consumer=consumer, client_ip=client_ip,
+                                           user_agent=user_agent, status_code=response.status_code)
             response.headers["X-Request-Id"] = request_id
             response.headers["X-RateLimit-Remaining"] = str(remaining)
             return response

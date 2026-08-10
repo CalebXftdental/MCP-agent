@@ -15,8 +15,26 @@ request_id_ctx: ContextVar[str] = ContextVar("governance_request_id", default=""
 consumer_record_ctx: ContextVar = ContextVar("governance_consumer_record", default=None)
 
 
+def _strip_port(value: str) -> str:
+    """Azure's own X-Forwarded-For (and some proxies) append ":<port>" to the
+    client IP -- e.g. "99.213.5.186:64497". Left in place, that string never
+    matches any CIDR/host entry in an IP allowlist (ipaddress.ip_address()
+    raises on it), so every allowlist check silently fails closed no matter
+    what's configured. Bare IPv6 has 2+ colons and no brackets here (this
+    runs before any "[addr]:port" bracketing would be added), so a lone colon
+    reliably means "IPv4:port"."""
+    value = value.strip()
+    if value.startswith("["):
+        return value[1:].split("]")[0]
+    if value.count(":") == 1:
+        host, _, port = value.rpartition(":")
+        if port.isdigit():
+            return host
+    return value
+
+
 def client_ip(request) -> str:
     forwarded = request.headers.get("x-forwarded-for", "")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        return _strip_port(forwarded.split(",")[0].strip())
     return request.client.host if request.client else "unknown"

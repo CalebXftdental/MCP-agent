@@ -48,12 +48,14 @@
   td.mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
   tr:last-child td { border-bottom: none; }
   tr.auth-row td { background: rgba(210,77,107,.08); }
+  tr.transport-row td { background: rgba(210,77,107,.08); }
   .badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
   .badge.ok { background: rgba(62,207,142,.15); color: var(--ok); }
   .badge.error { background: rgba(240,98,91,.15); color: var(--err); }
   .badge.denied { background: rgba(240,168,77,.15); color: var(--denied); }
   .badge.unauthorized { background: rgba(210,77,107,.18); color: var(--auth); }
   .badge.rate_limited { background: rgba(210,77,107,.18); color: var(--auth); }
+  .badge.transport_error { background: rgba(210,77,107,.18); color: var(--auth); }
   .bar-fill-wrap { background: var(--border); border-radius: 4px; height: 6px; width: 100px; overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 8px; }
   .bar-fill { height: 100%; background: var(--accent); }
   .bar-fill.hot { background: var(--auth); }
@@ -80,6 +82,7 @@
       <option value="denied">Denied</option>
       <option value="rate_limited">Rate limited</option>
       <option value="auth_denied">Unauthorized</option>
+      <option value="transport_error">Transport error</option>
     </select>
     <label style="font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px;">
       <input type="checkbox" id="autoRefresh" style="width:auto;"> Auto-refresh (3s)
@@ -137,7 +140,7 @@
   }
 
   function badge(status) {
-    const known = ['ok', 'error', 'denied', 'unauthorized', 'rate_limited'];
+    const known = ['ok', 'error', 'denied', 'unauthorized', 'rate_limited', 'transport_error'];
     const cls = known.includes(status) ? status : 'error';
     return `<span class="badge ${cls}">${status}</span>`;
   }
@@ -203,6 +206,7 @@
     const errors = filtered.filter(c => c.status === 'error').length;
     const unauthorized = filtered.filter(c => c.type === 'auth_denied').length;
     const rateLimited = filtered.filter(c => c.type === 'rate_limited').length;
+    const transportErrors = filtered.filter(c => c.type === 'transport_error').length;
     const scoped = filtered.filter(c => c.status === 'ok' || c.status === 'error');
     const avgLatency = scoped.length
       ? (scoped.reduce((a, c) => a + (c.latency_ms || 0), 0) / scoped.length).toFixed(0)
@@ -215,6 +219,7 @@
       <div class="stat"><div class="n">${errors}</div><div class="l">Errors</div></div>
       <div class="stat ${rateLimited ? 'alert' : ''}"><div class="n">${rateLimited}</div><div class="l">Rate limited</div></div>
       <div class="stat ${unauthorized ? 'alert' : ''}"><div class="n">${unauthorized}</div><div class="l">Unauthorized</div></div>
+      <div class="stat ${transportErrors ? 'alert' : ''}"><div class="n">${transportErrors}</div><div class="l">Transport errors</div></div>
       <div class="stat"><div class="n">${avgLatency}ms</div><div class="l">Avg latency</div></div>
     `;
 
@@ -224,7 +229,7 @@
       return;
     }
     rows.innerHTML = filtered.map(c => `
-      <tr class="${c.type === 'auth_denied' ? 'auth-row' : ''}">
+      <tr class="${c.type === 'auth_denied' ? 'auth-row' : c.type === 'transport_error' ? 'transport-row' : ''}">
         <td>${fmtTime(c.ts)}</td>
         <td>${c.type || 'call'}</td>
         <td class="mono">${c.request_id || '—'}</td>

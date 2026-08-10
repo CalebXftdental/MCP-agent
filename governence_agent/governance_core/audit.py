@@ -351,12 +351,19 @@ def log_denied(
     })
 
 
-def log_auth_denied(*, path: str, client_ip: str | None, user_agent: str | None, reason: str) -> None:
+def log_auth_denied(*, path: str, client_ip: str | None, user_agent: str | None, reason: str,
+                     consumer: str = "unauthenticated") -> None:
+    # `consumer` defaults to "unauthenticated" for denials before any key is
+    # checked (bad/missing key, no keys configured). Callers that already
+    # resolved a valid key/record before denying (e.g. a per-consumer IP
+    # allowlist miss) should pass the real consumer name -- otherwise the
+    # dashboard can't tell you WHICH consumer's key got IP-blocked, only that
+    # someone did.
     _emit({
         "ts": time.time(),
         "type": "auth_denied",
         "request_id": None,
-        "consumer": "unauthenticated",
+        "consumer": consumer,
         "client_ip": client_ip,
         "user_agent": user_agent,
         "tool": path,
@@ -365,6 +372,29 @@ def log_auth_denied(*, path: str, client_ip: str | None, user_agent: str | None,
         "status": "unauthorized",
         "latency_ms": 0.0,
         "detail": reason,
+    })
+
+
+def log_transport_error(*, path: str, consumer: str, client_ip: str | None, user_agent: str | None,
+                         status_code: int) -> None:
+    """A request that passed Layer 1 auth but failed inside the MCP transport
+    itself (e.g. the `mcp` SDK's own initialize/session handling) -- before any
+    @mcp.tool() handler or _govern() ever ran, so log_call/log_denied never
+    fire for it. Without this, that failure class is invisible to /dashboard:
+    not an auth_denied (auth succeeded) and not a call/denied (no tool ran)."""
+    _emit({
+        "ts": time.time(),
+        "type": "transport_error",
+        "request_id": _request_id(),
+        "consumer": consumer,
+        "client_ip": client_ip,
+        "user_agent": user_agent,
+        "tool": path,
+        "session_id": None,
+        "args": "",
+        "status": "transport_error",
+        "latency_ms": 0.0,
+        "detail": f"HTTP {status_code} from MCP transport before any tool handler ran",
     })
 
 

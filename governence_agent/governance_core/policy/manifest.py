@@ -315,6 +315,27 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
         description="Ranks customers by total spend over a period (a cross-customer report).",
         fields={"name": PII, "totalSpend": SENSITIVE},
     ),
+    # Cross-customer recency -- same gating rationale as get_top_customers_by_spend
+    # (minierp_analytics backend, off unless "analytics" is explicitly granted).
+    # Every meaningful output field is listed here (not just the PII/SENSITIVE
+    # ones), including plain INTERNAL fields -- unlike most manifest entries,
+    # because this tool exists specifically to feed a "My Workflow" filter node,
+    # and only fields listed here show up as bindable outputs in the graph
+    # builder's node-source dropdown (see gateway/backend/workflow_graphs.py's
+    # outputFields = sorted(policy.fields.keys())).
+    "get_customer_order_recency": ToolPolicy(
+        backend="minierp_analytics",
+        intent="customer_order_recency",
+        account_scoped=False,
+        risk=EXPORT,
+        max_rows_without_approval=50,
+        description="Cross-customer order recency by territory -- who hasn't reordered recently (a win-back / reorder-due signal). phone is a best-effort contact number (lowest-id contact on file with one), not a verified primary contact.",
+        fields={
+            "name": PII, "phone": PII, "grandTotal": SENSITIVE,
+            "customerId": INTERNAL, "status": INTERNAL, "orderCount": INTERNAL,
+            "firstOrderDate": INTERNAL, "lastOrderDate": INTERNAL,
+        },
+    ),
     "get_shipping_by_shipment": ToolPolicy(
         backend="minierp_shipments",
         intent="shipment_tracking",
@@ -430,6 +451,44 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
             "paymentTypeId": INTERNAL,
             "termsId": INTERNAL,
             "vendorBAccountId": INTERNAL,
+        },
+    ),
+    # Cross-vendor bulk AP-aging -- same trust boundary as get_vendor_ap_invoices
+    # (finance category already grants "*" on minierp_finance; company-wide AP
+    # visibility isn't a new capability class the way cross-customer spend
+    # ranking is for orders/analytics, just a bulk version of what finance
+    # already sees one vendor at a time), so no extra gating category needed.
+    # vendorName is INTERNAL, not PII: every other vendor-identity field in this
+    # domain (vendorCode, vendorClassId, ...) is already INTERNAL, and the
+    # "finance" category's own levels set (_FIN, categories.py) deliberately
+    # excludes PII ("no contact PII") -- classifying it PII would silently mask
+    # the one field this report exists to show a finance user (who they owe).
+    "get_ap_invoices_due_soon": ToolPolicy(
+        backend="minierp_finance",
+        intent="ap_invoices_due_soon",
+        account_scoped=False,
+        risk=READ_SENSITIVE,
+        description="Lists AP invoices due within N days, across every vendor (an AP-aging digest).",
+        fields={
+            "vendorCode": INTERNAL, "vendorName": INTERNAL,
+            "invoiceNumber": INTERNAL, "docType": INTERNAL, "invoiceDate": INTERNAL, "dueDate": INTERNAL,
+            "lineTotal": SENSITIVE, "taxTotal": SENSITIVE, "paid": INTERNAL,
+        },
+    ),
+    # Cross-customer bulk AR-aging -- same trust boundary as get_invoice_details.
+    # No customerId/customerName field exists (ARInvoice has no customer link in
+    # this schema -- see the underlying tool's own docstring), so this can never
+    # carry PII regardless of who calls it.
+    "get_ar_invoices_past_due": ToolPolicy(
+        backend="minierp_finance",
+        intent="ar_invoices_past_due",
+        account_scoped=False,
+        risk=READ_SENSITIVE,
+        description="Lists AR invoices older than N days that may still be outstanding, across every customer (an AR-aging digest; not attributable to a customer).",
+        fields={
+            "invoiceNumber": INTERNAL, "docType": INTERNAL, "invoiceDate": INTERNAL,
+            "lineTotal": SENSITIVE, "taxTotal": SENSITIVE, "paymentTotal": SENSITIVE, "unpaidBalance": SENSITIVE,
+            "termsId": INTERNAL, "creditHold": INTERNAL,
         },
     ),
     "get_po_order_status": ToolPolicy(

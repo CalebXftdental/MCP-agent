@@ -12,6 +12,10 @@ export interface ChatLogProps {
   onRate: (id: string, rating: 'up' | 'down') => void
   onFollowup: (text: string) => void
   navigate: (key: 'workflows' | 'files') => void
+  /** See ChatMessageBubble — defaults true (Home's existing behavior). */
+  showWorkflowSuggestions?: boolean
+  /** See ChatMessageBubble — defaults true (Home's existing behavior). */
+  showFollowupChips?: boolean
 }
 
 /** How long the skeleton takes to fade out once history has loaded. */
@@ -30,7 +34,17 @@ const SKELETON_EXIT_MS = 200
  * top of the messages (which are rendering — and fading in themselves —
  * underneath) instead of popping out of existence the instant history arrives.
  */
-function ChatLog({ messages, loadingHistory, owner, onRetry, onRate, onFollowup, navigate }: ChatLogProps) {
+function ChatLog({
+  messages,
+  loadingHistory,
+  owner,
+  onRetry,
+  onRate,
+  onFollowup,
+  navigate,
+  showWorkflowSuggestions,
+  showFollowupChips,
+}: ChatLogProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const pinnedToBottom = useRef(true)
   const { mounted: skeletonMounted, state: skeletonState } = usePresence(loadingHistory, SKELETON_EXIT_MS)
@@ -57,6 +71,8 @@ function ChatLog({ messages, loadingHistory, owner, onRetry, onRate, onFollowup,
           onRate={onRate}
           onFollowup={onFollowup}
           navigate={navigate}
+          showWorkflowSuggestions={showWorkflowSuggestions}
+          showFollowupChips={showFollowupChips}
         />
       ))}
 

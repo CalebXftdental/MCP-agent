@@ -10,7 +10,13 @@
  * gateway directly.
  */
 
-import { apiUrl, sendChat, type ChatStreamEvent, type ChatToolCall } from './api'
+import { apiUrl, sendChat, sendWorkflowChat, type ChatStreamEvent, type ChatToolCall } from './api'
+
+/** Which governed chat loop a turn goes through — see orchestrator.py's two
+ *  system prompts. 'home' is the general assistant (/chat); 'workflow' is the
+ *  "My Workflow" builder's own copilot (/workflow-chat) — same session/history
+ *  machinery, different endpoint and therefore different persona/rules. */
+export type ChatKind = 'home' | 'workflow'
 
 export interface StreamUpdate {
   text: string
@@ -43,8 +49,9 @@ async function streamChat(
   message: string,
   conversationId: string,
   onUpdate: (update: StreamUpdate) => void,
+  kind: ChatKind,
 ): Promise<StreamResult> {
-  const res = await fetch(apiUrl('/chat/stream'), {
+  const res = await fetch(apiUrl(kind === 'workflow' ? '/workflow-chat/stream' : '/chat/stream'), {
     method: 'POST',
     credentials: 'include',
     headers: { 'content-type': 'application/json' },
@@ -120,11 +127,12 @@ export async function streamOrChat(
   message: string,
   conversationId: string,
   onUpdate: (update: StreamUpdate) => void,
+  kind: ChatKind = 'home',
 ): Promise<StreamResult> {
   try {
-    return await streamChat(message, conversationId, onUpdate)
+    return await streamChat(message, conversationId, onUpdate, kind)
   } catch {
-    const result = await sendChat(message, conversationId)
+    const result = await (kind === 'workflow' ? sendWorkflowChat(message, conversationId) : sendChat(message, conversationId))
     return {
       reply: result.reply || '',
       tools: result.tool_calls ?? [],

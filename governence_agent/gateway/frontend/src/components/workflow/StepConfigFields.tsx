@@ -1,4 +1,5 @@
-import { Dropdown, Field, Input, Switch, Textarea, type DropdownOption } from '../ui'
+import { useState } from 'react'
+import { Button, Dropdown, Field, Input, Switch, Textarea, type DropdownOption } from '../ui'
 import type { GraphNode, WorkflowBinding, WorkflowGraphCatalogTool } from '../../lib/api'
 import './StepConfigFields.css'
 
@@ -45,6 +46,55 @@ function bindingSource(binding: WorkflowBinding | undefined): 'literal' | 'trigg
   return binding?.source ?? 'literal'
 }
 
+/** A filter node's condition list, in the flat "all of these" shape the manual
+ *  editor below can render (see FILTER_OP_OPTIONS) — matches
+ *  `workflow_graph_store.FILTER_OPS` and `_evaluate_condition_tree`'s recursive
+ *  {"all"|"any": [...]} | leaf shape one level deep. Nested `any`/mixed groups
+ *  are still valid on the wire (a copilot or direct API caller can build them),
+ *  just not editable from this flat picker — see `isFlatConditionSet` below. */
+interface FilterConditionRow {
+  field: string
+  op: string
+  value: unknown
+}
+
+const FILTER_OP_OPTIONS: DropdownOption[] = [
+  { value: 'eq', label: 'equals' },
+  { value: 'ne', label: 'does not equal' },
+  { value: 'gt', label: 'is greater than' },
+  { value: 'gte', label: 'is greater than or equal to' },
+  { value: 'lt', label: 'is less than' },
+  { value: 'lte', label: 'is less than or equal to' },
+  { value: 'contains', label: 'contains' },
+  { value: 'in', label: 'is one of (comma-separated)' },
+  { value: 'not_in', label: 'is not one of (comma-separated)' },
+  { value: 'older_than_days', label: 'is older than (days)' },
+  { value: 'newer_than_days', label: 'is newer than (days)' },
+]
+
+/** True if `conditions` is either unset or the flat `{all: [{field,op,value},
+ *  ...]}` shape this file's editor understands — false for anything nested
+ *  (`any`, or an `all` containing a nested group), which falls back to the raw
+ *  JSON escape hatch instead of being silently misrendered or clobbered. */
+function isFlatConditionSet(conditions: unknown): boolean {
+  if (conditions === undefined || conditions === null) return true
+  if (typeof conditions !== 'object' || Array.isArray(conditions)) return false
+  const all = (conditions as { all?: unknown }).all
+  if (all === undefined) return false
+  if (!Array.isArray(all)) return false
+  return all.every((item) => item !== null && typeof item === 'object' && 'field' in (item as object) && 'op' in (item as object))
+}
+
+/** A condition row's `value` is valid on the wire either as a plain literal
+ *  (e.g. `"A"`) or already binding-shaped (`{source: 'trigger', ...}`) — the
+ *  interpreter accepts both. The editor always writes the binding-shaped form
+ *  (reusing BindingRow as-is), so this only needs to normalize on READ, for a
+ *  hand- or copilot-authored graph that used a bare literal. */
+function normalizeConditionValue(value: unknown): WorkflowBinding {
+  if (value !== null && typeof value === 'object' && 'source' in (value as object)) return value as WorkflowBinding
+  return { source: 'literal', value }
+}
+
 interface BindingRowProps {
   argLabel: string
   /** Standing guidance shown under the field — the raw arg name and its type,
@@ -62,6 +112,60 @@ interface BindingRowProps {
   onChange: (binding: WorkflowBinding | null) => void
 }
 
+/** `sections`/`tables`-shaped args (and any other array/object-typed tool
+ *  argument) need actual structured JSON, not a string — a plain `<Input>`
+ *  could only ever produce text, which the tool then rejects or (worse, for
+ *  an empty string coerced to `[]`) silently accepts as "no content". This
+ *  is a raw-JSON escape hatch: type JSON, get a real array/object out. */
+function JsonValueControl({
+  kind,
+  value,
+  onChange,
+}: {
+  kind: 'array' | 'object'
+  value: unknown
+  onChange: (value: unknown) => void
+}) {
+  const [text, setText] = useState(() => (value === undefined || value === null ? '' : JSON.stringify(value, null, 2)))
+  const [error, setError] = useState<string | undefined>(undefined)
+
+  function handleChange(next: string) {
+    setText(next)
+    const trimmed = next.trim()
+    if (trimmed === '') {
+      setError(undefined)
+      onChange(kind === 'array' ? [] : {})
+      return
+    }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(trimmed)
+    } catch {
+      setError('Not valid JSON')
+      return
+    }
+    const matchesKind = kind === 'array' ? Array.isArray(parsed) : typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+    if (!matchesKind) {
+      setError(`Expected a JSON ${kind}`)
+      return
+    }
+    setError(undefined)
+    onChange(parsed)
+  }
+
+  return (
+    <div className="step-config-json">
+      <Textarea
+        rows={6}
+        value={text}
+        onChange={(e) => handleChange(e.target.value)}
+        placeholder={kind === 'array' ? '[\n  { "heading": "...", "body": "..." }\n]' : '{\n  "key": "value"\n}'}
+      />
+      {error && <p className="step-config-json-error">{error}</p>}
+    </div>
+  )
+}
+
 /** The literal-value control itself, switched on the arg's declared JSON-Schema
  *  type instead of one `<Input>` for everything — a boolean/enum arg otherwise
  *  looked identical to a freeform string one, with nothing hinting what values
@@ -75,6 +179,9 @@ function LiteralValueControl({
   value: unknown
   onChange: (value: unknown) => void
 }) {
+  if (schema?.type === 'array' || schema?.type === 'object') {
+    return <JsonValueControl kind={schema.type} value={value} onChange={onChange} />
+  }
   if (schema?.enum && schema.enum.length > 0) {
     const options: DropdownOption[] = schema.enum.map((v) => ({ value: String(v), label: String(v) }))
     return (
@@ -124,7 +231,11 @@ function BindingRow({ argLabel, hint, required, binding, schema, triggerInputs, 
           <Dropdown
             value={source}
             onChange={(v) => {
-              if (v === 'literal') onChange({ source: 'literal', value: schema?.type === 'boolean' ? false : '' })
+              if (v === 'literal')
+                onChange({
+                  source: 'literal',
+                  value: schema?.type === 'boolean' ? false : schema?.type === 'array' ? [] : schema?.type === 'object' ? {} : '',
+                })
               else if (v === 'trigger' && triggerInputs[0]) onChange({ source: 'trigger', path: triggerInputs[0].name })
               else if (v === 'node' && nodeSources[0]) onChange({ source: 'node', node_id: nodeSources[0].nodeId, path: nodeSources[0].path })
             }}
@@ -233,6 +344,98 @@ function StepConfigFields({ step, tool, triggerInputs, nodeSources, onConfigChan
             />
           )}
         </Field>
+      </div>
+    )
+  }
+
+  if (step.kind === 'filter') {
+    const flat = isFlatConditionSet(step.config.conditions)
+    const rows: FilterConditionRow[] = flat ? ((step.config.conditions as { all?: FilterConditionRow[] } | undefined)?.all ?? []) : []
+
+    const commitRows = (next: FilterConditionRow[]) => onConfigChange({ ...step.config, conditions: { all: next } })
+    const updateRow = (index: number, patch: Partial<FilterConditionRow>) =>
+      commitRows(rows.map((r, i) => (i === index ? { ...r, ...patch } : r)))
+    const addRow = () => commitRows([...rows, { field: '', op: 'eq', value: { source: 'literal', value: '' } }])
+    const removeRow = (index: number) => commitRows(rows.filter((_, i) => i !== index))
+
+    return (
+      <div className="step-config">
+        <p className="step-config-lead">
+          Splits an earlier step's list into rows that match every condition below, and rows that don't. Bind
+          later steps to the matched rows.
+        </p>
+        <BindingRow
+          argLabel="List to filter"
+          hint="input · array"
+          required
+          schema={{ type: 'array' }}
+          binding={step.inputBindings.input}
+          triggerInputs={triggerInputs}
+          nodeSources={nodeSources}
+          onChange={(b) => onBind('input', b)}
+        />
+        {!flat ? (
+          <Field
+            label="Conditions (advanced)"
+            hint="This graph's conditions use a nested rule the simple editor below can't show — edit the raw JSON instead."
+          >
+            {() => (
+              <JsonValueControl
+                kind="object"
+                value={step.config.conditions}
+                onChange={(v) => onConfigChange({ ...step.config, conditions: v })}
+              />
+            )}
+          </Field>
+        ) : (
+          <div className="step-filter-conditions">
+            {rows.length === 0 && (
+              <p className="step-config-empty">No conditions yet — a filter with none matches every row.</p>
+            )}
+            {rows.map((row, i) => (
+              <div className="step-filter-condition" key={i}>
+                <div className="step-filter-condition-header">
+                  <p className="step-filter-condition-header-label">Condition {i + 1}</p>
+                  <Button variant="ghost" size="sm" onClick={() => removeRow(i)}>
+                    Remove
+                  </Button>
+                </div>
+                <div className="step-filter-condition-fields">
+                  <Field label="Field" hint="the row's key to check, e.g. lastOrderDate">
+                    {(fp) => (
+                      <Input {...fp} value={row.field} onChange={(e) => updateRow(i, { field: e.target.value })} placeholder="field name" />
+                    )}
+                  </Field>
+                  <Field label="Condition">
+                    {(fp) => <Dropdown {...fp} value={row.op} onChange={(op) => updateRow(i, { op })} options={FILTER_OP_OPTIONS} />}
+                  </Field>
+                </div>
+                <BindingRow
+                  argLabel="Compared to"
+                  binding={normalizeConditionValue(row.value)}
+                  triggerInputs={triggerInputs}
+                  nodeSources={nodeSources}
+                  onChange={(b) => updateRow(i, { value: b ?? { source: 'literal', value: '' } })}
+                />
+              </div>
+            ))}
+            <Button variant="ghost" onClick={addRow}>
+              Add condition
+            </Button>
+          </div>
+        )}
+        <BindingRow
+          argLabel="Limit results to (optional)"
+          hint="match_limit · number — stop keeping matches once you have this many. Leave blank to keep every match. This is different from a tool step's page size, which controls how many rows get FETCHED before this rule even runs, not how many matches you end up with."
+          schema={{ type: 'number' }}
+          binding={step.config.match_limit === undefined ? undefined : normalizeConditionValue(step.config.match_limit)}
+          triggerInputs={triggerInputs}
+          nodeSources={nodeSources}
+          onChange={(b) => {
+            const isBlankLiteral = b && b.source === 'literal' && (b.value === '' || b.value === undefined || b.value === null)
+            onConfigChange({ ...step.config, match_limit: !b || isBlankLiteral ? undefined : b })
+          }}
+        />
       </div>
     )
   }

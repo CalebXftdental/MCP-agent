@@ -1,5 +1,6 @@
 import AppShell from './components/AppShell'
 import GatewayErrorPage from './components/GatewayErrorPage'
+import PageErrorBoundary from './components/PageErrorBoundary'
 import SessionBoot from './components/SessionBoot'
 import { ToastProvider } from './components/ui'
 import { useRoute } from './hooks/useRoute'
@@ -58,12 +59,17 @@ function App() {
         <NotFoundPage path={location.pathname} navigate={router.navigate} />
       ) : (
         <AppShell session={session} router={router}>
-          <Page
-            route={ROUTES[router.key]}
-            session={session}
-            navigate={router.navigate}
-            routeParam={router.param}
-          />
+          {/* Keyed on the route so navigating away from a crashed page (via the
+              sidebar, which lives in AppShell and so survives the crash) mounts
+              a fresh boundary instead of continuing to show the old error. */}
+          <PageErrorBoundary key={router.key}>
+            <Page
+              route={ROUTES[router.key]}
+              session={session}
+              navigate={router.navigate}
+              routeParam={router.param}
+            />
+          </PageErrorBoundary>
         </AppShell>
       )}
     </ToastProvider>

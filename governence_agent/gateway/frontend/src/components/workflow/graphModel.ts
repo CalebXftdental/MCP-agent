@@ -1,4 +1,4 @@
-import type { GraphEdge, GraphNode, WorkflowBinding, WorkflowGraphCatalogTool } from '../../lib/api'
+import type { FilterCondition, GraphEdge, GraphNode, WorkflowBinding, WorkflowGraphCatalogTool } from '../../lib/api'
 
 /**
  * Shared graph logic for the My Workflow canvas — the parts that are pure
@@ -37,6 +37,7 @@ export function inputSlotsFor(node: GraphNode, catalog: CatalogIndex): InputSlot
       .map((k) => ({ name: k, label: props[k]?.description || k, required: required.has(k) }))
   }
   if (node.kind === 'llm_transform') return [{ name: 'input_text', label: 'Text to work from', required: true }]
+  if (node.kind === 'filter') return [{ name: 'input', label: 'List to filter', required: true }]
   return []
 }
 
@@ -52,6 +53,9 @@ export function outputPinsFor(node: GraphNode, catalog: CatalogIndex): string[] 
   if (node.kind === 'tool_call') return catalog[node.tool]?.outputFields ?? []
   if (node.kind === 'approval_gate') return ['approvalId']
   if (node.kind === 'llm_transform') return ['text']
+  if (node.kind === 'filter') {
+    return ['matched', 'unmatched', 'matchedCount', 'totalMatchCount', 'totalCount', 'matchLimitReached', 'matchedTable', 'unmatchedTable']
+  }
   return []
 }
 
@@ -136,6 +140,76 @@ export function derivedEdges(nodes: GraphNode[]): GraphEdge[] {
   return edges
 }
 
+// ── Trigger input naming ────────────────────────────────────────────────────
+//
+// A declared trigger input has a `label` (what whoever runs the workflow
+// sees) and a `name` (the wire key `{source:'trigger', path}` bindings and
+// the run form's values dict actually use). The builder UI only ever shows
+// the label -- `name` is derived from it automatically -- so these two things
+// can never again land in the wrong box the way "Territory Win-Back Flag"'s
+// did (name="Toronto", label="city": harmless by accident since both sides
+// used the same wrong string consistently, but a landmine for anyone reading
+// the graph's raw JSON later).
+
+/** `"Days since last order"` -> `"days_since_last_order"`. Falls back to
+ *  `"input"` for a label that slugifies to nothing (e.g. all punctuation). */
+export function slugifyTriggerInputName(label: string): string {
+  const slug = label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  return slug || 'input'
+}
+
+/** `base` deduped against `taken` (every OTHER trigger input's current name)
+ *  by appending `_2`, `_3`, ... -- two inputs labeled "City" and "city!" both
+ *  slugify to `city` and still need distinct wire keys. */
+export function uniqueTriggerInputName(base: string, taken: Set<string>): string {
+  if (!taken.has(base)) return base
+  let n = 2
+  while (taken.has(`${base}_${n}`)) n += 1
+  return `${base}_${n}`
+}
+
+function renameTriggerRefInBinding(binding: WorkflowBinding | undefined, oldName: string, newName: string): WorkflowBinding | undefined {
+  if (binding && binding.source === 'trigger' && binding.path === oldName) return { source: 'trigger', path: newName }
+  return binding
+}
+
+/** `FilterCondition`'s leaf `value` can itself be a `WorkflowBinding` (the
+ *  filter editor reuses `BindingRow` for it) -- walk the same `all`/`any`/leaf
+ *  recursion `_evaluate_condition_tree` uses server-side so a rename doesn't
+ *  miss a trigger reference buried in a filter step's conditions. */
+function renameTriggerRefInCondition(cond: FilterCondition, oldName: string, newName: string): FilterCondition {
+  if ('all' in cond) return { all: cond.all.map((c) => renameTriggerRefInCondition(c, oldName, newName)) }
+  if ('any' in cond) return { any: cond.any.map((c) => renameTriggerRefInCondition(c, oldName, newName)) }
+  const value = cond.value as WorkflowBinding | undefined
+  if (value && typeof value === 'object' && 'source' in value) {
+    return { ...cond, value: renameTriggerRefInBinding(value, oldName, newName) }
+  }
+  return cond
+}
+
+/** Renaming a trigger input's wire key must update every place that key was
+ *  already referenced, or the rename silently orphans a binding (the exact
+ *  failure mode a raw two-textbox name/label editor invited). Called on every
+ *  edit of a trigger input's label, so a step wired to it before the rename
+ *  stays wired after. */
+export function renameTriggerInputEverywhere(nodes: GraphNode[], oldName: string, newName: string): GraphNode[] {
+  if (!oldName || oldName === newName) return nodes
+  return nodes.map((n) => {
+    const inputBindings = Object.fromEntries(
+      Object.entries(n.inputBindings ?? {}).map(([k, b]) => [k, renameTriggerRefInBinding(b, oldName, newName) ?? b]),
+    )
+    let config = n.config
+    if (n.kind === 'filter' && config.conditions) {
+      config = { ...config, conditions: renameTriggerRefInCondition(config.conditions as FilterCondition, oldName, newName) }
+    }
+    return { ...n, inputBindings, config }
+  })
+}
+
 /** Would wiring `fromId -> toId` create a cycle? True iff `toId` can already
  *  reach `fromId`. Checked before a connection is accepted so the canvas
  *  never builds a graph the server would reject outright. */
@@ -191,6 +265,7 @@ export function nodeLabel(node: GraphNode, catalog: CatalogIndex): string {
   if (node.title) return node.title
   if (node.kind === 'approval_gate') return 'Approval gate'
   if (node.kind === 'llm_transform') return `AI: ${String(node.config.kind ?? 'summarize')}`
+  if (node.kind === 'filter') return 'Filter'
   return catalog[node.tool]?.canonical ?? node.tool
 }
 

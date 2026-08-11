@@ -49,9 +49,13 @@
 .wf-tile-title {
   font-size: var(--ui-fs-sm);
   font-weight: 650;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
   max-width: 100%;
 }
 

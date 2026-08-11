@@ -11,6 +11,7 @@ import artifact_store
 import audit
 import mcp_clients
 import json
+import logging
 import os
 import request_context as ctx
 import time
@@ -26,6 +27,8 @@ from .deps import (
     _session,
     _unauthorized,
 )
+
+_log = logging.getLogger(__name__)
 
 
 def _missing_required_categories(grant, effective_categories: set[str], required_categories: list[str], get_category) -> list[str]:
@@ -81,18 +84,32 @@ async def _execute_workflow_for_record(record, template_id: str, body: dict, sou
         "weekly_executive_brief": _run_weekly_executive_brief_workflow,
     }
     runner = runners.get(template_id)
-    if runner is not None:
-        result = await runner(run, body)
-    else:
-        graph = workflow_graph_store.get_active_graph(template_id)
-        if graph is None:
-            run = workflows.update_run(run, status="failed", error="workflow template is not executable yet")
-            return {"error": "workflow template is not executable yet", **workflows.run_dict(run)}
-        # Pin this run to the exact graph version it started with -- if the owner
-        # publishes a newer version while this run is paused mid-graph, resume must
-        # keep walking the version the run began against, not whatever is newest.
-        run = workflows.update_run(run, inputs={**run.inputs, "__graph_version": graph.published_version})
-        result = await workflow_graph_interpreter.run_graph(run, graph, body)
+    try:
+        if runner is not None:
+            result = await runner(run, body)
+        else:
+            graph = workflow_graph_store.get_active_graph(template_id)
+            if graph is None:
+                run = workflows.update_run(run, status="failed", error="workflow template is not executable yet")
+                return {"error": "workflow template is not executable yet", **workflows.run_dict(run)}
+            # Pin this run to the exact graph version it started with -- if the owner
+            # publishes a newer version while this run is paused mid-graph, resume must
+            # keep walking the version the run began against, not whatever is newest.
+            run = workflows.update_run(run, inputs={**run.inputs, "__graph_version": graph.published_version})
+            result = await workflow_graph_interpreter.run_graph(run, graph, body)
+    except Exception:
+        # Everything a tool call itself can fail with (backend timeout, backend
+        # error, denied by policy) is already caught inside govern._govern and
+        # turned into a governed JSON result -- this catches what's LEFT: a bug
+        # in the runner's own post-processing (a step runner, filter
+        # evaluation, redaction, artifact generation, ...), which had no
+        # handler at all before this and reached the caller as a bare 500 with
+        # no body -- unreadable in the UI and, worse, not even logged
+        # server-side. _log.exception below is what actually makes the next
+        # one of these debuggable.
+        _log.exception("workflow run %s crashed mid-execution (template=%s)", run.run_id, template_id)
+        run = workflows.update_run(run, status="failed", error="workflow run failed unexpectedly -- see server logs")
+        return {"error": "workflow run failed unexpectedly", "runId": run.run_id, "status_code": 500}
     if result.get("error") and result.get("status_code"):
         workflows.update_run(run, status="failed", error=result["error"])
         return {"error": result["error"], "runId": run.run_id, "status_code": result["status_code"]}
@@ -199,11 +216,12 @@ def _workflow_preflight_for(record, template_id: str, inputs: dict | None = None
         }
     inputs = dict(inputs or {})
     sample = bool(inputs.get("sample", True))
+    is_graph = workflows.is_graph_backed(template_id)
     store = get_store()
     grant = resolve_grant(record, store.get_category, store.get_department)
     effective_categories = sorted(_effective_category_ids(store, record))
     required_categories = list(template.get("requiredCategories") or template.get("required_categories") or [])
-    if workflows.is_graph_backed(template_id):
+    if is_graph:
         # A graph's derived requiredCategories is a UNION across tool_call nodes,
         # and for a tool grantable by more than one category (e.g. send_email_draft
         # via EITHER email_send_internal or email_send_external) that union can list
@@ -228,9 +246,26 @@ def _workflow_preflight_for(record, template_id: str, inputs: dict | None = None
     ):
         missing_categories = sorted(set(missing_categories) | {"workflow_runner"})
     required_inputs = _workflow_input_requirements(template_id)
+    # A graph's trigger inputs have no "sample" concept at all (unlike the 5
+    # hardcoded templates, whose runners swap in local test data when
+    # sample=true) -- every declared input there is just a plain required
+    # field, so gate it on "was a value actually typed", not on sample mode.
+    #
+    # "was a value actually typed" must NOT be `not (value or "")` -- that
+    # treats a legitimately-typed 0/0.0/False the same as never having typed
+    # anything at all (`0 or ""` evaluates to `""`, which then reads as
+    # blank). A real, provided falsy value (a threshold of exactly 0 days, a
+    # checkbox left off on purpose) is not the same as an empty field.
+    def _input_was_provided(value) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        return True
     missing_inputs = [
         item["name"] for item in required_inputs
-        if item.get("requiredWhenSampleFalse") and not sample and not str(inputs.get(item["name"]) or "").strip()
+        if not _input_was_provided(inputs.get(item["name"]))
+        and (not item.get("optional") if is_graph else item.get("requiredWhenSampleFalse") and not sample)
     ]
     blockers: list[str] = []
     if template.get("status") != "active":
@@ -238,7 +273,12 @@ def _workflow_preflight_for(record, template_id: str, inputs: dict | None = None
     if missing_categories:
         blockers.append("missing required access categories: " + ", ".join(missing_categories))
     if missing_inputs:
-        blockers.append("missing required inputs: " + ", ".join(missing_inputs))
+        # Show each field's human label, not its raw `name` key -- for a graph
+        # trigger input those can differ arbitrarily (whatever the workflow's
+        # builder typed into the "key" vs "label" boxes), and the label is
+        # what the run form actually displays next to the empty field.
+        labels_by_name = {item["name"]: item.get("label") or item["name"] for item in required_inputs}
+        blockers.append("missing required inputs: " + ", ".join(labels_by_name.get(n, n) for n in missing_inputs))
     controls = store.get_controls() if hasattr(store, "get_controls") else {}
     paused_backends = set(controls.get("paused_backends") or [])
     connectors = []
@@ -262,7 +302,7 @@ def _workflow_preflight_for(record, template_id: str, inputs: dict | None = None
             connectors.append({"category": category_id, "backend": category.backend, "configured": False, "paused": category.backend in paused_backends, "error": str(exc)})
             blockers.append(f"backend is not configured: {category.backend}")
     warnings: list[str] = []
-    if sample:
+    if sample and not is_graph:
         warnings.append("sample mode is enabled; generated outputs are local test artifacts")
     if template_id == "customer_email_draft" and not str(inputs.get("recipient") or "").strip():
         warnings.append("no recipient supplied; draft will use manager@example.com")
@@ -546,7 +586,16 @@ async def _workflow_run_resume(request):
     if workflows.is_graph_backed(run["templateId"]):
         graph = workflow_graph_store.get_graph(run["templateId"])
         record = workflows.get_run_record(run["runId"])
-        result = await workflow_graph_interpreter.resume_graph(record, graph, actor=claims["name"])
+        try:
+            result = await workflow_graph_interpreter.resume_graph(record, graph, actor=claims["name"])
+        except Exception:
+            # Same gap as _execute_workflow_for_record's run_graph call -- a
+            # bug past the resumed node's own tool call (filter, redaction,
+            # artifact generation) had no handler here either.
+            _log.exception("workflow resume %s crashed mid-execution", run["runId"])
+            if record:
+                workflows.update_run(record, status="failed", error="workflow resume failed unexpectedly -- see server logs")
+            return JSONResponse({"error": "workflow resume failed unexpectedly", "runId": run["runId"]}, status_code=500)
         audit.log_policy_change(actor=claims["name"], action="resume_workflow", target=run["runId"], detail=approved.approval_id)
         return JSONResponse(result)
     updated = workflows.resume_run(run["runId"], approval_id=approved.approval_id, actor=claims["name"])

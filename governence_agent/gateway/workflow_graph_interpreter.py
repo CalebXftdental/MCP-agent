@@ -20,12 +20,13 @@ depend on nothing here.
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime, timezone
 
 import approval_store
 import workflows
 from policy import manifest
 from workflow_graph_models import GraphNode, WorkflowGraphDefinition
-from workflow_graph_store import RESERVED_NODE_ID_SUFFIX, topological_node_ids
+from workflow_graph_store import FILTER_OPS, RESERVED_NODE_ID_SUFFIX, topological_node_ids
 from workflow_models import WorkflowRun, WorkflowStep
 
 import orchestrator
@@ -91,7 +92,18 @@ def _resolve_binding(binding: dict | None, run: WorkflowRun):
 def _resolve_node_args(node: GraphNode, run: WorkflowRun, *, owner: str) -> dict:
     args = dict(node.config or {})
     for arg_name, binding in (node.input_bindings or {}).items():
-        args[arg_name] = _resolve_binding(binding, run)
+        resolved = _resolve_binding(binding, run)
+        # A binding to a trigger path the run never supplied (e.g. an optional
+        # territory field left blank) resolves to None -- omit the key entirely
+        # rather than pass a literal None, which the MCP layer's pydantic
+        # arg validation rejects outright for any non-Optional-typed parameter
+        # (a hard failure, not a graceful fallback to that arg's own Python
+        # default). Omitting it lets the tool's own default apply, same as if
+        # the binding had never been wired at all.
+        if resolved is None:
+            args.pop(arg_name, None)
+        else:
+            args[arg_name] = resolved
     if node.kind == "tool_call":
         policy = manifest.get(node.tool)
         # Same anti-spoofing rule _try_tool already applies: the owner arg is always
@@ -150,6 +162,176 @@ async def _execute_llm_transform_node(run: WorkflowRun, node: GraphNode) -> tupl
     msg = llm_complete(messages, None)
     text = getattr(msg, "content", "") or ""
     run = workflows.complete_step(run, node.node_id, {"text": text})
+    return run, {"failed": False}
+
+
+def _parse_date(value) -> datetime | None:
+    """Best-effort ISO-ish date/datetime parse -- same tolerance as the win-back
+    radar smoke test's own `days_since` helper (_smoke/test_winback_radar_live.py),
+    since it parses the exact same ERP date strings this evaluates against."""
+    if not value:
+        return None
+    text = str(value)
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        pass
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text[:26], fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _days_since(value) -> int | None:
+    dt = _parse_date(value)
+    if dt is None:
+        return None
+    now = datetime.now(timezone.utc) if dt.tzinfo is not None else datetime.now()
+    return (now - dt).days
+
+
+def _coerce_number(value) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_pair(a, b):
+    """Best-effort coercion for an ordering comparison -- numeric if both sides
+    parse as numbers, else date if both parse as dates, else compared as strings.
+    Coercion happens once, here, deterministically -- never re-derived by a model,
+    so a scheduled run always produces the same answer for the same data."""
+    na, nb = _coerce_number(a), _coerce_number(b)
+    if na is not None and nb is not None:
+        return na, nb
+    da, db = _parse_date(a), _parse_date(b)
+    if da is not None and db is not None:
+        # _parse_date returns tz-AWARE for a "Z"/offset ISO string (the
+        # fromisoformat branch) but tz-NAIVE for every strptime fallback
+        # format (none of them parse a %z) -- the same ERP field can arrive
+        # in either shape row to row, and `a >= b` on a naive/aware pair
+        # raises TypeError rather than comparing (confirmed live: a filter
+        # step crashed the whole run, uncaught, once a big enough page
+        # finally included one of each shape). Neither side means a
+        # different actual timezone here -- this is one ERP's own
+        # timestamps -- so drop tzinfo rather than promote one side.
+        if da.tzinfo is not None:
+            da = da.replace(tzinfo=None)
+        if db.tzinfo is not None:
+            db = db.replace(tzinfo=None)
+        return da, db
+    return str(a), str(b)
+
+
+def _evaluate_condition(op: str, row_value, cond_value) -> bool:
+    """One filter leaf: `op` is validated against the exact same FILTER_OPS set
+    workflow_graph_store.validate_graph checks at build time, so an unrecognized
+    op can never reach a published graph -- the final `return False` below is a
+    defense-in-depth fallback, not the normal path."""
+    if op == "contains":
+        if isinstance(row_value, (list, tuple)):
+            return cond_value in row_value
+        return str(cond_value) in str(row_value or "")
+    if op == "in":
+        return row_value in (cond_value or [])
+    if op == "not_in":
+        return row_value not in (cond_value or [])
+    if op in ("older_than_days", "newer_than_days"):
+        days = _days_since(row_value)
+        threshold = _coerce_number(cond_value)
+        if days is None or threshold is None:
+            return False
+        return days > threshold if op == "older_than_days" else days < threshold
+    if row_value is None or op not in FILTER_OPS:
+        return False
+    a, b = _coerce_pair(row_value, cond_value)
+    if op == "eq":
+        return a == b
+    if op == "ne":
+        return a != b
+    if op == "gt":
+        return a > b
+    if op == "gte":
+        return a >= b
+    if op == "lt":
+        return a < b
+    if op == "lte":
+        return a <= b
+    return False
+
+
+def _resolve_maybe_binding(value, run: WorkflowRun):
+    """A config value that may be a literal, or already binding-shaped
+    (`{"source": "trigger"|"node"|"literal", ...}`) -- used for anything a
+    workflow builder might want to keep tunable per run (a filter condition's
+    `value`, a filter node's `match_limit`) without editing the graph, the same
+    way a tool_call's own args resolve. A plain literal (the common case) is
+    returned as-is."""
+    if isinstance(value, dict) and "source" in value:
+        return _resolve_binding(value, run)
+    return value
+
+
+def _evaluate_condition_tree(tree: dict, row: dict, run: WorkflowRun) -> bool:
+    """Recursive `{"all": [...]}` / `{"any": [...]}` / leaf evaluator. An empty
+    `{"all": []}` (no conditions authored yet) evaluates True -- vacuous AND,
+    matches everything -- rather than silently excluding every row before a
+    builder has added a single condition."""
+    if not isinstance(tree, dict):
+        return True
+    if "all" in tree:
+        return all(_evaluate_condition_tree(c, row, run) for c in (tree.get("all") or []))
+    if "any" in tree:
+        return any(_evaluate_condition_tree(c, row, run) for c in (tree.get("any") or []))
+    cond_value = _resolve_maybe_binding(tree.get("value"), run)
+    row_value = row.get(tree.get("field")) if isinstance(row, dict) else None
+    return _evaluate_condition(str(tree.get("op")), row_value, cond_value)
+
+
+async def _execute_filter_node(run: WorkflowRun, node: GraphNode) -> tuple[WorkflowRun, dict]:
+    resolved = _resolve_binding((node.input_bindings or {}).get("input"), run)
+    rows = resolved if isinstance(resolved, list) else []
+    conditions = (node.config or {}).get("conditions") or {"all": []}
+    run = workflows.add_step(run, WorkflowStep(step_id=node.node_id, type="filter", status="running", tool="", title=node.title or "Filter"))
+    matched: list = []
+    unmatched: list = []
+    for r in rows:
+        target = matched if isinstance(r, dict) and _evaluate_condition_tree(conditions, r, run) else unmatched
+        target.append(r)
+
+    # match_limit answers "collect up to N matches," a different question than
+    # page_size/page_size-like args on a bulk tool (which control how many RAW
+    # rows get fetched before filtering ever runs). The full match set is always
+    # evaluated first -- `unmatched` must stay "rows that failed the condition,"
+    # never "rows we didn't get to" -- then, only for the *matched* output,
+    # sliced down to the limit. `totalMatchCount` (the true, unsliced count) and
+    # `matchLimitReached` (did we actually find that many, or run out of real
+    # matches first) are what let a caller tell "found your 25" apart from
+    # "scanned everything available and only found 12" -- silently returning
+    # fewer than asked for, with no signal why, is exactly what this is meant
+    # to prevent.
+    total_match_count = len(matched)
+    raw_limit = _coerce_number(_resolve_maybe_binding((node.config or {}).get("match_limit"), run))
+    match_limit = int(raw_limit) if raw_limit is not None and raw_limit > 0 else None
+    limited_matched = matched[:match_limit] if match_limit is not None else matched
+
+    # matchedTable/unmatchedTable are the SAME rows pre-wrapped in the
+    # {"name", "rows"} shape create_pdf_packet/create_excel_report expect for
+    # their `tables` arg -- a plain array binding can't be reshaped into that by
+    # anything else in the graph model, so the filter node does it once, generically,
+    # for every consumer of its output rather than one workflow at a time.
+    table_name = str((node.config or {}).get("table_name") or node.title or "Filtered rows")
+    outputs = {
+        "matched": limited_matched, "unmatched": unmatched,
+        "matchedCount": len(limited_matched), "totalMatchCount": total_match_count, "totalCount": len(rows),
+        "matchLimitReached": (total_match_count >= match_limit) if match_limit is not None else None,
+        "matchedTable": [{"name": table_name, "rows": limited_matched}],
+        "unmatchedTable": [{"name": f"{table_name} (excluded)", "rows": unmatched}],
+    }
+    run = workflows.complete_step(run, node.node_id, outputs)
     return run, {"failed": False}
 
 
@@ -225,6 +407,10 @@ async def _interpret(run: WorkflowRun, graph: WorkflowGraphDefinition, body: dic
                     return {**workflows.run_dict(run), "artifacts": artifacts, "approval": approval.public_dict() if approval else None}
             elif node.kind == "llm_transform":
                 run, outcome = await _execute_llm_transform_node(run, node)
+                if outcome.get("failed"):
+                    return workflows.run_dict(run)
+            elif node.kind == "filter":
+                run, outcome = await _execute_filter_node(run, node)
                 if outcome.get("failed"):
                     return workflows.run_dict(run)
             continue

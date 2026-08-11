@@ -25,8 +25,11 @@ Run:
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
+import time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
@@ -48,10 +51,15 @@ import uvicorn
 
 import edge
 import request_context as ctx
+import workflow_graph_store
+import workflow_scratchpad
+import workflows
 from policy import manifest
+from store import get_store
 
 import backend
 from backend.chat import _chat_sweep_loop
+from backend.workflow_graphs import _graph_edge_from_wire, _graph_node_from_wire
 from govern import _govern
 from mcp_server import mcp
 
@@ -259,6 +267,20 @@ async def minierp_analytics_get_top_customers_by_spend(
     the analytics entitlement)."""
     return await _govern("get_top_customers_by_spend", session_id, "", {
         "start_date": start_date, "end_date": end_date, "limit": limit,
+    })
+
+
+@mcp.tool(name="minierp_analytics_get_customer_order_recency")
+async def minierp_analytics_get_customer_order_recency(
+    session_id: SessionId, country: str = "", state: str = "", city: str = "", page: int = 1, page_size: int = 25,
+) -> str:
+    """Cross-customer order recency by territory: order count, last-order date, and a
+    best-effort phone number per customer (a win-back / reorder-due signal), for
+    customers matching country/state/city (cross-customer analytics; requires the
+    analytics entitlement). phone is not a verified primary contact -- see the
+    underlying tool's own docstring."""
+    return await _govern("get_customer_order_recency", session_id, "", {
+        "country": country, "state": state, "city": city, "page": page, "page_size": page_size,
     })
 
 
@@ -613,6 +635,267 @@ async def minierp_finance_get_sales_price(
         "inventory_id": inventory_id, "cust_price_class_id": cust_price_class_id,
         "customer_id": customer_id, "company_id": company_id,
         "page": page, "page_size": page_size,
+    })
+
+
+@mcp.tool(name="minierp_finance_get_ap_invoices_due_soon")
+async def minierp_finance_get_ap_invoices_due_soon(
+    session_id: SessionId, days_ahead: int = 14, company_id: int | None = None, page: int = 1, page_size: int = 250,
+) -> str:
+    """Cross-vendor: AP invoices due within the next N days, across every vendor (not one
+    vendor at a time like minierp_finance_get_vendor_ap_invoices) -- an AP-aging / due-soon
+    signal for a workflow's filter step."""
+    return await _govern("get_ap_invoices_due_soon", session_id, "", {
+        "days_ahead": days_ahead, "company_id": company_id, "page": page, "page_size": page_size,
+    })
+
+
+@mcp.tool(name="minierp_finance_get_ar_invoices_past_due")
+async def minierp_finance_get_ar_invoices_past_due(
+    session_id: SessionId, min_invoice_age_days: int = 30, company_id: int | None = None, page: int = 1,
+) -> str:
+    """Cross-customer: AR invoices older than N days that may still be outstanding, across
+    every customer -- an AR-aging signal for a workflow's filter step. NOTE: ARInvoice has no
+    due-date column or customer link in this schema, so this ages by invoice date and cannot
+    be attributed to a specific customer."""
+    return await _govern("get_ar_invoices_past_due", session_id, "", {
+        "min_invoice_age_days": min_invoice_age_days, "company_id": company_id, "page": page,
+    })
+
+
+@mcp.tool(name="submit_workflow_request")
+async def submit_workflow_request(session_id: SessionId, description: str) -> str:
+    """Log a request for a workflow/report capability that does not exist yet
+    (e.g. a business rule needing logic no current tool/node can express).
+    Surfaces to admins in the dashboard's Access Requests panel, under
+    "Workflow requests", for future build-out. Not a data lookup -- does not
+    go through _govern; mirrors backend/session.py's self-service request-access
+    handler (same store, same record shape, kind="workflow" instead of "access")."""
+    description = (description or "").strip()
+    if not description:
+        return '{"source": "workflow_request", "status": "error", "errorCode": "description_required"}'
+    record = ctx.consumer_record_ctx.get()
+    consumer_id = record.consumer_id if record else (ctx.consumer_ctx.get() or "unknown")
+    username = record.name if record else (ctx.consumer_ctx.get() or "unknown")
+    req = {
+        "id": uuid.uuid4().hex[:12], "kind": "workflow", "consumer_id": consumer_id,
+        "username": username, "justification": description, "status": "pending",
+        "created_at": time.time(),
+    }
+    get_store().add_access_request(req)
+    return (
+        '{"source": "workflow_request", "status": "success", "requestId": "' + req["id"] + '"}'
+    )
+
+
+@mcp.tool(name="update_workflow_plan")
+async def update_workflow_plan(
+    session_id: SessionId,
+    fields_discovered: list[dict] | None = None,
+    modules_chosen: list[str] | None = None,
+    draft_nodes: list[dict] | None = None,
+    notes: str | None = None,
+) -> str:
+    """Update (or, if every argument is omitted, just re-read) this
+    conversation's in-RAM workflow plan -- discovered tool fields/values,
+    which tools/modules you've decided the workflow needs, and a draft node
+    list you're building toward. RAM-only (workflow_scratchpad.py): never
+    saved to chat history or any database, and gone once this conversation
+    goes idle. Always returns the FULL current plan, merging in whatever you
+    passed and leaving anything omitted unchanged, so you never have to hold
+    the whole plan in your own head or re-derive it from earlier prose --
+    call this with no arguments at any time to just re-read it."""
+    plan = workflow_scratchpad.update_plan(
+        session_id, fields_discovered=fields_discovered, modules_chosen=modules_chosen,
+        draft_nodes=draft_nodes, notes=notes,
+    )
+    return json.dumps({"source": "workflow_plan", "status": "success", "plan": plan})
+
+
+@mcp.tool(name="list_my_workflows")
+async def list_my_workflows(session_id: SessionId) -> str:
+    """List the calling user's own "My Workflow" graphs -- real graphIds,
+    names, statuses (draft|active|disabled), and version numbers. Scoped to
+    the calling principal only, same as the dropdown on their own "My
+    Workflow" page -- never sees anyone else's.
+    Call this FIRST whenever the user asks to change, fix, update, or add to
+    a workflow they already have, to find its REAL graphId by matching on
+    displayName -- never invent a graphId, and never reuse one from earlier
+    in this same conversation without re-confirming it here first (it may
+    have been deleted, or the name you remember may not match what's
+    actually there). Once you have the right graphId, call get_my_workflow
+    to read its current contents before changing anything."""
+    record = ctx.consumer_record_ctx.get()
+    if record is None:
+        return json.dumps({"source": "workflow_graph", "status": "error", "errorCode": "no_identity",
+                           "message": "No authenticated principal for this session."})
+    graphs = workflow_graph_store.list_graphs(owner=record.name)
+    return json.dumps({
+        "source": "workflow_graph", "status": "success",
+        "workflows": [{
+            "graphId": g.graph_id, "displayName": g.display_name, "description": g.description,
+            "status": g.status, "currentVersion": g.current_version, "publishedVersion": g.published_version,
+            "updatedAt": g.updated_at,
+        } for g in graphs],
+    })
+
+
+@mcp.tool(name="get_my_workflow")
+async def get_my_workflow(session_id: SessionId, graph_id: str) -> str:
+    """Read an existing "My Workflow" graph's CURRENT nodes/edges (its latest
+    saved version, whether draft or already published) -- call this before
+    editing one with propose_graph, so you know what's actually there right
+    now. Never assume you already know a graph's contents from earlier in
+    this conversation -- the human may have edited it by hand in the canvas
+    since, and your own earlier edit (if any) may not be the latest version.
+    graph_id must be a REAL id from list_my_workflows and must belong to you
+    -- an unknown id or someone else's graph comes back as status="error"
+    with no nodes/edges, never a peek at another user's workflow."""
+    gid = (graph_id or "").strip()
+    if not gid:
+        return json.dumps({"source": "workflow_graph", "status": "error", "errorCode": "missing_identifier",
+                           "message": "graph_id is required -- call list_my_workflows for a real one."})
+    record = ctx.consumer_record_ctx.get()
+    if record is None:
+        return json.dumps({"source": "workflow_graph", "status": "error", "errorCode": "no_identity",
+                           "message": "No authenticated principal for this session."})
+    graph = workflow_graph_store.get_graph(gid)
+    if graph is None or (graph.owner != record.name and record.role != "admin"):
+        return json.dumps({"source": "workflow_graph", "status": "error", "errorCode": "not_found",
+                           "message": f"No workflow {gid!r} owned by you was found. Call list_my_workflows for real ids."})
+    version = graph.version_record()
+    return json.dumps({
+        "source": "workflow_graph", "status": "success", "graphId": graph.graph_id,
+        "displayName": graph.display_name, "description": graph.description, "graphStatus": graph.status,
+        "currentVersion": graph.current_version, "publishedVersion": graph.published_version,
+        "nodes": [n.public_dict() for n in (version.nodes if version else [])],
+        "edges": [e.public_dict() for e in (version.edges if version else [])],
+    })
+
+
+@mcp.tool(name="propose_graph")
+async def propose_graph(
+    session_id: SessionId,
+    nodes: list[dict],
+    edges: list[dict],
+    display_name: str = "",
+    description: str = "",
+    notes: str = "",
+    graph_id: str = "",
+) -> str:
+    """Save a DRAFT "My Workflow" graph for the user to review/edit/publish
+    themselves in the canvas -- this never publishes or runs anything.
+
+    TWO MODES, controlled by `graph_id`:
+    - Omit it (default) -> creates a brand-new workflow, appearing as a new
+      entry in the dropdown.
+    - Pass a real graphId (from list_my_workflows) -> EDITS that existing
+      workflow instead, by saving a new version onto it -- it does NOT
+      create a duplicate. The graph must belong to you (same rule as
+      get_my_workflow); an unrecognized or someone-else's graph_id fails
+      with status="error" rather than silently creating a new graph anyway,
+      so a typo in the id can never turn an intended edit into an unwanted
+      duplicate. Editing NEVER touches what's currently live: if the
+      workflow is already published/active, its running version keeps
+      running unchanged until the user reviews and republishes the new one
+      -- exactly as non-destructive as creating a fresh draft.
+    display_name/description are used only when creating (a graph can't be
+    renamed by versioning, today -- the hand-built editor has this same
+    limit); they're ignored when `graph_id` is set.
+
+    THE #1 WAY TO BREAK AN EDIT: a saved version is the COMPLETE graph, not a
+    diff. When editing, `nodes`/`edges` must include EVERY node you want to
+    keep -- not just the ones you're adding or changing -- or the ones you
+    leave out are silently deleted. Always call get_my_workflow first, start
+    from its exact nodes/edges, and only add/modify/remove what the user
+    actually asked for; never reconstruct the existing steps from memory of
+    what you proposed earlier in the conversation, since the human may have
+    since changed them by hand.
+
+    Goes through the exact same validation a human building one by hand
+    would hit (workflow_graph_store.create_graph/add_graph_version): exactly
+    one trigger node with no incoming edges, no cycles, every node reachable
+    from the trigger, any send-risk tool_call (e.g. send_email_draft) must
+    sit behind an approval_gate node, and you must actually be entitled to
+    every tool used. A ValueError from any of that comes back as
+    status="error" with the exact blocker message -- fix the graph and try
+    again rather than guessing.
+    `nodes`/`edges` use the same shape the canvas itself sends: each node is
+    {"nodeId", "kind" (trigger|tool_call|approval_gate|llm_transform|filter --
+    see the FILTER NODE section of your instructions for that fifth kind's own
+    config/input_bindings shape, which differs from a tool_call's), "title",
+    "tool" (canonical tool name, tool_call only), "config" (literal values),
+    "inputBindings" (bind an arg to {"source":"trigger","path":...} or
+    {"source":"node","node_id":...,"path":...})}; each edge is {"edgeId",
+    "sourceNodeId", "targetNodeId"}. Any OTHER kind value is rejected outright
+    at save time (never silently accepted) -- an unrecognized kind would
+    otherwise be skipped entirely at run time with no error and no output,
+    which is far worse than a loud rejection now.
+    The trigger node's declared inputs go in ITS OWN "config": {"inputs":
+    [{"name": "customer_id", "label": "Customer ID"}, ...]} -- "name" is the
+    key other nodes bind to via {"source":"trigger","path":<name>} and MUST be
+    a non-empty string on every entry; get this shape wrong (a missing
+    "name", or inputs as bare strings) and the canvas fails to open the draft
+    at all, so the user could never review or publish it.
+    Every tool_call node's REQUIRED arguments (per that tool's own schema --
+    the same one that made you call it in the first place) must be filled in
+    with a real literal or binding before you call this, especially ones easy
+    to overlook because they don't come from the data itself: a report tool's
+    own title/name is the most common miss. Leaving one out doesn't fail this
+    call -- there's no server-side check for it -- it just saves a draft that
+    opens with a red "Missing required value" flag on that step, so the user
+    is stuck finishing what you should have finished, for no advantage to
+    anyone. Do NOT set "position" on any node -- omit that field entirely
+    (when editing, this also means dropping whatever positions get_my_workflow
+    showed you -- keep everything else about those nodes, just not position).
+    You have no way to see the canvas this draft opens onto and cannot judge
+    good x/y placement; leaving it out lets the canvas auto-arrange every
+    node by dependency depth, which reliably reads as intentional, whereas
+    e.g. every node at the same x with increasing y (an easy shape to default
+    to when you're really just thinking of it as a numbered list) is kept
+    AS GIVEN and renders as a squeezed, overlapping stack."""
+    record = ctx.consumer_record_ctx.get()
+    if record is None:
+        return json.dumps({"source": "workflow_graph", "status": "error", "errorCode": "no_identity",
+                           "message": "No authenticated principal for this session."})
+    store = get_store()
+    gid = (graph_id or "").strip()
+    wire_nodes = [_graph_node_from_wire(n) for n in (nodes or [])]
+    wire_edges = [_graph_edge_from_wire(e) for e in (edges or [])]
+    if gid:
+        existing = workflow_graph_store.get_graph(gid)
+        if existing is None or (existing.owner != record.name and record.role != "admin"):
+            return json.dumps({
+                "source": "workflow_graph", "status": "error", "errorCode": "not_found",
+                "message": f"No workflow {gid!r} owned by you was found -- call list_my_workflows for a "
+                           "real id, or omit graph_id entirely to create a new draft instead.",
+            })
+        try:
+            updated = workflow_graph_store.add_graph_version(
+                gid, nodes=wire_nodes, edges=wire_edges,
+                owner_record=record, get_category=store.get_category, get_department=store.get_department,
+                created_by=record.name, notes=notes,
+            )
+        except ValueError as exc:
+            return json.dumps({"source": "workflow_graph", "status": "error", "errorCode": "invalid_graph", "message": str(exc)})
+        return json.dumps({
+            "source": "workflow_graph", "status": "success", "graphId": updated.graph_id,
+            "displayName": updated.display_name, "graphStatus": updated.status, "edited": True,
+            "newVersion": updated.current_version, "publishedVersion": updated.published_version,
+        })
+    try:
+        new_graph = workflow_graph_store.create_graph(
+            display_name=display_name or "My Workflow", description=description,
+            owner_record=record, get_category=store.get_category, get_department=store.get_department,
+            nodes=wire_nodes, edges=wire_edges,
+            created_by=record.name, notes=notes,
+            reserved_ids=set(workflows.TEMPLATES.keys()),
+        )
+    except ValueError as exc:
+        return json.dumps({"source": "workflow_graph", "status": "error", "errorCode": "invalid_graph", "message": str(exc)})
+    return json.dumps({
+        "source": "workflow_graph", "status": "success", "graphId": new_graph.graph_id,
+        "displayName": new_graph.display_name, "graphStatus": new_graph.status, "edited": False,
     })
 
 

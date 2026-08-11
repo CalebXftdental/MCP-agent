@@ -47,7 +47,8 @@ async def _chat(request):
 
     try:
         result = await orchestrator.run_chat(mcp, message, session_id, record,
-                                             llm_complete=llm_complete, history=history)
+                                             llm_complete=llm_complete, history=history,
+                                             exclude_tools=orchestrator.WORKFLOW_ONLY_TOOLS)
     except Exception as exc:  # noqa: BLE001 -- an LLM-side failure (auth, timeout,
         # connection refused, ...) must reach the client as a readable JSON error,
         # the same as _chat_stream's SSE error frame -- not an unhandled 500 with
@@ -99,7 +100,8 @@ async def _chat_stream(request):
         completed = False
         try:
             async for ev in orchestrator.run_chat_stream(mcp, message, session_id, record,
-                                                          llm_complete=llm_complete, history=history):
+                                                          llm_complete=llm_complete, history=history,
+                                                          exclude_tools=orchestrator.WORKFLOW_ONLY_TOOLS):
                 t = ev.get("type")
                 if t == "delta":
                     parts.append(ev.get("text", ""))
@@ -113,6 +115,105 @@ async def _chat_stream(request):
             yield _sse({"type": "error", "message": str(exc)})
         # Persist the turn only on a clean finish -- otherwise the client falls back
         # to /chat, which records it, and we must not double-record.
+        if completed:
+            chat_log.record_turn(store, session_id, record.consumer_id, "user", message)
+            chat_log.record_turn(store, session_id, record.consumer_id, "assistant", "".join(parts),
+                                 tools_used=[t.get("tool") for t in tools])
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+
+async def _workflow_chat(request):
+    """Same governed loop as /chat, but for the 'My Workflow' builder's own
+    copilot -- separate conversation (own session_id namespace, so it never
+    shares history with the general assistant) and a dedicated system prompt
+    (orchestrator.WORKFLOW_COPILOT_SYSTEM_PROMPT) focused on discovering real
+    fields and building a report, rather than general customer/order Q&A.
+    Same chat_log session storage/history mechanics as _chat -- only the
+    prompt and the default conversation_id prefix differ."""
+    claims = _session(request)
+    if not claims:
+        return _unauthorized()
+    record = get_store().get_consumer(claims["sub"])
+    if not record or record.status != "active":
+        return JSONResponse({"error": "account is not active yet"}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    message = str(body.get("message") or "").strip()
+    if not message:
+        return JSONResponse({"error": "message is required"}, status_code=400)
+    requested_id = str(body.get("conversation_id") or f"workflow-chat:{record.consumer_id}")
+    ctx.consumer_ctx.set(record.name)
+    ctx.consumer_record_ctx.set(record)
+    ctx.ip_ctx.set(ctx.client_ip(request))
+
+    store = get_store()
+    llm_complete = orchestrator.default_llm_complete()
+    session_id = chat_log.resolve_session_id(store, requested_id, record.consumer_id, _CHAT_IDLE_SEC, llm_complete)
+    history = chat_log.history_for_llm(store, session_id, record.consumer_id)
+
+    try:
+        result = await orchestrator.run_chat(mcp, message, session_id, record,
+                                             llm_complete=llm_complete, history=history,
+                                             system_prompt=orchestrator.WORKFLOW_COPILOT_SYSTEM_PROMPT)
+    except Exception as exc:  # noqa: BLE001 -- see _chat's identical handling
+        return JSONResponse({"error": f"assistant turn failed: {exc}"}, status_code=502)
+    chat_log.record_turn(store, session_id, record.consumer_id, "user", message)
+    chat_log.record_turn(store, session_id, record.consumer_id, "assistant", result.get("reply", ""),
+                         tools_used=[t.get("tool") for t in result.get("tool_calls", [])])
+    result["conversation_id"] = session_id
+    return JSONResponse(result)
+
+
+async def _workflow_chat_stream(request):
+    """Streaming counterpart to _workflow_chat -- see _chat_stream; identical
+    except for the system prompt and the default conversation_id prefix."""
+    claims = _session(request)
+    if not claims:
+        return _unauthorized()
+    record = get_store().get_consumer(claims["sub"])
+    if not record or record.status != "active":
+        return JSONResponse({"error": "account is not active yet"}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    message = str(body.get("message") or "").strip()
+    if not message:
+        return JSONResponse({"error": "message is required"}, status_code=400)
+    requested_id = str(body.get("conversation_id") or f"workflow-chat:{record.consumer_id}")
+    client_ip = ctx.client_ip(request)
+    store = get_store()
+    llm_complete = orchestrator.default_llm_complete()
+    session_id = chat_log.resolve_session_id(store, requested_id, record.consumer_id, _CHAT_IDLE_SEC, llm_complete)
+    history = chat_log.history_for_llm(store, session_id, record.consumer_id)
+
+    async def gen():
+        ctx.consumer_ctx.set(record.name)
+        ctx.consumer_record_ctx.set(record)
+        ctx.ip_ctx.set(client_ip)
+        yield _sse({"type": "meta", "conversation_id": session_id})
+        parts: list[str] = []
+        tools: list[dict] = []
+        completed = False
+        try:
+            async for ev in orchestrator.run_chat_stream(mcp, message, session_id, record,
+                                                          llm_complete=llm_complete, history=history,
+                                                          system_prompt=orchestrator.WORKFLOW_COPILOT_SYSTEM_PROMPT):
+                t = ev.get("type")
+                if t == "delta":
+                    parts.append(ev.get("text", ""))
+                elif t == "replace":
+                    parts = [ev.get("text", "")]
+                elif t == "done":
+                    tools = ev.get("tool_calls", [])
+                    completed = True
+                yield _sse(ev)
+        except Exception as exc:  # noqa: BLE001
+            yield _sse({"type": "error", "message": str(exc)})
         if completed:
             chat_log.record_turn(store, session_id, record.consumer_id, "user", message)
             chat_log.record_turn(store, session_id, record.consumer_id, "assistant", "".join(parts),

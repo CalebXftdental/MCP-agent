@@ -369,6 +369,13 @@ async def _admin_request_approve(request):
     req = _find_request(store, rid)
     if not req:
         return JSONResponse({"error": "not found"}, status_code=404)
+    if req["kind"] == "workflow":
+        # Not a grant -- there's nothing to merge into a consumer's overrides. This
+        # just marks the request as reviewed/acknowledged so it drops off the
+        # pending queue; building the actual capability is separate, manual work.
+        store.update_access_request(rid, {"status": "acknowledged", "decided_by": claims["name"], "decided_at": time.time()})
+        audit.log_policy_change(actor=claims["name"], action="acknowledge_workflow_request", target=req.get("consumer_id", ""))
+        return JSONResponse({"ok": True})
     body = await request.json() if request.headers.get("content-length") else {}
     record = store.get_consumer(req["consumer_id"])
     if not record:
@@ -450,6 +457,10 @@ async def _admin_request_deny(request):
     req = _find_request(store, rid)
     if not req:
         return JSONResponse({"error": "not found"}, status_code=404)
+    if req["kind"] == "workflow":
+        store.update_access_request(rid, {"status": "dismissed", "decided_by": claims["name"], "decided_at": time.time()})
+        audit.log_policy_change(actor=claims["name"], action="dismiss_workflow_request", target=req.get("consumer_id", ""))
+        return JSONResponse({"ok": True})
     if req["kind"] == "account":
         record = store.get_consumer(req["consumer_id"])
         if record:

@@ -36,6 +36,28 @@ RESERVED_NODE_ID_SUFFIX = "__export_approval"
 # is raw user-supplied trigger input -- never anything else.
 _LLM_TRANSFORM_ALLOWED_SOURCE_KINDS = {"tool_call", "llm_transform"}
 
+# The only node kinds the interpreter (workflow_graph_interpreter.py::_interpret)
+# knows how to execute -- its dispatch is an if/elif chain with NO else/default
+# branch, so a node whose kind isn't one of these isn't rejected at run time, it
+# is silently SKIPPED: no step, no output, no error, and anything bound to its
+# output resolves to nothing with no indication why. That failure mode is exactly
+# the kind of thing that must never reach a saved graph -- hence the check in
+# validate_graph below, at BUILD time, where a clear blocker can still stop it.
+VALID_NODE_KINDS = {"trigger", "tool_call", "approval_gate", "llm_transform", "filter"}
+
+# A filter node's condition ops -- pure, deterministic, no library/network call.
+# Single source of truth: the interpreter (gateway/workflow_graph_interpreter.py)
+# imports this same set rather than duplicating it, so a new op can never be
+# accepted by validate_graph but silently unhandled at run time (or vice versa).
+FILTER_OPS = {
+    "eq", "ne", "gt", "gte", "lt", "lte", "contains", "in", "not_in",
+    # Compare a date-string field against "now minus N days" -- deterministic per
+    # run (real wall-clock time), not re-derived by a model. This is what lets a
+    # raw field like lastOrderDate drive a "days since" rule with no separate
+    # precomputed field needed.
+    "older_than_days", "newer_than_days",
+}
+
 # Best-effort, cosmetic-only tool -> output-type map for template-dict projection
 # (gateway/workflows.py's outputTypes field). Not authoritative for anything.
 _TOOL_OUTPUT_TYPES = {
@@ -240,6 +262,14 @@ def validate_graph(nodes: list[GraphNode] | list[dict], edges: list[GraphEdge] |
         if nid.endswith(RESERVED_NODE_ID_SUFFIX):
             blockers.append(f"node id {nid!r} uses the reserved suffix {RESERVED_NODE_ID_SUFFIX!r}")
 
+    for n in nodes:
+        if n.kind not in VALID_NODE_KINDS:
+            blockers.append(
+                f"node {n.node_id!r} has unknown kind {n.kind!r} -- must be one of "
+                f"{sorted(VALID_NODE_KINDS)} (any other value is silently skipped at run time, "
+                "never executed, rather than failing loudly, so this is rejected here instead)"
+            )
+
     triggers = [n for n in nodes if n.kind == "trigger"]
     if len(triggers) != 1:
         blockers.append(f"a graph must have exactly one trigger node (found {len(triggers)})")
@@ -292,6 +322,30 @@ def validate_graph(nodes: list[GraphNode] | list[dict], edges: list[GraphEdge] |
                 blockers.append(f"node {n.node_id!r}: input_text is bound to an unknown node {binding.get('node_id')!r}")
             elif source_node.kind not in _LLM_TRANSFORM_ALLOWED_SOURCE_KINDS:
                 blockers.append(f"node {n.node_id!r}: input_text may only be bound to a tool_call or llm_transform node's output, not {source_node.kind!r}")
+
+    # filter: `input` may only reference an existing node (same dangling-reference
+    # shape as llm_transform's input_text above), and every condition-tree leaf's
+    # `op` must be one both this validator and the interpreter recognize.
+    def _filter_condition_ops(tree) -> list[str]:
+        if not isinstance(tree, dict):
+            return []
+        if "all" in tree or "any" in tree:
+            found: list[str] = []
+            for child in tree.get("all") or tree.get("any") or []:
+                found.extend(_filter_condition_ops(child))
+            return found
+        return [str(tree.get("op"))] if "op" in tree else []
+
+    for n in nodes:
+        if n.kind != "filter":
+            continue
+        binding = n.input_bindings.get("input")
+        if isinstance(binding, dict) and binding.get("source") == "node":
+            if by_id.get(binding.get("node_id")) is None:
+                blockers.append(f"node {n.node_id!r}: input is bound to an unknown node {binding.get('node_id')!r}")
+        bad_ops = sorted({op for op in _filter_condition_ops((n.config or {}).get("conditions") or {}) if op not in FILTER_OPS})
+        if bad_ops:
+            blockers.append(f"node {n.node_id!r}: unknown filter condition op(s) {bad_ops}")
 
     return blockers
 

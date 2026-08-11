@@ -19,12 +19,20 @@ import { useCallback, useEffect, useState } from 'react'
 
 const KEY = 'gov_active_conv'
 
-function storageKey(owner: string | null): string {
-  return `${KEY}:${owner || 'anon'}`
+/** `namespace` separates unrelated conversation threads that would otherwise
+ *  collide on the same per-owner storage key — e.g. the "My Workflow" copilot
+ *  (namespace 'workflow') keeping its own active-conversation id and history
+ *  bucket distinct from the general Home assistant (namespace '', the
+ *  original key shape, kept as-is so no existing session gets orphaned on
+ *  deploy). Both still go through the exact same chat_log session storage on
+ *  the server — only the id (and therefore which bucket it lands in) differs. */
+function storageKey(owner: string | null, namespace: string): string {
+  return namespace ? `${KEY}:${namespace}:${owner || 'anon'}` : `${KEY}:${owner || 'anon'}`
 }
 
-function fresh(): string {
-  return `chat-${Math.random().toString(36).slice(2)}`
+function fresh(namespace: string): string {
+  const prefix = namespace ? `${namespace}-chat` : 'chat'
+  return `${prefix}-${Math.random().toString(36).slice(2)}`
 }
 
 export interface ConversationId {
@@ -59,13 +67,13 @@ export interface ConversationId {
   open: (id: string) => void
 }
 
-export function useConversationId(owner: string | null): ConversationId {
-  const key = storageKey(owner)
+export function useConversationId(owner: string | null, namespace = ''): ConversationId {
+  const key = storageKey(owner, namespace)
   const [id, setId] = useState<string>(() => {
     try {
-      return sessionStorage.getItem(key) || fresh()
+      return sessionStorage.getItem(key) || fresh(namespace)
     } catch {
-      return fresh()
+      return fresh(namespace)
     }
   })
   const [isResumed, setIsResumed] = useState<boolean>(() => {
@@ -87,17 +95,17 @@ export function useConversationId(owner: string | null): ConversationId {
         setId(existing)
         setIsResumed(true)
       } else {
-        const next = fresh()
+        const next = fresh(namespace)
         sessionStorage.setItem(key, next)
         setId(next)
         setIsResumed(false)
       }
     } catch {
-      setId(fresh())
+      setId(fresh(namespace))
       setIsResumed(false)
     }
     setGeneration((g) => g + 1)
-  }, [key])
+  }, [key, namespace])
 
   const set = useCallback(
     (next: string) => {
@@ -113,7 +121,7 @@ export function useConversationId(owner: string | null): ConversationId {
   )
 
   const reset = useCallback(() => {
-    const next = fresh()
+    const next = fresh(namespace)
     setId(next)
     setIsResumed(false)
     try {
@@ -122,7 +130,7 @@ export function useConversationId(owner: string | null): ConversationId {
       // Private-mode quota failure: the in-memory id still works for this tab.
     }
     setGeneration((g) => g + 1)
-  }, [key])
+  }, [key, namespace])
 
   const open = useCallback(
     (next: string) => {

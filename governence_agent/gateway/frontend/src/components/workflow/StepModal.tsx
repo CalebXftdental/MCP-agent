@@ -130,6 +130,12 @@ function StepModal({ open, onClose, catalog, triggerInputs, nodeSources, editing
                 description="Summarize, draft, classify, or extract from an earlier step's output."
                 onSelect={() => pickKind('llm_transform')}
               />
+              <StepTypeTile
+                icon="🧮"
+                title="Filter"
+                description="Split an earlier step's list into rows that match a rule, and rows that don't."
+                onSelect={() => pickKind('filter')}
+              />
             </div>
           </div>
 

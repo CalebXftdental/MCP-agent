@@ -132,19 +132,18 @@ export function nextNodePosition(nodes: GraphNode[]): Point {
   return { x: ORIGIN.x + column * COL_W, y: ORIGIN.y + row * ROW_H }
 }
 
-/**
- * Fills in positions for nodes that don't have one, laid out left-to-right in
- * dependency order.
- *
- * Needed because a graph saved by the previous linear step-list builder has
- * no positions at all (it never had a canvas to place anything on) — without
- * this, opening one of those would stack every node at (0,0) in a single
- * unreadable pile. Nodes that already carry a position keep it untouched.
- */
-export function withLayout(nodes: GraphNode[]): GraphNode[] {
-  const hasPosition = (n: GraphNode) => (n.position?.x ?? 0) !== 0 || (n.position?.y ?? 0) !== 0
-  if (nodes.every(hasPosition)) return nodes
+function hasPosition(n: GraphNode): boolean {
+  return (n.position?.x ?? 0) !== 0 || (n.position?.y ?? 0) !== 0
+}
 
+/**
+ * Depth-based grid position for every node, keyed by node id — left-to-right
+ * in dependency order (longest-path depth from the trigger becomes the
+ * column), top-to-bottom within a column in `nodes` order. Shared by
+ * `withLayout` (fills gaps only) and `autoArrange` (overwrites everything);
+ * the math itself doesn't know or care which caller is using it.
+ */
+function depthLayout(nodes: GraphNode[]): Map<string, Point> {
   // Longest-path depth per node, so a step always sits right of what feeds it.
   const depth = new Map<string, number>()
   const edges = derivedEdges(nodes)
@@ -163,11 +162,43 @@ export function withLayout(nodes: GraphNode[]): GraphNode[] {
   }
 
   const usedRows = new Map<number, number>()
-  return nodes.map((node) => {
-    if (hasPosition(node)) return node
+  const positions = new Map<string, Point>()
+  for (const node of nodes) {
     const column = depth.get(node.nodeId) ?? 0
     const row = usedRows.get(column) ?? 0
     usedRows.set(column, row + 1)
-    return { ...node, position: { x: ORIGIN.x + column * COL_W, y: ORIGIN.y + row * ROW_H } }
-  })
+    positions.set(node.nodeId, { x: ORIGIN.x + column * COL_W, y: ORIGIN.y + row * ROW_H })
+  }
+  return positions
+}
+
+/**
+ * Fills in positions for nodes that don't have one, laid out left-to-right in
+ * dependency order.
+ *
+ * Needed because a graph saved by the previous linear step-list builder has
+ * no positions at all (it never had a canvas to place anything on) — without
+ * this, opening one of those would stack every node at (0,0) in a single
+ * unreadable pile. Nodes that already carry a position keep it untouched --
+ * including one supplied by something other than a human dragging a card
+ * (e.g. the workflow copilot's propose_graph), which is exactly why a bad
+ * guess from there stays put instead of being fixed automatically; see
+ * `autoArrange` for the one-click "no, redo it properly" escape hatch.
+ */
+export function withLayout(nodes: GraphNode[]): GraphNode[] {
+  if (nodes.every(hasPosition)) return nodes
+  const positions = depthLayout(nodes)
+  return nodes.map((node) => (hasPosition(node) ? node : { ...node, position: positions.get(node.nodeId) }))
+}
+
+/**
+ * Same depth-based grid as `withLayout`, but OVERWRITES every node's
+ * position instead of only filling gaps — the Canvas view's "Auto-arrange"
+ * button, for a graph whose existing positions (hand-dragged into a mess, or
+ * guessed badly by something that authored it without ever seeing a canvas)
+ * are worse than a fresh layout.
+ */
+export function autoArrange(nodes: GraphNode[]): GraphNode[] {
+  const positions = depthLayout(nodes)
+  return nodes.map((node) => ({ ...node, position: positions.get(node.nodeId) }))
 }

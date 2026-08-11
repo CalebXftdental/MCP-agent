@@ -249,6 +249,34 @@ async def _request_access(request):
     return JSONResponse({"ok": True, "id": req["id"]}, status_code=201)
 
 
+async def _request_workflow(request):
+    """Manual counterpart to the chat assistant's submit_workflow_request tool --
+    same store, same record shape (kind="workflow"), so both land in the same
+    admin queue (see admin_policy.py's _admin_requests / the "Workflow requests"
+    section) regardless of whether the ask came from a chat turn or this box."""
+    claims = _session(request)
+    if not claims:
+        return _unauthorized()
+    store, err = _writable_or_error()
+    if err:
+        return err
+    record = store.get_consumer(claims["sub"])
+    if not record or record.status != "active":
+        return JSONResponse({"error": "account is not active"}, status_code=403)
+    body = await request.json()
+    description = str(body.get("description") or "").strip()
+    if not description:
+        return JSONResponse({"error": "a description is required"}, status_code=400)
+    req = {
+        "id": uuid.uuid4().hex[:12], "kind": "workflow", "consumer_id": record.consumer_id,
+        "username": record.name, "justification": description, "status": "pending",
+        "created_at": time.time(),
+    }
+    store.add_access_request(req)
+    audit.log_policy_change(actor=record.name, action="request_workflow", target=record.consumer_id, detail=description[:200])
+    return JSONResponse({"ok": True, "id": req["id"]}, status_code=201)
+
+
 async def _my_denials(request):
     """This caller's recent 'not granted' denials, each mapped to the category +
     tool it would take to request -- powering the 'why denied -> request' loop."""

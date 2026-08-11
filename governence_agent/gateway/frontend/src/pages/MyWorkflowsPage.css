@@ -43,6 +43,52 @@
   gap: 0.8rem;
 }
 
+/* Bounded height + flex column is what lets ChatLog's own `flex:1; min-height:0`
+   actually create a scrolling region instead of growing the whole page — same
+   requirement Home's `.home-thread` satisfies for the exact same component.
+   This is the primary interaction surface on the page now, so it gets most of
+   the viewport (clamped so it never gets uselessly cramped on a short window
+   or absurdly tall on a very large one) rather than a small fixed box. */
+.mw-copilot {
+  display: flex;
+  flex-direction: column;
+  height: clamp(28rem, 75vh, 56rem);
+}
+
+/* ChatLog/ChatMessageBubble default to a centered ~42-46rem column, tuned for
+   Home's standalone assistant thread. Inside this card that leaves most of
+   the width as dead margin, so widen just the copilot's own instance to fill
+   the card instead of touching the shared component's defaults. */
+.mw-copilot .chat-log {
+  max-width: none;
+}
+
+.mw-copilot .chat-msg {
+  max-width: 100%;
+}
+
+.mw-copilot-composer {
+  border-top: 1px solid var(--ui-border);
+  padding: 0.75rem 1.25rem;
+}
+
+@media (max-width: 640px) {
+  .mw-copilot {
+    height: clamp(22rem, 65vh, 40rem);
+  }
+}
+
+.mw-request-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.mw-request-form-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .mw-identity-cell {
   flex: 1 1 12rem;
   min-width: 10rem;
@@ -59,9 +105,19 @@
 
 .mw-trigger-input-row {
   display: grid;
-  grid-template-columns: 1fr 1fr auto;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
   gap: 0.5rem;
   width: 100%;
+}
+
+/* The auto-derived wire key, shown read-only next to its label so a graph's
+   raw bindings stay legible without offering a second free-text box to type
+   the wrong thing into (see graphModel.ts's trigger-input-naming note). */
+.mw-trigger-input-key {
+  font-size: var(--ui-fs-xs);
+  color: var(--ui-text-muted);
+  white-space: nowrap;
 }
 
 /* Step rendering lives in components/workflow/: StepFlow.css for the flow

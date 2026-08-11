@@ -89,6 +89,15 @@ export function WorkflowInputFields({
 }: WorkflowInputFieldsProps) {
   const sample = values.sample !== false
   const sampleAware = SAMPLE_AWARE_TEMPLATES.has(templateId)
+  // Sample mode only means something for the 5 hardcoded templates, whose
+  // runners actually swap in local test data server-side when sample=true --
+  // there, the placeholder previewing that sample value is honest. A "My
+  // Workflow" graph has no such swap (see SAMPLE_AWARE_TEMPLATES' own note),
+  // so its fields are always plain "type the real value" inputs: required
+  // whenever not explicitly marked optional, hinted by their own label
+  // rather than a sample value that will never actually get used.
+  const placeholderFor = (input: WorkflowInputRequirement) =>
+    sampleAware ? (sample ? input.sampleDefault ?? '' : input.label) : input.label
 
   return (
     <div className="wf-fields">
@@ -102,14 +111,14 @@ export function WorkflowInputFields({
                     <DateTimePicker
                       {...fieldProps}
                       mode="date"
-                      placeholder={sample ? input.sampleDefault ?? '' : input.label}
+                      placeholder={placeholderFor(input)}
                       value={stringValue(values, input.name)}
                       onChange={(v) => setValue(input.name, v)}
                     />
                   ) : (
                     <Input
                       {...fieldProps}
-                      placeholder={sample ? input.sampleDefault ?? '' : input.label}
+                      placeholder={placeholderFor(input)}
                       value={stringValue(values, input.name)}
                       onChange={(e) => setValue(input.name, e.target.value)}
                     />

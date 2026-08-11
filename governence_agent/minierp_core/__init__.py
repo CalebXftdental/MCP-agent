@@ -22,11 +22,13 @@ from .graphql_client import (
     find_with_offset_pagination,
     get_order_address_data_by_order_number,
     get_sales_order_data_by_order_number,
+    paginate_all,
 )
 
 __all__ = [
     "find_with_offset_pagination",
     "find_with_cursor_pagination",
+    "paginate_all",
     "get_sales_order_data_by_order_number",
     "get_order_address_data_by_order_number",
     "GraphQLConfigError",

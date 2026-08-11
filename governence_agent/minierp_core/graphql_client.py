@@ -292,6 +292,41 @@ async def find_with_offset_pagination(
     return data["findWithOffsetPagination"]
 
 
+async def paginate_all(
+    table: str,
+    options: dict[str, Any],
+    *,
+    profile: str | None = None,
+    page_size: int = 250,
+    max_pages: int = 20,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Page findWithOffsetPagination to exhaustion (or `max_pages`), returning
+    the combined item list and whether it was truncated.
+
+    Every cross-record/"bulk" analytics tool (mcp-minierp/sqlagent/analytics.py's
+    order-recency/top-spenders tools, sqlagent/finance/index.py's due-soon/past-due
+    tools, ...) needs this exact "loop pages, cap at N, flag truncated" shape --
+    before this it was copy-pasted per domain module. Callers still own their own
+    `select`/`where`/`orderBy` (passed via `options`, same shape
+    find_with_offset_pagination itself takes); this only owns the paging loop.
+    Never silently truncates without saying so -- `truncated=True` means there was
+    more data than `max_pages` covered.
+    """
+    rows: list[dict[str, Any]] = []
+    page = max(1, int(options.get("page") or 1))
+    truncated = False
+    while True:
+        result = await find_with_offset_pagination(table, {**options, "page": page, "pageSize": page_size}, profile=profile)
+        rows.extend(result.get("items") or [])
+        if not result.get("hasMore"):
+            break
+        page += 1
+        if page > max_pages:
+            truncated = True
+            break
+    return rows, truncated
+
+
 async def find_with_cursor_pagination(
     table: str,
     options: dict[str, Any] | None = None,

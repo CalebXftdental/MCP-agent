@@ -131,6 +131,19 @@ instead.
 
 ## Step 3 — Build the frontend, then deploy
 
+**Preferred: `./deploy.ps1` from this folder.** It runs the frontend build, refuses
+to ship uncommitted changes (checked against the actual current app name/RG,
+`Governence-agent`/`RG_IVA_Prod` — the names below are historical/aspirational and
+don't match what's actually live), zips with the same exclude list as
+`.vscode/settings.json`'s `appService.zipIgnorePattern`, deploys via `config-zip`, and
+checks `/health` afterward. It does **not** confirm any specific behavioral fix landed
+— file/build-log inspection was proven unreliable for this app's build mode on
+2026-08-10 — so always follow up with a real question in the chat UI that exercises
+whatever you just changed.
+
+The manual steps below are what `deploy.ps1` automates; read them if you need to
+understand or reproduce it by hand.
+
 **The frontend build must run before every deploy, on your machine (or CI) — not
 on Azure.** Oryx's zip-deploy build (`SCM_DO_BUILD_DURING_DEPLOYMENT=true`) only
 runs `pip install -r requirements.txt` at the deploy root; it never sees or

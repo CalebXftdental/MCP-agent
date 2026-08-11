@@ -22,6 +22,19 @@ export interface ChatMessageBubbleProps {
    *  turn's question. */
   onFollowup: (text: string) => void
   navigate: (key: 'workflows' | 'files') => void
+  /** "Run this as a workflow" launches one of the 5 hardcoded templates —
+   *  relevant under Home's general Q&A, but not inside the "My Workflow"
+   *  copilot, where the whole point is building something NEW rather than
+   *  routing to an existing template. Defaults true so Home's behavior is
+   *  unchanged; MyWorkflowsPage's ChatLog passes false. */
+  showWorkflowSuggestions?: boolean
+  /** The canned/keyword-guessed follow-up chips ("Summarize that", "Show
+   *  their recent orders", ...) -- built for Home's customer/order/invoice
+   *  Q&A (see useChat.ts's LLM_ACTIONS/suggestFollowups) and nonsensical on
+   *  a workflow copilot reply about a graph/draft, which isn't a data
+   *  answer to summarize or re-show as a table. Defaults true so Home's
+   *  behavior is unchanged; MyWorkflowsPage's ChatLog passes false. */
+  showFollowupChips?: boolean
 }
 
 function ChatMessageBubble({
@@ -31,6 +44,8 @@ function ChatMessageBubble({
   onRate,
   onFollowup,
   navigate,
+  showWorkflowSuggestions = true,
+  showFollowupChips = true,
 }: ChatMessageBubbleProps) {
   const toast = useToast()
   const savedAnswers = useStoredList<{ text: string; ts: number }>('gov_savedans', owner)
@@ -103,8 +118,10 @@ function ChatMessageBubble({
 
       {isDone && message.question && (
         <>
-          <FollowupChips question={message.question} reply={message.text} onPick={onFollowup} />
-          <WorkflowSuggestions question={message.question} reply={message.text} navigate={navigate} />
+          {showFollowupChips && <FollowupChips question={message.question} reply={message.text} onPick={onFollowup} />}
+          {showWorkflowSuggestions && (
+            <WorkflowSuggestions question={message.question} reply={message.text} navigate={navigate} />
+          )}
         </>
       )}
     </div>

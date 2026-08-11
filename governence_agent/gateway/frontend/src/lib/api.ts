@@ -233,10 +233,14 @@ export const getMyActivity = () => api.get<MyActivity>('/dashboard/my-activity')
 // streaming is the primary path, /chat is both the SSE fallback and how a
 // plain caller (no EventSource support) would use this API.
 
-/** One resolved tool call the assistant made this turn (orchestrator.py:326). */
+/** One resolved tool call the assistant made this turn (orchestrator.py's
+ *  `used` list). `result` is the tool's own raw JSON-string return value —
+ *  e.g. propose_graph's result carries the real graphId it just created,
+ *  which the copilot's own reply text may not restate verbatim. */
 export interface ChatToolCall {
   tool: string
   args: Record<string, unknown>
+  result?: string
 }
 
 export interface ChatTurnResult {
@@ -252,6 +256,13 @@ export interface ChatTurnResult {
  *  streaming fails, and by anything that doesn't need incremental text. */
 export const sendChat = (message: string, conversationId: string) =>
   api.post<ChatTurnResult>('/chat', { message, conversation_id: conversationId })
+
+/** The "My Workflow" builder's own copilot -- a separate governed conversation
+ *  (own session_id namespace, own system prompt: orchestrator.py's
+ *  WORKFLOW_COPILOT_SYSTEM_PROMPT) from the general assistant above, but the
+ *  exact same turn shape and the exact same chat_log session/history storage. */
+export const sendWorkflowChat = (message: string, conversationId: string) =>
+  api.post<ChatTurnResult>('/workflow-chat', { message, conversation_id: conversationId })
 
 /** SSE event shapes from /chat/stream (backend/chat.py:90-107). `tool_calls` on
  *  `done` carries the same shape as ChatTurnResult's, confirmed live. */
@@ -766,6 +777,13 @@ export interface MyDenial {
 }
 
 export const getMyDenials = () => api.get<{ denials: MyDenial[] }>('/dashboard/my-denials')
+
+/** Logs "I can't build this myself yet" as kind="workflow" in the SAME queue as
+ *  access requests (admin_policy.py's _admin_requests) -- the assistant's
+ *  submit_workflow_request tool lands in the identical queue, so an admin sees
+ *  both a chat-originated ask and one typed directly here in one place. */
+export const requestWorkflow = (description: string) =>
+  api.post<{ ok: boolean; id: string }>('/dashboard/request-workflow', { description })
 
 // ── Admin: access requests & approvals ─────────────────────────────────────
 // Two independent admin queues (admin_policy.py, approvals.py): self-service
@@ -1432,7 +1450,10 @@ export interface WorkflowInputRequirement {
   name: string
   label: string
   sampleDefault?: string
-  /** Only enforced once `sample` is false — every field is optional in sample mode. */
+  /** Only enforced once `sample` is false — every field is optional in sample
+   *  mode. Read only for the 5 hardcoded templates; a graph-backed workflow's
+   *  trigger inputs have no sample concept at all, so `optional` is what
+   *  gates them instead (see `_workflow_preflight_for`'s `is_graph` branch). */
   requiredWhenSampleFalse?: boolean
   optional?: boolean
 }
@@ -1653,7 +1674,15 @@ export type WorkflowBinding =
   | { source: 'trigger'; path: string }
   | { source: 'node'; node_id: string; path: string }
 
-export type GraphNodeKind = 'trigger' | 'tool_call' | 'approval_gate' | 'llm_transform'
+export type GraphNodeKind = 'trigger' | 'tool_call' | 'approval_gate' | 'llm_transform' | 'filter'
+
+/** One leaf test in a filter node's condition tree, or a nested `all`/`any`
+ *  group of them — mirrors `workflow_graph_store.FILTER_OPS` and the recursive
+ *  shape `workflow_graph_interpreter.py::_evaluate_condition_tree` walks. */
+export type FilterCondition =
+  | { all: FilterCondition[] }
+  | { any: FilterCondition[] }
+  | { field: string; op: string; value: unknown }
 
 export interface GraphNode {
   nodeId: string

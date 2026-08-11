@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 @dataclass(frozen=True)
 class GraphNode:
     node_id: str
-    kind: str                                          # "trigger" | "tool_call" | "approval_gate" | "llm_transform"
+    kind: str                                          # "trigger" | "tool_call" | "approval_gate" | "llm_transform" | "filter"
     title: str = ""
     tool: str = ""                                      # canonical tool name; required iff kind == "tool_call"
     config: dict = field(default_factory=dict)          # literal arg values / node-kind-specific settings

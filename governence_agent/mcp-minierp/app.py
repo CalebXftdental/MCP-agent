@@ -57,6 +57,8 @@ from sqlagent.accounts.index import (
 )
 from sqlagent.finance.index import (
     get_ap_invoice_details as _fin_get_ap_invoice_details,
+    get_ap_invoices_due_soon as _fin_get_ap_invoices_due_soon,
+    get_ar_invoices_past_due as _fin_get_ar_invoices_past_due,
     get_gl_account_transactions as _fin_get_gl_account_transactions,
     get_invoice_details as _fin_get_invoice_details,
     get_po_order_status as _fin_get_po_order_status,
@@ -82,6 +84,7 @@ from sqlagent.composites import (
     get_customer_shipment_status as _composite_customer_shipment_status,
 )
 from sqlagent.analytics import (
+    get_customer_order_recency as _an_customer_order_recency,
     get_customer_order_summary as _an_customer_order_summary,
     get_customers_by_region as _an_customers_by_region,
     get_orders_by_product as _an_orders_by_product,
@@ -317,6 +320,28 @@ async def get_sales_price(
     )
 
 
+@mcp.tool()
+async def get_ap_invoices_due_soon(
+    days_ahead: int = 14, company_id: int | None = None, page: int = 1, page_size: int = 250,
+) -> str:
+    """Cross-vendor: AP invoices due within the next N days, across every
+    vendor (not one vendor at a time like get_vendor_ap_invoices) -- an
+    AP-aging / due-soon signal for a workflow's filter step."""
+    return await _fin_get_ap_invoices_due_soon(days_ahead=days_ahead, company_id=company_id, page=page, page_size=page_size)
+
+
+@mcp.tool()
+async def get_ar_invoices_past_due(
+    min_invoice_age_days: int = 30, company_id: int | None = None, page: int = 1,
+) -> str:
+    """Cross-customer: AR invoices older than N days that may still be
+    outstanding, across every customer -- an AR-aging signal for a workflow's
+    filter step. NOTE: ARInvoice has no due-date column or customer link in
+    this schema, so this ages by invoice date and cannot be attributed to a
+    specific customer (see the underlying tool's own docstring for why)."""
+    return await _fin_get_ar_invoices_past_due(min_invoice_age_days=min_invoice_age_days, company_id=company_id, page=page)
+
+
 # ── Secondary resolvers (entry points: human handle -> canonical key) ─────────
 
 @mcp.tool()
@@ -401,6 +426,14 @@ async def get_customers_by_region(country: str = "", state: str = "", city: str 
 async def get_top_customers_by_spend(start_date: str = "", end_date: str = "", limit: int = 10) -> str:
     """Rank customers by total spend over a period (cross-customer analytics)."""
     return await _an_top_customers_by_spend(start_date, end_date, limit)
+
+
+@mcp.tool()
+async def get_customer_order_recency(country: str = "", state: str = "", city: str = "",
+                                     page: int = 1, page_size: int = 25) -> str:
+    """Cross-customer order recency by territory: order count and last-order date per
+    customer (a win-back / reorder-due signal), for customers matching country/state/city."""
+    return await _an_customer_order_recency(country, state, city, page, page_size)
 
 
 # ── ASGI app ──────────────────────────────────────────────────────────────────

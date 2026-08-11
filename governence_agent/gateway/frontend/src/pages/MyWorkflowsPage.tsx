@@ -11,6 +11,7 @@ import {
   Modal,
   SegmentedControl,
   Spinner,
+  Textarea,
   useToast,
   type DropdownOption,
 } from '../components/ui'
@@ -21,9 +22,29 @@ import StepModal from '../components/workflow/StepModal'
 import StepFlow from '../components/workflow/StepFlow'
 import WorkflowCanvas from '../components/workflow/WorkflowCanvas'
 import WorkflowCanvasLegend from '../components/workflow/WorkflowCanvasLegend'
-import { nextNodePosition, withLayout, type Point } from '../components/workflow/graphGeometry'
-import { TRIGGER_NODE_ID, derivedEdges, nodeLabel, outputPinsFor, wouldCreateCycle } from '../components/workflow/graphModel'
+import { autoArrange, nextNodePosition, withLayout, type Point } from '../components/workflow/graphGeometry'
+import {
+  TRIGGER_NODE_ID,
+  derivedEdges,
+  nodeLabel,
+  outputPinsFor,
+  renameTriggerInputEverywhere,
+  slugifyTriggerInputName,
+  uniqueTriggerInputName,
+  wouldCreateCycle,
+} from '../components/workflow/graphModel'
 import type { NodeSource, TriggerInput } from '../components/workflow/StepConfigFields'
+// The copilot panel below reuses the SAME chat building blocks Home's
+// assistant uses (ChatLog/Composer, useChat/useComposer) — same streaming,
+// retry, and feedback behavior, just pointed at the "My Workflow" copilot's
+// own session/system-prompt via useChat's `kind: 'workflow'` (see useChat.ts,
+// orchestrator.py's WORKFLOW_COPILOT_SYSTEM_PROMPT) instead of building a
+// second, parallel chat UI from scratch.
+import ChatLog from '../components/chat/ChatLog'
+import Composer from '../components/chat/Composer'
+import { useChat } from '../hooks/useChat'
+import { useComposer } from '../hooks/useComposer'
+import { useStoredList } from '../hooks/useStoredList'
 import { useWorkflowInputs } from '../hooks/useWorkflowInputs'
 import {
   ApiError,
@@ -34,6 +55,7 @@ import {
   getWorkflowGraphCatalog,
   listWorkflowGraphs,
   publishWorkflowGraph,
+  requestWorkflow,
   runWorkflow,
   setWorkflowTemplateStatus,
   validateWorkflowGraph,
@@ -100,6 +122,17 @@ function makeAiStep(): GraphNode {
   }
 }
 
+function makeFilterStep(): GraphNode {
+  return {
+    nodeId: newStepId(),
+    kind: 'filter',
+    title: 'Filter',
+    tool: '',
+    config: { conditions: { all: [] } },
+    inputBindings: {},
+  }
+}
+
 /** Every step's edge is just "the step before it" — sufficient for a linear
  *  chain (see module note above): it satisfies the backend's single-trigger,
  *  no-cycle, everything-reachable checks trivially, and a step's own input
@@ -142,8 +175,16 @@ function topoOrder(nodes: GraphNode[], edges: GraphEdge[]): GraphNode[] {
   return order.length === nodes.length ? order.map((id) => byId.get(id)!) : nodes
 }
 
-function MyWorkflowsPage({ session }: PageProps) {
+function MyWorkflowsPage({ session, navigate }: PageProps) {
   const toast = useToast()
+
+  // The copilot's own conversation — kind: 'workflow' keeps it a completely
+  // separate session/history bucket and system prompt from Home's assistant
+  // (useChat.ts, orchestrator.py's WORKFLOW_COPILOT_SYSTEM_PROMPT), even
+  // though it's the exact same hook/components.
+  const copilotChat = useChat(session.name, 'workflow')
+  const copilotAsks = useStoredList<string>('gov_quickasks_workflow', session.name)
+  const copilotComposer = useComposer({ chat: copilotChat, toast, savedAsks: copilotAsks })
 
   const [graphs, setGraphs] = useState<WorkflowGraph[]>([])
   const [graphsLoading, setGraphsLoading] = useState(true)
@@ -192,6 +233,14 @@ function MyWorkflowsPage({ session }: PageProps) {
   const [publishing, setPublishing] = useState(false)
   const [validation, setValidation] = useState<WorkflowGraphValidation | null>(null)
 
+  // "Can't build this yet" — a way to leave a request without needing to model
+  // it as steps at all. Lands in the SAME queue as the assistant's own
+  // submit_workflow_request tool (see RequestsPage's "Workflow requests"
+  // section) — same store, same admin review, regardless of which door it
+  // came through.
+  const [requestText, setRequestText] = useState('')
+  const [submittingRequest, setSubmittingRequest] = useState(false)
+
   const [runPhase, setRunPhase] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
   const [runResult, setRunResult] = useState<WorkflowRunResult | null>(null)
   const [runError, setRunError] = useState<string | null>(null)
@@ -217,6 +266,15 @@ function MyWorkflowsPage({ session }: PageProps) {
       .then((r) => setCatalog(r.tools))
       .catch(() => setCatalog([]))
   }, [])
+
+  // The copilot's propose_graph tool (app.py) writes a draft straight into the
+  // same store this dropdown reads from — refetch whenever it finishes a turn
+  // so a freshly-proposed draft shows up without the user hunting for a
+  // refresh button. Harmless to over-fire (e.g. on mount, or a turn that
+  // proposed nothing) — listWorkflowGraphs() is a cheap idempotent read.
+  useEffect(() => {
+    if (!copilotChat.busy) loadGraphs()
+  }, [copilotChat.busy, loadGraphs])
 
   const resetToNew = useCallback(() => {
     setGraphId(null)
@@ -253,7 +311,14 @@ function MyWorkflowsPage({ session }: PageProps) {
         setDescription(g.description)
         setStatus(g.status)
         setPublishedVersion(g.publishedVersion)
-        setTriggerInputs((trigger?.config.inputs as TriggerInput[] | undefined) ?? [])
+        // A hand-built graph always writes {name, label} pairs (addTriggerInput
+        // below), but a graph authored another way (e.g. the copilot's
+        // propose_graph, which was never told this exact shape) can omit or
+        // mistype either field -- normalize here, at the one place untrusted
+        // graph data enters this page's state, instead of every place that
+        // later assumes `name`/`label` are strings.
+        const rawTriggerInputs = (trigger?.config.inputs as Partial<TriggerInput>[] | undefined) ?? []
+        setTriggerInputs(rawTriggerInputs.map((t) => ({ name: String(t?.name ?? ''), label: String(t?.label ?? '') })))
         setTriggerPos({ x: trigger?.position?.x ?? 40, y: trigger?.position?.y ?? 36 })
         setSteps(rest)
         setSelectedNodeId(null)
@@ -274,6 +339,7 @@ function MyWorkflowsPage({ session }: PageProps) {
     (kind: string): GraphNode | null => {
       if (kind === 'approval_gate') return makeApprovalStep()
       if (kind === 'llm_transform') return makeAiStep()
+      if (kind === 'filter') return makeFilterStep()
       return catalogByTool[kind] ? makeToolStep(catalogByTool[kind]) : null
     },
     [catalogByTool],
@@ -370,9 +436,26 @@ function MyWorkflowsPage({ session }: PageProps) {
   }, [])
 
   const addTriggerInput = useCallback(() => setTriggerInputs((prev) => [...prev, { name: '', label: '' }]), [])
-  const updateTriggerInput = useCallback((index: number, patch: Partial<TriggerInput>) => {
-    setTriggerInputs((prev) => prev.map((t, i) => (i === index ? { ...t, ...patch } : t)))
-  }, [])
+  /** The only edit surface for a trigger input: its label. The wire `name`
+   *  bindings actually resolve against is derived from that label and never
+   *  hand-typed, so it can't land in the wrong box the way a raw two-textbox
+   *  editor let "Territory Win-Back Flag" happen (name="Toronto",
+   *  label="city"). Renaming an already-referenced input cascades the new
+   *  name into every step (and filter condition) that binds to it, so a
+   *  wired step never silently orphans mid-edit. */
+  const renameTriggerInput = useCallback(
+    (index: number, label: string) => {
+      const current = triggerInputs[index]
+      if (!current) return
+      const others = new Set(triggerInputs.filter((_, i) => i !== index).map((t) => t.name).filter(Boolean))
+      const nextName = label.trim() ? uniqueTriggerInputName(slugifyTriggerInputName(label), others) : current.name
+      if (current.name && nextName !== current.name) {
+        setSteps((prev) => renameTriggerInputEverywhere(prev, current.name, nextName))
+      }
+      setTriggerInputs((prev) => prev.map((t, i) => (i === index ? { name: nextName, label } : t)))
+    },
+    [triggerInputs],
+  )
   const removeTriggerInput = useCallback((index: number) => {
     setTriggerInputs((prev) => prev.filter((_, i) => i !== index))
   }, [])
@@ -389,6 +472,13 @@ function MyWorkflowsPage({ session }: PageProps) {
           return (meta?.outputFields ?? []).map((f) => ({ nodeId: s.nodeId, path: f, label: `${s.title || s.tool} → ${f}` }))
         }
         if (s.kind === 'llm_transform') return [{ nodeId: s.nodeId, path: 'text', label: `${s.title || 'AI step'} → text` }]
+        if (s.kind === 'filter') {
+          return ['matched', 'unmatched', 'matchedCount', 'totalMatchCount', 'totalCount', 'matchLimitReached', 'matchedTable', 'unmatchedTable'].map((f) => ({
+            nodeId: s.nodeId,
+            path: f,
+            label: `${s.title || 'Filter'} → ${f}`,
+          }))
+        }
         return []
       }),
     [steps, catalogByTool],
@@ -403,7 +493,7 @@ function MyWorkflowsPage({ session }: PageProps) {
       kind: 'trigger',
       title: 'Trigger',
       tool: '',
-      config: { inputs: triggerInputs.filter((t) => t.name.trim()) },
+      config: { inputs: triggerInputs.filter((t) => (t.name ?? '').trim()) },
       inputBindings: {},
       position: triggerPos,
     }),
@@ -411,6 +501,18 @@ function MyWorkflowsPage({ session }: PageProps) {
   )
 
   const allNodes = useMemo(() => [triggerNode, ...steps], [triggerNode, steps])
+
+  /** Canvas-only: "no, redo this layout properly" — recomputes every node's
+   *  position from scratch (unlike `withLayout`, which only fills gaps),
+   *  for a graph whose positions are a hand-dragged mess or a bad guess from
+   *  whatever authored it without ever seeing the canvas (e.g. the copilot's
+   *  propose_graph). */
+  const autoArrangeCanvas = useCallback(() => {
+    const laidOut = autoArrange(allNodes)
+    const trigger = laidOut.find((n) => n.nodeId === TRIGGER_NODE_ID)
+    if (trigger) setTriggerPos({ x: trigger.position?.x ?? 40, y: trigger.position?.y ?? 36 })
+    setSteps(laidOut.filter((n) => n.nodeId !== TRIGGER_NODE_ID))
+  }, [allNodes])
 
   const editingStep = useMemo(() => steps.find((s) => s.nodeId === editingStepId) ?? null, [steps, editingStepId])
 
@@ -488,6 +590,21 @@ function MyWorkflowsPage({ session }: PageProps) {
     }
   }, [graphId, persist, loadGraphs, toast])
 
+  const submitRequest = useCallback(async () => {
+    const text = requestText.trim()
+    if (!text) return
+    setSubmittingRequest(true)
+    try {
+      await requestWorkflow(text)
+      toast.success("Sent — we'll follow up once it's built.")
+      setRequestText('')
+    } catch (cause) {
+      toast.error(cause instanceof ApiError ? cause.message : 'Could not send that request.')
+    } finally {
+      setSubmittingRequest(false)
+    }
+  }, [requestText, toast])
+
   const validate = useCallback(async () => {
     if (!graphId) {
       toast.warn('Save the workflow first')
@@ -514,12 +631,19 @@ function MyWorkflowsPage({ session }: PageProps) {
       setPublishedVersion(result.publishedVersion)
       toast.success('Workflow published')
       loadGraphs()
+      // Publishing can change what the run form's own preflight declares
+      // (e.g. a newly added trigger input) without changing this graph's id
+      // or the run form's draft values -- neither of which the preflight
+      // fetch below is otherwise keyed on, so without this the "Run this
+      // workflow" panel keeps showing the PREVIOUSLY published version's
+      // fields until the workflow is reselected or the page reloads.
+      runInputs.refresh()
     } catch (cause) {
       toast.error(cause instanceof ApiError ? cause.message : 'Could not publish that workflow.')
     } finally {
       setPublishing(false)
     }
-  }, [persist, loadGraphs, toast])
+  }, [persist, loadGraphs, toast, runInputs])
 
   const toggleStatus = useCallback(async () => {
     if (!graphId) return
@@ -652,8 +776,8 @@ function MyWorkflowsPage({ session }: PageProps) {
         <div className="mw-trigger-inputs">
           {triggerInputs.map((t, i) => (
             <div className="mw-trigger-input-row" key={i}>
-              <Input placeholder="key, e.g. customer_id" value={t.name} onChange={(e) => updateTriggerInput(i, { name: e.target.value })} />
-              <Input placeholder="Label shown to whoever runs it" value={t.label} onChange={(e) => updateTriggerInput(i, { label: e.target.value })} />
+              <Input placeholder="e.g. City" value={t.label} onChange={(e) => renameTriggerInput(i, e.target.value)} />
+              {t.name && <span className="mw-trigger-input-key ui-mono">{t.name}</span>}
               <Button size="sm" variant="ghost" onClick={() => removeTriggerInput(i)} aria-label="Remove input">
                 ✕
               </Button>
@@ -684,6 +808,11 @@ function MyWorkflowsPage({ session }: PageProps) {
               label="Workflow editor view"
               size="sm"
             />
+            {viewMode === 'canvas' && steps.length > 0 && (
+              <Button size="sm" variant="ghost" onClick={autoArrangeCanvas}>
+                Auto-arrange
+              </Button>
+            )}
             <AddButton onClick={openAddStep} label="Add a step" size="sm" />
           </div>
         }
@@ -719,7 +848,7 @@ function MyWorkflowsPage({ session }: PageProps) {
           <StepFlow
             steps={steps}
             catalogByTool={catalogByTool}
-            triggerInputLabels={triggerInputs.filter((t) => t.name.trim()).map((t) => t.label || t.name)}
+            triggerInputLabels={triggerInputs.filter((t) => (t.label ?? '').trim()).map((t) => t.label)}
             onEdit={openEditStep}
             onMove={moveStep}
             onRemove={removeStep}
@@ -817,6 +946,65 @@ function MyWorkflowsPage({ session }: PageProps) {
           )}
         </Card>
       )}
+
+      <Card
+        title="Ask the workflow copilot"
+        description="Describe what you want — e.g. a win-back report — and it'll ask what it needs, check what data is actually available, and either build it right here, or put together a draft workflow for you to review in the dropdown below, or tell you plainly if it can't do either yet."
+        actions={
+          <Button variant="ghost" size="sm" onClick={copilotChat.newConversation}>
+            New conversation
+          </Button>
+        }
+        flush
+      >
+        <div className="mw-copilot">
+          <ChatLog
+            messages={copilotChat.messages}
+            loadingHistory={copilotChat.loadingHistory}
+            owner={session.name}
+            onRetry={copilotChat.retry}
+            onRate={copilotChat.rate}
+            onFollowup={copilotComposer.ask}
+            navigate={navigate}
+            showWorkflowSuggestions={false}
+            showFollowupChips={false}
+          />
+          <div className="mw-copilot-composer">
+            <Composer
+              composer={copilotComposer}
+              busy={copilotChat.busy}
+              idPrefix="mw-copilot-ask"
+              placeholder="e.g. Build me a report of customers who need a win-back"
+              autoFocus={false}
+            />
+          </div>
+        </div>
+      </Card>
+
+      <Card
+        title="Can't build what you need here?"
+        description="Or just tell us directly without chatting — either way it goes straight to the team that builds these."
+      >
+        <div className="mw-request-form">
+          <Field label="What do you need?" hint="Be as specific as you can — what should trigger it, what should it check, what should come out.">
+            {(fp) => (
+              <Textarea
+                {...fp}
+                mono={false}
+                rows={3}
+                placeholder="e.g. Flag customers who haven't reordered in longer than their usual pattern, and aren't closed accounts — email me a weekly list."
+                value={requestText}
+                onChange={(e) => setRequestText(e.target.value)}
+              />
+            )}
+          </Field>
+          <div className="mw-request-form-actions">
+            <Button onClick={submitRequest} loading={submittingRequest} disabled={!requestText.trim()}>
+              Send request
+            </Button>
+          </div>
+        </div>
+      </Card>
     </div>
   )
 }

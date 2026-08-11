@@ -234,3 +234,114 @@ async def get_top_customers_by_spend(start_date: str = "", end_date: str = "", l
     } for cid, agg in top]
     return _json_tool_result(status="ok" if ranked else "not_found", intent="top_customers_by_spend",
                              topCustomers=ranked, count=len(ranked), truncated=truncated)
+
+
+async def get_customer_order_recency(country: str = "", state: str = "", city: str = "",
+                                     page: int = 1, page_size: int = 25) -> str:
+    """Cross-customer order recency by territory -- order count and last-order date
+    per customer (a win-back / reorder-due signal). Cross-customer -- gated to the
+    analytics entitlement, same as get_top_customers_by_spend.
+
+    Territory resolution is identical to get_customers_by_region (address ->
+    baccount join); the per-customer rollup (count/total/first/last order date) is
+    the same aggregation get_customer_order_summary applies to one account, just
+    grouped across everyone matched on this page instead of filtered to one.
+
+    country/state/city are normalized to "" before use (not just relying on the
+    str="" default): a "My Workflow" graph binds each to its own trigger input,
+    and a run that only supplies country resolves the other two via
+    _resolve_binding to a real `None` (workflow_graph_interpreter.py's
+    _resolve_binding returns run.inputs.get(path), which is None for an absent
+    key) rather than falling back to this function's own default -- a bound-but-
+    unfilled arg is a real None on the wire, not a missing kwarg."""
+    country, state, city = country or "", state or "", city or ""
+    where: dict = {"companyId": {"in": _company_ids(None)}}
+    if country.strip():
+        where["countryId"] = country.strip()
+    if state.strip():
+        where["state"] = state.strip()
+    if city.strip():
+        where["city"] = {"contains": city.strip()}
+    if len(where) == 1:
+        return _json_tool_result(status="missing_identifier", intent="customer_order_recency",
+                                 message="Provide at least one of country, state, or city.",
+                                 missingFields=["country", "state", "city"])
+    addr = await find_with_offset_pagination("address", {
+        "select": {"bAccountId": True, "city": True, "state": True, "countryId": True},
+        "where": where, "page": max(1, page), "pageSize": min(200, max(1, page_size))})
+    items = addr.get("items") or []
+    baccount_ids = sorted({r.get("bAccountId") for r in items if r.get("bAccountId")})
+    if not baccount_ids:
+        return _json_tool_result(status="not_found", intent="customer_order_recency",
+                                 customers=[], count=0, hasMore=False)
+
+    bres = await find_with_offset_pagination("baccount", {
+        "select": {"bAccountId": True, "acctCd": True, "acctName": True, "status": True},
+        "where": {"bAccountId": {"in": baccount_ids}, "companyId": {"in": _company_ids(None)}},
+        "page": 1, "pageSize": max(len(baccount_ids), 10)})
+    bmap = {b.get("bAccountId"): b for b in bres.get("items", [])}
+
+    # Phone: NOT on baccount itself -- it lives on Contact (phone1). The
+    # "obvious" unambiguous path, baccount.primaryContactId, is confirmed by
+    # live sampling to be essentially UNPOPULATED in this data (0/50 sampled
+    # accounts had one set) -- so this joins directly on Contact.bAccountId
+    # instead, one bulk query for every account on this page, not a call per
+    # customer. Most accounts have MULTIPLE contact rows here (confirmed by
+    # sampling: 25/27), sometimes with genuinely different phone numbers, and
+    # nothing in this schema designates one as authoritative when
+    # primaryContactId is absent -- silently picking one would be exactly the
+    # kind of confident-but-wrong guess this project's governance design
+    # explicitly avoids elsewhere (e.g. never inferring an ambiguous status
+    # code's meaning). The one deterministic, defensible tie-break available
+    # is contactId order (lowest = earliest-created contact on the account);
+    # this is a best-effort "a" phone number for outreach, not a verified
+    # "the customer's primary contact" -- described as such below and in the
+    # tool's own manifest description.
+    contact_res = await find_with_offset_pagination("contact", {
+        "select": {"contactId": True, "bAccountId": True, "phone1": True},
+        "where": {"bAccountId": {"in": baccount_ids}},
+        "page": 1, "pageSize": max(len(baccount_ids) * 5, 50)})
+    contacts_by_account: dict = {}
+    for c in contact_res.get("items", []):
+        contacts_by_account.setdefault(c.get("bAccountId"), []).append(c)
+    phone_by_account: dict = {}
+    for bid, contacts in contacts_by_account.items():
+        with_phone = sorted((c for c in contacts if c.get("phone1")), key=lambda c: c.get("contactId") or 0)
+        phone_by_account[bid] = with_phone[0]["phone1"] if with_phone else None
+
+    rows, truncated = await _paginate(
+        "soorder", {"customerId": {"in": baccount_ids}, "companyId": {"in": _company_ids(None)}},
+        {"customerId": True, "orderDate": True, "orderTotal": True})
+    agg: dict = {}
+    for r in rows:
+        cid = r.get("customerId")
+        if cid is None:
+            continue
+        a = agg.setdefault(cid, {"orderCount": 0, "total": 0.0, "dates": []})
+        a["orderCount"] += 1
+        a["total"] += _f(r.get("orderTotal"))
+        d = r.get("orderDate")
+        if d:
+            a["dates"].append(str(d))
+
+    customers = []
+    for bid in baccount_ids:
+        b = bmap.get(bid)
+        if not b:
+            continue
+        a = agg.get(bid, {"orderCount": 0, "total": 0.0, "dates": []})
+        customers.append({
+            "customerId": b.get("acctCd"), "name": b.get("acctName"), "status": b.get("status"),
+            "orderCount": a["orderCount"], "grandTotal": round(a["total"], 2),
+            "firstOrderDate": min(a["dates"]) if a["dates"] else None,
+            "lastOrderDate": max(a["dates"]) if a["dates"] else None,
+            # None whenever the account has no contact on file with a phone
+            # number at all -- a real, expected outcome, not a bug. When it IS
+            # set, it's the lowest-contactId contact that has a phone1, a
+            # best-effort pick (see the note above this function's contact
+            # lookup), not a verified "primary" contact.
+            "phone": phone_by_account.get(bid),
+        })
+    return _json_tool_result(status="ok" if customers else "not_found", intent="customer_order_recency",
+                             customers=customers, count=len(customers),
+                             hasMore=bool(addr.get("hasMore")), truncated=truncated)

@@ -123,6 +123,7 @@ def register(app) -> None:
     api("/dashboard/my-access", session._my_access)
     api("/dashboard/my-key/rotate", session._my_key_rotate, methods=["POST"])
     api("/dashboard/request-access", session._request_access, methods=["POST"])
+    api("/dashboard/request-workflow", session._request_workflow, methods=["POST"])
     api("/dashboard/my-denials", session._my_denials)
     api("/dashboard/my-activity", session._my_activity)
     api("/dashboard/departments", session._departments)
@@ -132,6 +133,8 @@ def register(app) -> None:
     # ── Chat ──────────────────────────────────────────────────────────────────
     api("/chat", chat._chat, methods=["POST"])
     api("/chat/stream", chat._chat_stream, methods=["POST"])
+    api("/workflow-chat", chat._workflow_chat, methods=["POST"])
+    api("/workflow-chat/stream", chat._workflow_chat_stream, methods=["POST"])
     api("/dashboard/chat-history", chat._chat_history)
     api("/dashboard/chat-history/{sid}", chat._chat_transcript)
     api("/dashboard/chat-history/{sid}/resume", chat._chat_resume, methods=["POST"])

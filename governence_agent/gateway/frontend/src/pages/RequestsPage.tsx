@@ -95,7 +95,7 @@ function RequestsPage(_props: PageProps) {
       setApproving(request.id)
       try {
         await approveAdminRequest(request.id)
-        toast.success('Request approved')
+        toast.success(request.kind === 'workflow' ? 'Marked acknowledged' : 'Request approved')
         setRequests((prev) => prev.filter((r) => r.id !== request.id))
       } catch (cause) {
         toast.error(cause instanceof ApiError ? cause.message : 'Could not approve that request')
@@ -111,7 +111,7 @@ function RequestsPage(_props: PageProps) {
     setDenying(true)
     try {
       await denyAdminRequest(denyTarget.id)
-      toast.success('Request denied')
+      toast.success(denyTarget.kind === 'workflow' ? 'Dismissed' : 'Request denied')
       setRequests((prev) => prev.filter((r) => r.id !== denyTarget.id))
       setDenyTarget(null)
     } catch (cause) {
@@ -178,6 +178,38 @@ function RequestsPage(_props: PageProps) {
     [categories, approve, approving],
   )
 
+  // Workflow requests ("I can't build this myself yet") are a DIFFERENT kind of
+  // ask from an access/signup decision -- approving one doesn't grant anything,
+  // it just marks the ask reviewed (admin_policy.py's kind=="workflow" branch),
+  // so they get their own section/labels rather than living in the grant queue.
+  const pendingOther = useMemo(() => requests.filter((r) => r.kind !== 'workflow'), [requests])
+  const workflowRequests = useMemo(() => requests.filter((r) => r.kind === 'workflow'), [requests])
+
+  const workflowColumns = useMemo<Column<AdminAccessRequest>[]>(
+    () => [
+      { key: 'who', header: 'Who', width: '10rem', render: (r) => r.username || r.consumer_id || '—' },
+      { key: 'ask', header: 'What they asked for', render: (r) => r.justification || '—' },
+      {
+        key: 'when', header: 'Asked', width: '9rem', muted: true, nowrap: true,
+        render: (r) => <span title={formatWhen(r.created_at)}>{formatRelative(r.created_at)}</span>,
+      },
+      {
+        key: 'action', header: '', srHeader: 'Decide', width: '11rem', align: 'right',
+        render: (r) => (
+          <div className="requests-row-actions">
+            <Button size="sm" onClick={() => approve(r)} loading={approving === r.id}>
+              Acknowledge
+            </Button>
+            <Button size="sm" variant="danger" onClick={() => setDenyTarget(r)} disabled={approving === r.id}>
+              Dismiss
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    [approve, approving],
+  )
+
   const suggestionColumns = useMemo<Column<AccessSuggestion>[]>(
     () => [
       { key: 'consumer', header: 'Consumer' },
@@ -201,7 +233,7 @@ function RequestsPage(_props: PageProps) {
       >
         <DataTable
           columns={requestColumns}
-          rows={requests}
+          rows={pendingOther}
           rowKey={(r) => r.id}
           loading={state === 'loading'}
           skeletonRows={4}
@@ -225,6 +257,22 @@ function RequestsPage(_props: PageProps) {
       </Card>
 
       <Card
+        title="Workflow requests"
+        description="Things people asked the assistant (or typed directly) that we can't build yet — a report needing custom logic, a saved/recurring version, or data we don't expose. Acknowledge to mark it seen; the actual build is separate work."
+        flush
+      >
+        <DataTable
+          columns={workflowColumns}
+          rows={workflowRequests}
+          rowKey={(r) => r.id}
+          loading={state === 'loading'}
+          skeletonRows={2}
+          caption="Pending workflow/report requests"
+          empty={<EmptyState title="No workflow requests" description="Nobody's hit a capability gap recently." compact />}
+        />
+      </Card>
+
+      <Card
         title="Access suggestions"
         description="Aggregated from denied “not granted” attempts — repeat attempts likely mean a grant is missing."
         flush
@@ -244,30 +292,37 @@ function RequestsPage(_props: PageProps) {
       <Drawer
         open={denyTarget != null}
         onClose={() => setDenyTarget(null)}
-        eyebrow="Access request"
-        title="Deny this request?"
+        eyebrow={denyTarget?.kind === 'workflow' ? 'Workflow request' : 'Access request'}
+        title={denyTarget?.kind === 'workflow' ? 'Dismiss this request?' : 'Deny this request?'}
         footer={
           <>
             <Button variant="ghost" onClick={() => setDenyTarget(null)} disabled={denying}>
               Cancel
             </Button>
             <Button variant="danger" onClick={confirmDeny} loading={denying}>
-              Deny request
+              {denyTarget?.kind === 'workflow' ? 'Dismiss request' : 'Deny request'}
             </Button>
           </>
         }
       >
         {denyTarget && (
           <KeyValue
-            items={[
-              { label: 'Who', value: denyTarget.username || denyTarget.consumer_id },
-              { label: 'Kind', value: denyTarget.kind },
-              { label: 'Detail', value: describeRequest(denyTarget, categories), wide: true },
-              { label: 'Justification', value: denyTarget.justification, wide: true },
-              ...(denyTarget.kind === 'account'
-                ? [{ label: 'Note', value: 'Denying also disables this account.', wide: true }]
-                : []),
-            ]}
+            items={
+              denyTarget.kind === 'workflow'
+                ? [
+                    { label: 'Who', value: denyTarget.username || denyTarget.consumer_id },
+                    { label: 'What they asked for', value: denyTarget.justification, wide: true },
+                  ]
+                : [
+                    { label: 'Who', value: denyTarget.username || denyTarget.consumer_id },
+                    { label: 'Kind', value: denyTarget.kind },
+                    { label: 'Detail', value: describeRequest(denyTarget, categories), wide: true },
+                    { label: 'Justification', value: denyTarget.justification, wide: true },
+                    ...(denyTarget.kind === 'account'
+                      ? [{ label: 'Note', value: 'Denying also disables this account.', wide: true }]
+                      : []),
+                  ]
+            }
           />
         )}
       </Drawer>

@@ -20,6 +20,14 @@ export interface WorkflowInputsState {
   values: Record<string, unknown>
   setValue: (name: string, value: unknown) => void
   reset: () => void
+  /** Re-runs the preflight check against the same `templateId`/`values` —
+   *  for when the workflow itself just changed server-side (e.g. a "My
+   *  Workflow" graph was just published with a newly declared trigger
+   *  input) rather than the user's selection or draft values. Publishing
+   *  doesn't change `templateId` (same graph id) or `values`, so without
+   *  this the fetch effect below never re-fires and the run form keeps
+   *  showing whatever fields the PREVIOUSLY published version declared. */
+  refresh: () => void
   preflight: WorkflowPreflight | null
   checking: boolean
   error: string | null
@@ -30,6 +38,7 @@ export function useWorkflowInputs(templateId: string | null): WorkflowInputsStat
   const [preflight, setPreflight] = useState<WorkflowPreflight | null>(null)
   const [checking, setChecking] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [refreshTick, setRefreshTick] = useState(0)
   const requestSeq = useRef(0)
 
   const reset = useCallback(() => {
@@ -37,6 +46,8 @@ export function useWorkflowInputs(templateId: string | null): WorkflowInputsStat
     setPreflight(null)
     setError(null)
   }, [])
+
+  const refresh = useCallback(() => setRefreshTick((n) => n + 1), [])
 
   // Switching templates starts over rather than carrying stale field values
   // (a customer id typed for one workflow has no business surviving into a
@@ -64,12 +75,12 @@ export function useWorkflowInputs(templateId: string | null): WorkflowInputsStat
         })
     }, DEBOUNCE_MS)
     return () => clearTimeout(timer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- values is the intentional trigger; templateId re-runs via reset() above
-  }, [templateId, values])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- values is the intentional trigger; templateId re-runs via reset() above; refreshTick is a manual re-trigger only
+  }, [templateId, values, refreshTick])
 
   const setValue = useCallback((name: string, value: unknown) => {
     setValues((prev) => ({ ...prev, [name]: value }))
   }, [])
 
-  return { values, setValue, reset, preflight, checking, error }
+  return { values, setValue, reset, refresh, preflight, checking, error }
 }

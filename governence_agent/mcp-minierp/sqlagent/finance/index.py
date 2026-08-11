@@ -27,10 +27,11 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from minierp_core import find_with_offset_pagination as _find_with_offset_pagination
+from minierp_core import paginate_all as _paginate_all
 
 # Finance uses the higher-privilege "administrator" miniERP account (AR/AP/GL/PO/
 # Vendor). Bind every query in this domain to the "admin" credential profile
@@ -38,6 +39,10 @@ from minierp_core import find_with_offset_pagination as _find_with_offset_pagina
 # process server where per-process env can't select the account.
 async def find_with_offset_pagination(table, options=None):
     return await _find_with_offset_pagination(table, options, profile="admin")
+
+
+async def _paginate(table, options):
+    return await _paginate_all(table, options, profile="admin", page_size=_AGGREGATE_PAGE_SIZE, max_pages=_MAX_AGGREGATE_PAGES)
 
 MINIERP_ENTITIES: dict[str, str] = {
     "baccount":  "baccount",
@@ -646,4 +651,156 @@ async def get_sales_price(
         status="not_found", intent="sales_price",
         message=f"No sales price records found for inventory item {inventory_id}.",
         inventoryId=inventory_id, records=[],
+    )
+
+
+# ── Bulk/cross-record analytics (mirrors mcp-minierp/sqlagent/analytics.py's
+# get_top_customers_by_spend/get_customer_order_recency pattern: page the raw
+# table directly, aggregate/join client-side, in ONE governed call -- not a
+# loop calling the single-record tools above once per vendor/invoice. See the
+# module note at the top of this file re: which tables are actually reachable
+# under the admin credential profile.) ────────────────────────────────────────
+
+
+async def get_ap_invoices_due_soon(
+    days_ahead: int = 14, company_id: int | None = None,
+    page: int = 1, page_size: int = _AGGREGATE_PAGE_SIZE,
+) -> str:
+    """AP invoices due within the next N days, across EVERY vendor -- an
+    AP-aging / due-soon signal for a "My Workflow" filter node to act on.
+
+    Unlike get_vendor_ap_invoices (one vendor per call), this pages the
+    APInvoice table directly by due date, company-wide, then joins vendor
+    code/name for whichever vendors appear -- no rollup needed since each
+    invoice is already one row (unlike get_customer_order_recency, which
+    rolls many orders up into one row per customer).
+
+    Returns candidate rows only, `paid` included but NOT filtered out --
+    deciding "unpaid AND due soon" is exactly what a filter node is for; this
+    tool's job is fetching a bounded, real candidate set, not deciding.
+    """
+    f = MINIERP_FIELDS
+    now = datetime.utcnow()
+    end = now + timedelta(days=max(0, int(days_ahead or 0)))
+    options = {
+        "select": _select_all_for(
+            "ap_ref_nbr", "ap_doc_type", "ap_invoice_date", "ap_invoice_nbr",
+            "ap_due_date", "ap_line_total", "ap_tax_total", "ap_pay_date", "ap_vendor_id",
+        ),
+        "where": {
+            f["ap_due_date"]: {
+                "gte": _format_date(now.strftime("%Y-%m-%d")),
+                "lte": _format_date(end.strftime("%Y-%m-%d"), end_of_day=True),
+            },
+            f["company_id"]: {"in": _company_ids(company_id)},
+        },
+        "page": _clamp_page(page),
+    }
+    items, truncated = await _paginate(MINIERP_ENTITIES["ap_invoice"], options)
+    if not items:
+        return _json_tool_result(status="not_found", intent="ap_invoices_due_soon",
+                                 invoices=[], count=0, truncated=False)
+
+    vendor_ids = sorted({it.get(f["ap_vendor_id"]) for it in items if it.get(f["ap_vendor_id"]) is not None})
+    vmap: dict = {}
+    if vendor_ids:
+        # "acctCd"/"acctName" (lowercase) -- confirmed by live probe to be the
+        # real baccount field names under BOTH credential profiles. Deliberately
+        # NOT reusing this file's own MINIERP_FIELDS["acct_cd"] ("AcctCD",
+        # differently cased) -- that key is only ever used for an equality
+        # WHERE filter elsewhere in this file (_resolve_baccount_id), never as
+        # a SELECT projection, so its casing was never verified for that purpose.
+        vres = await find_with_offset_pagination(MINIERP_ENTITIES["baccount"], {
+            "select": {f["baccount_id"]: True, "acctCd": True, "acctName": True},
+            "where": {f["baccount_id"]: {"in": vendor_ids}},
+            "page": 1, "pageSize": max(len(vendor_ids), 10),
+        })
+        vmap = {v.get(f["baccount_id"]): v for v in vres.get("items", [])}
+
+    invoices = [
+        {
+            "invoiceNumber": it.get(f["ap_ref_nbr"]),
+            "docType": it.get(f["ap_doc_type"]),
+            "invoiceDate": it.get(f["ap_invoice_date"]),
+            "dueDate": it.get(f["ap_due_date"]),
+            "lineTotal": float(it.get(f["ap_line_total"]) or 0),
+            "taxTotal": float(it.get(f["ap_tax_total"]) or 0),
+            "paid": it.get(f["ap_pay_date"]) is not None,
+            # vendor may be absent from vmap if the baccount lookup's own page
+            # cap (pageSize=len(vendor_ids)) somehow missed it -- code defensively.
+            "vendorCode": (vmap.get(it.get(f["ap_vendor_id"])) or {}).get("acctCd"),
+            "vendorName": (vmap.get(it.get(f["ap_vendor_id"])) or {}).get("acctName"),
+        }
+        for it in items
+    ]
+    return _json_tool_result(
+        status="ok", intent="ap_invoices_due_soon",
+        invoices=invoices, count=len(invoices), truncated=truncated,
+    )
+
+
+async def get_ar_invoices_past_due(
+    min_invoice_age_days: int = 30, company_id: int | None = None, page: int = 1,
+) -> str:
+    """AR invoices older than N days that may still be outstanding, across
+    every customer -- an AR-aging / collections signal for a filter node to
+    act on.
+
+    NAMED "min_invoice_age_days", NOT "days overdue" or "days past due" --
+    confirmed by direct probe (see get_invoice_details' own docstring/module
+    note) that ARInvoice has no dueDate/curyDueDate/docDate column at all in
+    this schema, only invoiceDate. This ages by invoice date as the closest
+    honest proxy; it is NOT a true due-date calculation, and callers/reports
+    should say "invoiced over N days ago, balance not yet confirmed clear" —
+    not "past due" — unless a real due date becomes available later. `paid`
+    status itself isn't directly exposed either (unlike AP's payDate); use
+    `unpaidBalance > 0` as the "still owes something" signal in a downstream
+    filter node -- this tool fetches candidates, it doesn't decide.
+
+    IMPORTANT SCHEMA LIMIT (see the module docstring): ARInvoice ALSO has NO
+    customer/bAccount link field in this schema -- confirmed by direct probe,
+    not a decision made here. These rows can be totaled, aged, and flagged as
+    a company-wide digest, but CANNOT be attributed to a customer or routed to
+    an account manager. Do not add a customerId/customerName field to this
+    tool's output -- there is no real column to source it from, and inventing
+    one would be exactly the "confidently incorrect report" the governance
+    design explicitly warns against. A true per-customer collections queue
+    would need this table's schema (or a join table) to change first.
+    """
+    f = MINIERP_FIELDS
+    cutoff = datetime.utcnow() - timedelta(days=max(0, int(min_invoice_age_days or 0)))
+    options = {
+        "select": _select_all_for(
+            "ar_ref_nbr", "ar_doc_type", "ar_invoice_date", "ar_invoice_nbr",
+            "ar_line_total", "ar_tax_total", "ar_payment_total", "ar_unpaid_balance",
+            "ar_terms_id", "ar_credit_hold",
+        ),
+        "where": {
+            f["ar_invoice_date"]: {"lte": _format_date(cutoff.strftime("%Y-%m-%d"), end_of_day=True)},
+            f["company_id"]: {"in": _company_ids(company_id)},
+        },
+        "page": _clamp_page(page),
+    }
+    items, truncated = await _paginate(MINIERP_ENTITIES["ar_invoice"], options)
+    if not items:
+        return _json_tool_result(status="not_found", intent="ar_invoices_past_due",
+                                 invoices=[], count=0, truncated=False)
+
+    invoices = [
+        {
+            "invoiceNumber": it.get(f["ar_ref_nbr"]),
+            "docType": it.get(f["ar_doc_type"]),
+            "invoiceDate": it.get(f["ar_invoice_date"]),
+            "lineTotal": float(it.get(f["ar_line_total"]) or 0),
+            "taxTotal": float(it.get(f["ar_tax_total"]) or 0),
+            "paymentTotal": float(it.get(f["ar_payment_total"]) or 0),
+            "unpaidBalance": float(it.get(f["ar_unpaid_balance"]) or 0),
+            "termsId": it.get(f["ar_terms_id"]),
+            "creditHold": bool(it.get(f["ar_credit_hold"])),
+        }
+        for it in items
+    ]
+    return _json_tool_result(
+        status="ok", intent="ar_invoices_past_due",
+        invoices=invoices, count=len(invoices), truncated=truncated,
     )

@@ -15,12 +15,14 @@ const RISK_ICONS: Record<string, string> = {
 export function stepKindLabel(kind: string, tool: string): string {
   if (kind === 'approval_gate') return 'Approval gate'
   if (kind === 'llm_transform') return 'AI step'
+  if (kind === 'filter') return 'Filter'
   return tool || 'Step'
 }
 
 export function stepIcon(kind: string, tool: WorkflowGraphCatalogTool | undefined): string {
   if (kind === 'approval_gate') return '✅'
   if (kind === 'llm_transform') return '✨'
+  if (kind === 'filter') return '🧮'
   return (tool?.riskLevel && RISK_ICONS[tool.riskLevel]) || '🔧'
 }
 
@@ -56,6 +58,16 @@ export function stepSummary(step: GraphNode, tool: WorkflowGraphCatalogTool | un
     const action = AI_ACTION_LABELS[String(step.config.kind ?? 'summarize')] ?? 'Summarize'
     const from = bindingSummary(step.inputBindings.input_text)
     return from ? `${action} · ${from}` : action
+  }
+
+  if (step.kind === 'filter') {
+    const conditions = (step.config.conditions as { all?: unknown[] } | undefined)?.all ?? []
+    const count = conditions.length
+    const from = bindingSummary(step.inputBindings.input)
+    const limit = bindingSummary(step.config.match_limit as WorkflowBinding | undefined)
+    let rule = count === 0 ? 'No conditions yet' : `${count} condition${count === 1 ? '' : 's'}`
+    if (limit) rule += ` · up to ${limit}`
+    return from ? `${rule} · ${from}` : rule
   }
 
   const argNames = Object.keys(tool?.parameters?.properties ?? {})

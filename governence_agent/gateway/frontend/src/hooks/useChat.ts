@@ -21,7 +21,7 @@ import {
   type ChatResumeResult,
   type ChatToolCall,
 } from '../lib/api'
-import { streamOrChat } from '../lib/chatStream'
+import { streamOrChat, type ChatKind } from '../lib/chatStream'
 import { useConversationId } from './useConversationId'
 
 export type MessageStatus = 'tools' | 'answer' | 'done' | 'error'
@@ -33,6 +33,11 @@ export interface ChatMessage {
   status: MessageStatus
   /** Set once the turn finishes, for the tool-usage tag under a bot reply. */
   toolsUsed?: string[]
+  /** Same turn's tool calls, WITH their args — toolsUsed above is names-only
+   *  (all ChatMessageBubble needs); this is for callers that need to act on
+   *  what a specific call actually did, e.g. MyWorkflowsPage animating a
+   *  propose_graph call's proposed nodes/edges once the turn completes. */
+  toolCalls?: ChatToolCall[]
   /** The question this reply answers — Retry and the workflow-suggestion
    *  fetch both need it, and a bot message doesn't otherwise carry it. */
   question?: string
@@ -99,8 +104,13 @@ export interface UseChatResult {
   openConversation: (sessionId: string) => Promise<ChatResumeResult>
 }
 
-export function useChat(owner: string | null): UseChatResult {
-  const conv = useConversationId(owner)
+/** `kind` picks which governed loop/session-id namespace a turn goes through
+ *  — 'home' (default, unchanged) is the general assistant; 'workflow' is the
+ *  "My Workflow" builder's own copilot (see chatStream.ts's ChatKind). Both
+ *  reuse every other mechanic here (streaming, retry, history, feedback)
+ *  unchanged — only which endpoint/session bucket a turn lands in differs. */
+export function useChat(owner: string | null, kind: ChatKind = 'home'): UseChatResult {
+  const conv = useConversationId(owner, kind === 'workflow' ? 'workflow' : '')
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [busy, setBusy] = useState(false)
   const [loadingHistory, setLoadingHistory] = useState(false)
@@ -190,7 +200,7 @@ export function useChat(owner: string | null): UseChatResult {
           status: update.phase,
           toolsUsed: update.tools.length ? update.tools : undefined,
         })
-      })
+      }, kind)
         .then((result) => {
           if (activeTurn.current !== turnToken) return
           if (result.conversationId !== conv.id) conv.set(result.conversationId)
@@ -199,6 +209,7 @@ export function useChat(owner: string | null): UseChatResult {
             text: result.reply || '(no reply)',
             status: 'done',
             toolsUsed: toolNames.length ? toolNames : undefined,
+            toolCalls: result.tools.length ? result.tools : undefined,
           })
         })
         .catch((cause: unknown) => {
@@ -215,7 +226,7 @@ export function useChat(owner: string | null): UseChatResult {
           }
         })
     },
-    [conv, patch],
+    [conv, patch, kind],
   )
 
   const send = useCallback(

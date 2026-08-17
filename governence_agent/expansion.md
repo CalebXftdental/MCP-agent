@@ -1,5 +1,15 @@
 # Governed Office AI Assistant Expansion Plan
 
+> **STALE — superseded by `STAGE2_PLAN.md`.** Written 2026-07-22, before artifacts,
+> approvals, automation, the workflow-graph engine, knowledge, calendar-send,
+> email-send, code-plans, and document-reviews all shipped (see `STAGE1_README.md`
+> for the real current tool catalogue). Its "Current Platform Baseline" (§2) and
+> "New MCP Backends" (§8) sections describe work that was already done differently
+> or has since moved on — **do not plan against them.** The product-vision material
+> (use cases §4, UX page layout §10, categories/risk taxonomy §7) is still reasonable
+> background reading. For current MCP-scaling, write-tool, and LLM strategy, see
+> `STAGE2_PLAN.md`.
+
 **Project name:** Governed Office AI Assistant  
 **Base system:** `governence_agent` governance gateway + MiniERP MCP platform  
 **Date:** 2026-07-22  

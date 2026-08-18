@@ -5,6 +5,7 @@ import json
 import math
 import os
 import re
+import store_concurrency
 import time
 import uuid
 import zipfile
@@ -130,9 +131,7 @@ def _read() -> dict:
 def _write(data: dict) -> None:
     path = _store_file()
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8", newline="")
-    tmp.replace(path)
+    store_concurrency.atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True), newline="")
 
 
 def _doc_from_dict(d: dict) -> KnowledgeDocument:

@@ -27,6 +27,7 @@ import hashlib
 import json
 import math
 import os
+import store_concurrency
 import time
 import uuid
 from pathlib import Path
@@ -94,9 +95,7 @@ def _local_read() -> dict:
 def _local_write(data: dict) -> None:
     path = _local_store_file()
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8", newline="")
-    tmp.replace(path)
+    store_concurrency.atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True), newline="")
 
 
 # ── item <-> model conversion (shared shape between Cosmos and local JSON) ────

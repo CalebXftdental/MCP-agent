@@ -71,6 +71,7 @@ try:
     sys.path.insert(0, str(ROOT / "gateway"))
     sys.path.insert(0, str(ROOT / "governance_core"))
     gateway_app = importlib.import_module("app")
+    import automation_store  # noqa: E402
 
     with TestClient(gateway_app.app, base_url="http://testserver") as client:
         login = client.post("/dashboard/login", json={"username": "auto_admin", "password": "auto_password"})
@@ -94,7 +95,7 @@ try:
         run = result.get("run") or {}
         check("automation workflow completed", result.get("status") == "completed" and run.get("runId"))
         check("automation created artifact", len(run.get("artifactIds") or []) == 1)
-        gateway_app.automation_store.reload_for_tests()
+        automation_store.reload_for_tests()
         advanced = client.get(f"/automations/{auto_id}")
         adv = advanced.json()
         check("automation persists and advances", advanced.status_code == 200 and adv.get("lastRunId") == run.get("runId") and adv.get("nextRunAt", 0) > now)

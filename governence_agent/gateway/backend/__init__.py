@@ -145,6 +145,7 @@ def register(app) -> None:
     api("/admin/audit-export", admin_security._admin_audit_export, methods=["POST"])
     api("/admin/sessions", admin_security._admin_sessions)
     api("/admin/rate-limits", admin_security._admin_rate_limits)
+    api("/admin/llm-lanes", admin_security._admin_llm_lanes)
     api("/admin/catalog", admin_policy._admin_catalog)
     api("/admin/consumers", admin_policy._admin_consumers, methods=["GET", "POST"])
     api("/admin/consumers/{cid}", admin_policy._admin_consumer_item, methods=["PATCH", "DELETE"])

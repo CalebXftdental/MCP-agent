@@ -27,6 +27,13 @@ Design points:
     (internal, unrestricted-tool-gated) the id legitimately comes from an
     explicit find_customer lookup (design A1).
   - The LLM client is injectable (`llm_complete`) so the loop is testable.
+  - Every LLM call goes through `llm_broker`: the SDK clients are synchronous, so
+    calling one on the event loop froze the whole gateway for the length of an
+    inference, and the one shared sglang server has only a handful of concurrent
+    slots to divide between people and background work. The broker fixes both
+    (worker thread + interactive/batch lanes) and is applied to the callables
+    this module builds, so no call site can accidentally bypass it. An injected
+    test double is adapted on entry, so plain sync fakes still work.
 """
 from __future__ import annotations
 
@@ -35,6 +42,7 @@ import os
 import re
 from typing import Any, Callable
 
+import llm_broker
 from policy import manifest
 from policy.resolve import resolve as resolve_grant
 from store import get_store
@@ -356,9 +364,19 @@ def build_tool_specs(tools, grant, *, exclude: frozenset[str] = frozenset()) -> 
 
     `exclude` removes tools by exact name regardless of grant -- for tools
     that exist on the shared mcp server but should only ever be offered to
-    ONE chat surface (see WORKFLOW_ONLY_TOOLS)."""
+    ONE chat surface (see WORKFLOW_ONLY_TOOLS).
+
+    Sorted by tool name, and that ordering is load-bearing for COST, not taste.
+    sglang caches KV state by exact token prefix (RadixAttention), the chat
+    template renders these specs near the very front of the prompt, and they are
+    re-sent on every turn -- so any variation in their order changes the prompt
+    from position ~0 and forces a full re-prefill of the whole system+tools block
+    every time. `mcp.list_tools()` makes no ordering promise; sorting makes the
+    block byte-identical for any two requests with the same grant, which is what
+    lets one user's turns (and two users with the same access) share it.
+    """
     specs: list[dict] = []
-    for t in tools:
+    for t in sorted(tools, key=lambda t: t.name):
         if t.name in exclude:
             continue
         canonical = manifest.canonical(t.name)
@@ -494,6 +512,29 @@ def _not_configured_message() -> str:
             "USE_LOCAL_LLM=true to use the local/Azure OpenAI backend instead.")
 
 
+def _client_timeout() -> "httpx.Timeout":
+    """Explicit per-request timeouts. The SDK default (600s total) is far too
+    long for a path a person is waiting on, and an unbounded-in-practice call is
+    what turns one degraded upstream into a stuck lane in llm_broker. `read` is
+    the gap BETWEEN received bytes, so it bounds a stalled stream without
+    capping a long-but-healthy generation."""
+    import httpx
+    return httpx.Timeout(
+        connect=_float_env("GOVERNANCE_LLM_CONNECT_TIMEOUT_SEC", 10.0),
+        read=_float_env("GOVERNANCE_LLM_READ_TIMEOUT_SEC", 180.0),
+        write=_float_env("GOVERNANCE_LLM_WRITE_TIMEOUT_SEC", 30.0),
+        pool=_float_env("GOVERNANCE_LLM_POOL_TIMEOUT_SEC", 10.0),
+    )
+
+
+def _float_env(name: str, default: float) -> float:
+    try:
+        value = float(os.getenv(name, "").strip() or default)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
 def default_llm_complete() -> Callable | None:
     """Build a chat-completion callable from env, or None if not configured.
 
@@ -502,12 +543,19 @@ def default_llm_complete() -> Callable | None:
     + GOVERNANCE_CHAT_MODEL, falling back to Azure OpenAI (AZURE_OPENAI_*).
     USE_LOCAL_LLM=false: Claude Sonnet via GOVERNANCE_ANTHROPIC_* (see
     _anthropic_complete).
-    Signature: complete(messages, tools) -> response.choices[0].message
+
+    Signature: `await complete(messages, tools, *, lane=..., user=...)` ->
+    response.choices[0].message. The underlying SDK clients are all SYNCHRONOUS;
+    llm_broker.adapt_complete is what makes the returned callable awaitable (it
+    runs the blocking call in a worker thread) and what enforces the interactive
+    /batch slot lanes. Calling one of these on the event loop without the
+    adapter is what used to freeze the entire gateway for the length of an
+    inference -- see llm_broker's module docstring.
     """
     max_tokens = int(os.getenv("GOVERNANCE_CHAT_MAX_TOKENS", "1024"))
 
     if not _use_local_llm():
-        return _anthropic_complete(max_tokens)
+        return llm_broker.adapt_complete(_anthropic_complete(max_tokens))
 
     base_url = os.getenv("GOVERNANCE_CHAT_BASE_URL")
     model = os.getenv("GOVERNANCE_CHAT_MODEL")
@@ -516,7 +564,8 @@ def default_llm_complete() -> Callable | None:
             from openai import OpenAI
         except ImportError:
             return None
-        client = OpenAI(base_url=base_url, api_key=os.getenv("GOVERNANCE_CHAT_API_KEY") or "not-needed")
+        client = OpenAI(base_url=base_url, api_key=os.getenv("GOVERNANCE_CHAT_API_KEY") or "not-needed",
+                        timeout=_client_timeout())
         # Qwen3 reasoning ("thinking") mode. Default OFF: for tool routing it adds
         # no accuracy but ~2x the tokens and risks eating max_tokens before the
         # answer. Toggle on with GOVERNANCE_CHAT_THINKING=on for complex multi-step.
@@ -524,14 +573,19 @@ def default_llm_complete() -> Callable | None:
         thinking = os.getenv("GOVERNANCE_CHAT_THINKING", "off").strip().lower() in ("1", "true", "on", "yes")
 
         def complete(messages, tools):
-            return client.chat.completions.create(
+            resp = client.chat.completions.create(
                 model=model, messages=messages,
                 tools=tools or None, tool_choice="auto" if tools else "none",
                 temperature=0, max_tokens=max_tokens,
                 extra_body={"chat_template_kwargs": {"enable_thinking": thinking}},
-            ).choices[0].message
+            )
+            # How much of this prompt the server served from its prefix cache.
+            # Ground truth for whether our stable-prefix discipline is paying off
+            # -- see llm_broker's prefix-cache accounting.
+            llm_broker.record_usage(getattr(resp, "usage", None))
+            return resp.choices[0].message
 
-        return complete
+        return llm_broker.adapt_complete(complete)
 
     a_key = os.getenv("AZURE_OPENAI_API_KEY")
     a_ep = os.getenv("AZURE_OPENAI_ENDPOINT")
@@ -542,16 +596,19 @@ def default_llm_complete() -> Callable | None:
         except ImportError:
             return None
         client = AzureOpenAI(api_key=a_key, azure_endpoint=a_ep,
-                             api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21"))
+                             api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21"),
+                             timeout=_client_timeout())
 
         def complete(messages, tools):
-            return client.chat.completions.create(
+            resp = client.chat.completions.create(
                 model=a_dep, messages=messages,
                 tools=tools or None, tool_choice="auto" if tools else "none",
                 temperature=0, max_tokens=max_tokens,
-            ).choices[0].message
+            )
+            llm_broker.record_usage(getattr(resp, "usage", None))
+            return resp.choices[0].message
 
-        return complete
+        return llm_broker.adapt_complete(complete)
 
     return None
 
@@ -711,7 +768,7 @@ def _anthropic_stream(max_tokens: int) -> Callable | None:
 async def run_chat(mcp, message: str, session_id: str, record, *,
                    llm_complete: Callable | None = None, history: list | None = None,
                    system_prompt: str | None = None, exclude_tools: frozenset[str] = frozenset(),
-                   max_turns: int | None = None) -> dict:
+                   max_turns: int | None = None, lane: str = llm_broker.INTERACTIVE) -> dict:
     """Answer `message` for the logged-in `record`, calling only its granted tools.
 
     The caller MUST have set request_context (consumer + consumer_record) so the
@@ -724,6 +781,11 @@ async def run_chat(mcp, message: str, session_id: str, record, *,
     `exclude_tools` -- see build_tool_specs; Home chat passes WORKFLOW_ONLY_TOOLS.
     `max_turns` overrides the module default _MAX_TOOL_TURNS for this call; the
     workflow copilot passes WORKFLOW_CHAT_MAX_TURNS.
+
+    `lane` is the llm_broker admission class -- INTERACTIVE here because a person
+    is watching this turn. Fair queueing is per USER within the lane, which is
+    what stops one 10-turn copilot message from beating ten other people's first
+    turns, so the principal's name is passed down with every call.
     """
     grant = resolve_grant(record, get_store().get_category, get_store().get_department) if record is not None else None
     specs = build_tool_specs(await mcp.list_tools(), grant, exclude=exclude_tools)
@@ -732,6 +794,11 @@ async def run_chat(mcp, message: str, session_id: str, record, *,
         llm_complete = default_llm_complete()
     if llm_complete is None:
         return {"reply": _not_configured_message(), "tool_calls": [], "configured": False}
+    # An INJECTED callable (tests, or any caller passing its own) has not been
+    # through the builders above, so adapt it here too -- idempotent, and it is
+    # what keeps a plain sync test fake working unchanged.
+    llm_complete = llm_broker.adapt_complete(llm_complete)
+    user = getattr(record, "name", "") or ""
 
     messages: list[dict] = [{"role": "system", "content": system_prompt or SYSTEM_PROMPT}]
     messages.extend(history or [])
@@ -739,7 +806,7 @@ async def run_chat(mcp, message: str, session_id: str, record, *,
 
     used: list[dict] = []
     for _ in range(max_turns if max_turns is not None else _MAX_TOOL_TURNS):
-        msg = llm_complete(messages, specs)
+        msg = await llm_complete(messages, specs, lane=lane, user=user)
         native = getattr(msg, "tool_calls", None) or []
         content = getattr(msg, "content", "") or ""
 
@@ -783,13 +850,33 @@ async def run_chat(mcp, message: str, session_id: str, record, *,
 
 # ── Streaming variant (SSE) ───────────────────────────────────────────────────
 
+def _stream_usage_kwargs() -> dict:
+    """Ask the server to report token usage on a streamed response, so prefix-
+    cache hit rate is measurable on the chat path too (llm_broker.record_usage).
+
+    OFF by default and env-gated: `stream_options` is an OpenAI-compatible extra
+    that older/self-hosted servers may reject outright, and a rejected parameter
+    would break chat entirely to gain a metric. Turn on with
+    GOVERNANCE_LLM_STREAM_USAGE=on once confirmed working against the live server
+    -- the non-streaming path reports usage unconditionally either way."""
+    if os.getenv("GOVERNANCE_LLM_STREAM_USAGE", "off").strip().lower() in ("1", "true", "on", "yes"):
+        return {"stream_options": {"include_usage": True}}
+    return {}
+
+
 def default_llm_stream() -> Callable | None:
-    """Like default_llm_complete, but streaming. Yields OpenAI-style delta objects
-    (each with `.content` and/or `.tool_calls`). None if not configured."""
+    """Like default_llm_complete, but streaming: an ASYNC generator of OpenAI-style
+    delta objects (each with `.content` and/or `.tool_calls`). None if not
+    configured.
+
+    Same arrangement as default_llm_complete -- the SDK generators below stay
+    synchronous and llm_broker.adapt_stream pumps them from a worker thread, so
+    the loop is free between deltas and the whole stream holds exactly one lane
+    slot."""
     max_tokens = int(os.getenv("GOVERNANCE_CHAT_MAX_TOKENS", "1024"))
 
     if not _use_local_llm():
-        return _anthropic_stream(max_tokens)
+        return llm_broker.adapt_stream(_anthropic_stream(max_tokens))
 
     base_url = os.getenv("GOVERNANCE_CHAT_BASE_URL")
     model = os.getenv("GOVERNANCE_CHAT_MODEL")
@@ -798,18 +885,23 @@ def default_llm_stream() -> Callable | None:
             from openai import OpenAI
         except ImportError:
             return None
-        client = OpenAI(base_url=base_url, api_key=os.getenv("GOVERNANCE_CHAT_API_KEY") or "not-needed")
+        client = OpenAI(base_url=base_url, api_key=os.getenv("GOVERNANCE_CHAT_API_KEY") or "not-needed",
+                        timeout=_client_timeout())
         thinking = os.getenv("GOVERNANCE_CHAT_THINKING", "off").strip().lower() in ("1", "true", "on", "yes")
 
         def stream(messages, tools):
             resp = client.chat.completions.create(
                 model=model, messages=messages, tools=tools or None,
                 tool_choice="auto" if tools else "none", temperature=0, max_tokens=max_tokens,
-                stream=True, extra_body={"chat_template_kwargs": {"enable_thinking": thinking}})
+                stream=True, extra_body={"chat_template_kwargs": {"enable_thinking": thinking}},
+                **_stream_usage_kwargs())
             for chunk in resp:
+                # With include_usage the final chunk carries usage and no choices.
+                if getattr(chunk, "usage", None):
+                    llm_broker.record_usage(chunk.usage)
                 if chunk.choices:
                     yield chunk.choices[0].delta
-        return stream
+        return llm_broker.adapt_stream(stream)
 
     a_key = os.getenv("AZURE_OPENAI_API_KEY")
     a_ep = os.getenv("AZURE_OPENAI_ENDPOINT")
@@ -820,16 +912,20 @@ def default_llm_stream() -> Callable | None:
         except ImportError:
             return None
         client = AzureOpenAI(api_key=a_key, azure_endpoint=a_ep,
-                             api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21"))
+                             api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21"),
+                             timeout=_client_timeout())
 
         def stream(messages, tools):
             resp = client.chat.completions.create(
                 model=a_dep, messages=messages, tools=tools or None,
-                tool_choice="auto" if tools else "none", temperature=0, max_tokens=max_tokens, stream=True)
+                tool_choice="auto" if tools else "none", temperature=0, max_tokens=max_tokens, stream=True,
+                **_stream_usage_kwargs())
             for chunk in resp:
+                if getattr(chunk, "usage", None):
+                    llm_broker.record_usage(chunk.usage)
                 if chunk.choices:
                     yield chunk.choices[0].delta
-        return stream
+        return llm_broker.adapt_stream(stream)
 
     return None
 
@@ -844,7 +940,8 @@ def _safe_json(s):
 async def run_chat_stream(mcp, message: str, session_id: str, record, *,
                           llm_complete: Callable | None = None, llm_stream: Callable | None = None,
                           history: list | None = None, system_prompt: str | None = None,
-                          exclude_tools: frozenset[str] = frozenset(), max_turns: int | None = None):
+                          exclude_tools: frozenset[str] = frozenset(), max_turns: int | None = None,
+                          lane: str = llm_broker.INTERACTIVE):
     """Streaming variant of run_chat: an async generator of events —
       {"type":"delta","text":...}   incremental answer text
       {"type":"replace","text":...} correct the answer (stray tool-call tags stripped)
@@ -862,10 +959,16 @@ async def run_chat_stream(mcp, message: str, session_id: str, record, *,
     if llm_stream is None:
         # No streaming client -> one-shot the non-streaming path, emit as one delta.
         result = await run_chat(mcp, message, session_id, record, llm_complete=llm_complete, history=history,
-                                system_prompt=system_prompt, exclude_tools=exclude_tools, max_turns=max_turns)
+                                system_prompt=system_prompt, exclude_tools=exclude_tools, max_turns=max_turns,
+                                lane=lane)
         yield {"type": "delta", "text": result.get("reply", "")}
         yield {"type": "done", "tool_calls": result.get("tool_calls", []), "configured": result.get("configured", True)}
         return
+
+    # Same reason as run_chat's: an injected stream is adapted here (idempotent),
+    # so a sync generator test double keeps working and no path bypasses a lane.
+    llm_stream = llm_broker.adapt_stream(llm_stream)
+    user = getattr(record, "name", "") or ""
 
     messages: list[dict] = [{"role": "system", "content": system_prompt or SYSTEM_PROMPT}]
     messages.extend(history or [])
@@ -878,7 +981,7 @@ async def run_chat_stream(mcp, message: str, session_id: str, record, *,
         hold = False         # True once a tool-call (native or text) is detected -> stop streaming
         emitted = False
         native: dict = {}   # index -> {id,name,args}
-        for delta in llm_stream(messages, specs):
+        async for delta in llm_stream(messages, specs, lane=lane, user=user):
             tcs = getattr(delta, "tool_calls", None)
             if tcs:
                 hold = True

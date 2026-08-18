@@ -9,6 +9,7 @@ import artifact_store
 import audit
 import edge
 import json
+import llm_broker
 import safety
 import scope_store
 import time
@@ -114,6 +115,20 @@ async def _admin_rate_limits(request):
     if not claims or claims.get("role") != "admin":
         return _unauthorized(is_admin=bool(claims))
     return JSONResponse({"rate_limits": edge.rate_limit_snapshot()})
+
+
+async def _admin_llm_lanes(request):
+    """Live view of the shared model server's admission control (llm_broker).
+
+    Distinct from rate limits above, which count inbound HTTP requests per
+    consumer: this counts IN-FLIGHT INFERENCES against a fixed number of slots on
+    one server, split into an interactive lane (a person is waiting) and a batch
+    lane (workflow steps). Without it, "the GPU is saturated" and "our own queue
+    is backed up" are indistinguishable from outside."""
+    claims = _session(request)
+    if not claims or claims.get("role") != "admin":
+        return _unauthorized(is_admin=bool(claims))
+    return JSONResponse({"llm_lanes": llm_broker.snapshot()})
 
 
 async def _admin_overview(request):

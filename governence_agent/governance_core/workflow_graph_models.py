@@ -22,6 +22,19 @@ class GraphNode:
     title: str = ""
     tool: str = ""                                      # canonical tool name; required iff kind == "tool_call"
     config: dict = field(default_factory=dict)          # literal arg values / node-kind-specific settings
+    # Reserved config keys for kind == "tool_call" -- popped by the interpreter
+    # before the rest of `config` is passed through as literal tool args, never
+    # forwarded to the tool itself (see workflow_graph_interpreter.py's
+    # _execute_tool_call_node / _exhaust_tool_call):
+    #   paginate (bool)          -- repeat this same call, bumping `page`, while
+    #                               the tool's own JSON response reports hasMore.
+    #                               Legal on ANY tool_call node; a tool with no
+    #                               hasMore-shaped output is a safe no-op.
+    #   max_pages (int)          -- page-count cap, default 20.
+    #   max_duration_sec (float) -- wall-clock cap on the whole loop, default 90.
+    #                               Both caps apply together (whichever hits first)
+    #                               -- a page-count cap alone doesn't protect
+    #                               against a slow/degraded upstream.
     input_bindings: dict = field(default_factory=dict)  # {arg_name: {"source": "node"|"trigger"|"literal", ...}}
     position: dict = field(default_factory=dict)        # UI-only {x, y}; ignored by the interpreter
 

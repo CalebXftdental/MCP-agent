@@ -42,6 +42,7 @@ def check(name, cond, extra=""):
 sys.path.insert(0, str(ROOT / "gateway"))
 sys.path.insert(0, str(ROOT / "governance_core"))
 gateway_app = importlib.import_module("app")
+import template_store  # noqa: E402
 
 with TestClient(gateway_app.app, base_url="http://testserver") as client:
     admin_login = client.post("/dashboard/login", json={"username": "template_admin", "password": "template_password"})
@@ -97,7 +98,7 @@ with TestClient(gateway_app.app, base_url="http://testserver") as client:
     visible_admin = client.get("/templates?include_disabled=1")
     check("admin can include disabled", any(t.get("templateId") == tid and t.get("status") == "disabled" for t in visible_admin.json().get("templates", [])), visible_admin.text)
 
-    gateway_app.template_store.reload_for_tests()
+    template_store.reload_for_tests()
     persisted = client.get(f"/templates/{tid}?content=1")
     check("template persists after reload", persisted.status_code == 200 and persisted.json().get("currentVersion") == 2, persisted.text)
 

@@ -30,6 +30,12 @@
   { "name": "GOVERNANCE_CHAT_MAX_TOKENS", "value": "2048", "slotSetting": false },
   { "name": "GOVERNANCE_CHAT_THINKING", "value": "off", "slotSetting": false },
 
+  { "name": "GOVERNANCE_LLM_MAX_RUNNING_REQUESTS", "value": "3", "slotSetting": false },
+  { "name": "GOVERNANCE_LLM_MAX_QUEUE", "value": "32", "slotSetting": false },
+  { "name": "GOVERNANCE_LLM_INTERACTIVE_QUEUE_TIMEOUT_SEC", "value": "45", "slotSetting": false },
+  { "name": "GOVERNANCE_LLM_BATCH_QUEUE_TIMEOUT_SEC", "value": "300", "slotSetting": false },
+  { "name": "GOVERNANCE_LLM_READ_TIMEOUT_SEC", "value": "180", "slotSetting": false },
+
   { "name": "USE_LOCAL_LLM", "value": "true", "slotSetting": false },
   { "name": "GOVERNANCE_ANTHROPIC_ENDPOINT", "value": "https://<resource>.services.ai.azure.com/anthropic", "slotSetting": false },
   { "name": "GOVERNANCE_ANTHROPIC_API_KEY", "value": "<Anthropic-compatible endpoint key - Key Vault ref>", "slotSetting": false },

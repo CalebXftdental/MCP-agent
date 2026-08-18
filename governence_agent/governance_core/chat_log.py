@@ -46,7 +46,17 @@ def _fork_id(session_id: str) -> str:
     return f"{session_id}:{uuid.uuid4().hex[:8]}"
 
 
-def _summarize(session: ChatSession, llm_complete: Callable | None) -> str:
+async def _summarize(session: ChatSession, llm_complete: Callable | None, *, user: str = "") -> str:
+    """`llm_complete` is an llm_broker-adapted awaitable (gateway/llm_broker.py),
+    so this whole chain is async: summarization is a real inference against the
+    same shared model server as everything else, and doing it synchronously from
+    an async caller blocked the entire gateway for its duration.
+
+    Lane INTERACTIVE, not BATCH, even though a summary is background-ish work:
+    the only two callers both have somebody waiting on the result -- a /chat turn
+    cannot proceed until its stale session is closed, and the sweep's own work is
+    trivial. Putting it in the batch lane would let a saturated workflow queue
+    stall a person's next message."""
     if not session.messages:
         return "(empty session)"
     if llm_complete is None:
@@ -56,10 +66,11 @@ def _summarize(session: ChatSession, llm_complete: Callable | None) -> str:
         transcript_lines.append(f"{m.role}: {m.content}")
     transcript = "\n".join(transcript_lines)[-_MAX_SUMMARY_INPUT_CHARS:]
     try:
-        msg = llm_complete(
+        msg = await llm_complete(
             [{"role": "system", "content": _SUMMARY_SYSTEM_PROMPT},
              {"role": "user", "content": transcript}],
             None,
+            lane="interactive", user=user,
         )
         summary = (getattr(msg, "content", "") or "").strip()
         return summary or "(summary unavailable)"
@@ -67,17 +78,17 @@ def _summarize(session: ChatSession, llm_complete: Callable | None) -> str:
         return f"(summary failed: {exc})"
 
 
-def _close_and_summarize(store, session: ChatSession, llm_complete: Callable | None, now: float) -> None:
+async def _close_and_summarize(store, session: ChatSession, llm_complete: Callable | None, now: float) -> None:
     closed = ChatSession(
         session_id=session.session_id, consumer_id=session.consumer_id, status="closed",
         created_at=session.created_at, last_active_at=session.last_active_at, closed_at=now,
-        summary=_summarize(session, llm_complete), messages=session.messages,
+        summary=await _summarize(session, llm_complete, user=session.consumer_id), messages=session.messages,
     )
     store.upsert_chat_session(closed)
 
 
-def resolve_session_id(store, requested_id: str, consumer_id: str, idle_seconds: int,
-                       llm_complete: Callable | None) -> str:
+async def resolve_session_id(store, requested_id: str, consumer_id: str, idle_seconds: int,
+                             llm_complete: Callable | None) -> str:
     """The session id THIS turn should use: `requested_id` continued, or a fresh
     fork if it's already closed or idle-expired.
 
@@ -98,7 +109,7 @@ def resolve_session_id(store, requested_id: str, consumer_id: str, idle_seconds:
     if existing.status == "closed":
         return _fork_id(requested_id)
     if (time.time() - existing.last_active_at) > idle_seconds:
-        _close_and_summarize(store, existing, llm_complete, time.time())
+        await _close_and_summarize(store, existing, llm_complete, time.time())
         return _fork_id(requested_id)
     return requested_id
 
@@ -124,14 +135,19 @@ def record_turn(store, session_id: str, consumer_id: str, role: str, content: st
     store.upsert_chat_session(updated)
 
 
-def close_idle_sessions(store, idle_seconds: int, llm_complete: Callable | None) -> int:
+async def close_idle_sessions(store, idle_seconds: int, llm_complete: Callable | None) -> int:
     """The background sweep: close + summarize every open session idle past the
-    cutoff. Returns how many it closed (for logging)."""
+    cutoff. Returns how many it closed (for logging).
+
+    Sessions are summarized one at a time on purpose. Each one is an inference on
+    a server with a handful of slots (llm_broker), and a sweep that fanned out
+    would take every slot from the people using the app -- the sweep has no
+    deadline, so it can afford to be the slowest thing in the process."""
     now = time.time()
     closed = 0
     for session in store.list_open_chat_sessions():
         if (now - session.last_active_at) > idle_seconds:
-            _close_and_summarize(store, session, llm_complete, now)
+            await _close_and_summarize(store, session, llm_complete, now)
             closed += 1
     return closed
 

@@ -8,6 +8,7 @@ import asyncio
 import audit
 import chat_log
 import json
+import llm_broker
 import orchestrator
 import request_context as ctx
 import sys
@@ -42,13 +43,15 @@ async def _chat(request):
     # If the caller's own conversation_id already went idle (or was closed by the
     # sweep, or belongs to someone else), this hands back a fresh id for the turn
     # below rather than resuming stale/foreign context.
-    session_id = chat_log.resolve_session_id(store, requested_id, record.consumer_id, _CHAT_IDLE_SEC, llm_complete)
+    session_id = await chat_log.resolve_session_id(store, requested_id, record.consumer_id, _CHAT_IDLE_SEC, llm_complete)
     history = chat_log.history_for_llm(store, session_id, record.consumer_id)
 
     try:
         result = await orchestrator.run_chat(mcp, message, session_id, record,
                                              llm_complete=llm_complete, history=history,
                                              exclude_tools=orchestrator.WORKFLOW_ONLY_TOOLS)
+    except llm_broker.LLMBusy as busy:
+        return _busy_response(busy)
     except Exception as exc:  # noqa: BLE001 -- an LLM-side failure (auth, timeout,
         # connection refused, ...) must reach the client as a readable JSON error,
         # the same as _chat_stream's SSE error frame -- not an unhandled 500 with
@@ -63,6 +66,24 @@ async def _chat(request):
 
 def _sse(obj) -> str:
     return f"data: {json.dumps(obj)}\n\n"
+
+
+def _busy_payload(busy) -> dict:
+    """A queue-full/queue-timeout is not a failure of the assistant, it is the
+    shared model server being at capacity (see gateway/llm_broker.py) -- so it
+    gets its own shape: 503 + Retry-After semantics + the numbers needed to tell
+    someone something true, rather than a generic 502 'assistant turn failed'."""
+    return {
+        "error": str(busy),
+        "code": "assistant_busy",
+        "lane": getattr(busy, "lane", ""),
+        "queued": getattr(busy, "queued", 0),
+        "retryable": True,
+    }
+
+
+def _busy_response(busy):
+    return JSONResponse(_busy_payload(busy), status_code=503, headers={"Retry-After": "10"})
 
 
 async def _chat_stream(request):
@@ -85,7 +106,7 @@ async def _chat_stream(request):
     client_ip = ctx.client_ip(request)
     store = get_store()
     llm_complete = orchestrator.default_llm_complete()
-    session_id = chat_log.resolve_session_id(store, requested_id, record.consumer_id, _CHAT_IDLE_SEC, llm_complete)
+    session_id = await chat_log.resolve_session_id(store, requested_id, record.consumer_id, _CHAT_IDLE_SEC, llm_complete)
     history = chat_log.history_for_llm(store, session_id, record.consumer_id)
 
     async def gen():
@@ -111,6 +132,8 @@ async def _chat_stream(request):
                     tools = ev.get("tool_calls", [])
                     completed = True
                 yield _sse(ev)
+        except llm_broker.LLMBusy as busy:
+            yield _sse({"type": "error", **_busy_payload(busy)})
         except Exception as exc:  # noqa: BLE001 -- surface as an SSE error; client will fall back
             yield _sse({"type": "error", "message": str(exc)})
         # Persist the turn only on a clean finish -- otherwise the client falls back
@@ -152,7 +175,7 @@ async def _workflow_chat(request):
 
     store = get_store()
     llm_complete = orchestrator.default_llm_complete()
-    session_id = chat_log.resolve_session_id(store, requested_id, record.consumer_id, _CHAT_IDLE_SEC, llm_complete)
+    session_id = await chat_log.resolve_session_id(store, requested_id, record.consumer_id, _CHAT_IDLE_SEC, llm_complete)
     history = chat_log.history_for_llm(store, session_id, record.consumer_id)
 
     try:
@@ -160,6 +183,8 @@ async def _workflow_chat(request):
                                              llm_complete=llm_complete, history=history,
                                              system_prompt=orchestrator.WORKFLOW_COPILOT_SYSTEM_PROMPT,
                                              max_turns=orchestrator.WORKFLOW_CHAT_MAX_TURNS)
+    except llm_broker.LLMBusy as busy:
+        return _busy_response(busy)
     except Exception as exc:  # noqa: BLE001 -- see _chat's identical handling
         return JSONResponse({"error": f"assistant turn failed: {exc}"}, status_code=502)
     chat_log.record_turn(store, session_id, record.consumer_id, "user", message)
@@ -189,7 +214,7 @@ async def _workflow_chat_stream(request):
     client_ip = ctx.client_ip(request)
     store = get_store()
     llm_complete = orchestrator.default_llm_complete()
-    session_id = chat_log.resolve_session_id(store, requested_id, record.consumer_id, _CHAT_IDLE_SEC, llm_complete)
+    session_id = await chat_log.resolve_session_id(store, requested_id, record.consumer_id, _CHAT_IDLE_SEC, llm_complete)
     history = chat_log.history_for_llm(store, session_id, record.consumer_id)
 
     async def gen():
@@ -214,6 +239,8 @@ async def _workflow_chat_stream(request):
                     tools = ev.get("tool_calls", [])
                     completed = True
                 yield _sse(ev)
+        except llm_broker.LLMBusy as busy:
+            yield _sse({"type": "error", **_busy_payload(busy)})
         except Exception as exc:  # noqa: BLE001
             yield _sse({"type": "error", "message": str(exc)})
         if completed:
@@ -325,7 +352,7 @@ async def _chat_sweep_loop() -> None:
         await asyncio.sleep(_CHAT_SWEEP_INTERVAL_SEC)
         try:
             llm_complete = orchestrator.default_llm_complete()
-            closed = chat_log.close_idle_sessions(store, _CHAT_IDLE_SEC, llm_complete)
+            closed = await chat_log.close_idle_sessions(store, _CHAT_IDLE_SEC, llm_complete)
             if closed:
                 print(f"[chat-sweep] closed {closed} idle session(s)", flush=True)
         except Exception as exc:  # the sweep must never crash the process

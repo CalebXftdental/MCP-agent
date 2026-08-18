@@ -115,6 +115,10 @@ instead.
 | `GOVERNANCE_CHAT_API_KEY` | ✅🔑 | Qwen endpoint key (from `Qwen3.6_27B/localllm.env`). |
 | `GOVERNANCE_CHAT_MAX_TOKENS` | rec | `2048`. |
 | `GOVERNANCE_CHAT_THINKING` | rec | `off` (faster/cheaper for tool routing). |
+| `GOVERNANCE_LLM_MAX_RUNNING_REQUESTS` | ✅ | **Must match the live model server's own `max_running_requests`** (`3` for the current sglang config — set by `--max-mamba-cache-size`, *not* `--mem-fraction-static`/`--context-length`; confirm with `/get_server_info` rather than the deploy doc, whose two statements of it disagree). Everything shares this one server, so `gateway/llm_broker.py` divides the slots into an interactive lane (a person is waiting) and a batch lane capped at capacity−2, floor 1. Accepts the bare alias `MAX_RUNNING_REQUESTS`. |
+| `GOVERNANCE_LLM_MAX_QUEUE` | rec | `32` — how many callers may wait before the broker returns `503 assistant_busy` instead of growing an unbounded backlog. |
+| `GOVERNANCE_LLM_INTERACTIVE_QUEUE_TIMEOUT_SEC` / `..._BATCH_...` | rec | `45` / `300`. How long each lane waits for a slot. Interactive is short because somebody is watching a spinner; batch is long because nothing is. |
+| `GOVERNANCE_LLM_READ_TIMEOUT_SEC` | rec | `180`. Gap between received bytes, so it bounds a stalled stream without capping a long healthy generation. Also `..._CONNECT_/_WRITE_/_POOL_TIMEOUT_SEC` (`10`/`30`/`10`). The SDK default is 600s, far too long for an interactive path. |
 | `USE_LOCAL_LLM` | ✅ | `true` (default) uses the Qwen backend above; set to `false` to switch the chat orchestrator to the Claude Sonnet backup below (e.g. if the Qwen VM is down). |
 | `GOVERNANCE_ANTHROPIC_ENDPOINT` | opt¹ | Anthropic-compatible endpoint, e.g. Azure AI Foundry's `https://<resource>.services.ai.azure.com/anthropic`. ¹Only read when `USE_LOCAL_LLM=false`. |
 | `GOVERNANCE_ANTHROPIC_API_KEY` | opt¹🔑 | Key for the endpoint above — Key Vault ref. |

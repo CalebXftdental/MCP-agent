@@ -18,6 +18,7 @@ import uuid
 from dataclasses import replace
 from pathlib import Path
 
+import store_concurrency
 from policy import manifest
 from policy.categories import CATEGORIES
 from policy.resolve import EffectiveGrant, resolve as resolve_grant
@@ -172,12 +173,8 @@ def _load() -> None:
 
 
 def _save() -> None:
-    path = _store_file()
-    path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"version": 1, "graphs": [_graph_to_dict(g) for g in sorted(_GRAPHS.values(), key=lambda x: x.created_at)]}
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(path)
+    store_concurrency.atomic_write_text(_store_file(), json.dumps(payload, indent=2, ensure_ascii=False))
 
 
 def reload_for_tests() -> None:
@@ -326,6 +323,25 @@ def validate_graph(nodes: list[GraphNode] | list[dict], edges: list[GraphEdge] |
                 "set a value or bind it to another node's output",
                 n.node_id,
             )
+
+    # A paginate:true tool_call node loops calling the same tool, bumping page,
+    # while its own JSON response reports hasMore (see
+    # gateway/workflow_graph_interpreter.py's _exhaust_tool_call). No allowlist
+    # of which tools may set this -- it's a safe no-op on a tool with no
+    # hasMore-shaped output -- but max_pages/max_duration_sec, if given, must be
+    # sane, since a bad value here would otherwise silently degrade into "loop
+    # once" or "loop until the interpreter's own default cap" at run time
+    # instead of failing at author time.
+    for n in nodes:
+        if n.kind != "tool_call" or not (n.config or {}).get("paginate"):
+            continue
+        config = n.config or {}
+        max_pages = config.get("max_pages")
+        if max_pages is not None and (not isinstance(max_pages, (int, float)) or isinstance(max_pages, bool) or max_pages <= 0):
+            blocker("invalid_paginate_config", f"node {n.node_id!r}: max_pages must be a positive number, got {max_pages!r}", n.node_id)
+        max_duration_sec = config.get("max_duration_sec")
+        if max_duration_sec is not None and (not isinstance(max_duration_sec, (int, float)) or isinstance(max_duration_sec, bool) or max_duration_sec <= 0):
+            blocker("invalid_paginate_config", f"node {n.node_id!r}: max_duration_sec must be a positive number, got {max_duration_sec!r}", n.node_id)
 
     # Mandatory approval-gate before any send-risk tool_call node, on EVERY path.
     if triggers and order is not None:

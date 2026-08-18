@@ -19,6 +19,7 @@ if _CORE_DIR not in sys.path:
     sys.path.insert(0, _CORE_DIR)
 
 from workflow_models import WorkflowRun, WorkflowStep, WorkflowTemplate
+import store_concurrency
 import workflow_graph_store
 
 
@@ -69,6 +70,26 @@ _RUNS: dict[str, WorkflowRun] = {}
 _TEMPLATE_CONTROLS: dict[str, dict] = {}
 _LOADED = False
 _CONTROLS_LOADED = False
+
+# Every mutation below goes through this guard (governance_core/store_concurrency.py).
+# It is what makes a run record safe now that more than one thing can genuinely be
+# in flight at once -- see this module's mutator section for the rules it enforces.
+_GUARD = store_concurrency.StoreGuard("workflow-runs")
+
+#: Re-exported so callers can batch a unit of work into one disk write:
+#:
+#:      with workflows.deferred_save():
+#:          ...many add_step/complete_step calls...
+#:
+#: Without it, one node of a workflow costs two full rewrites of every run in the
+#: file; a loop node's per-iteration steps would cost dozens.
+def deferred_save():
+    return _GUARD.deferred(_save)
+
+
+def store_stats() -> dict:
+    """Save counts, for tests and /admin observability -- proves deferral works."""
+    return _GUARD.stats()
 
 
 def _state_root() -> Path:
@@ -175,15 +196,16 @@ def _load() -> None:
 
 
 def _save() -> None:
-    path = _store_file()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    # Inside a deferred_save() block this only marks the store dirty; the block
+    # writes once on exit. Every run in the store is re-serialized on each write,
+    # so the number of writes -- not their content -- is what costs.
+    if _GUARD.defer_save():
+        return
     payload = {
         "version": 1,
         "runs": [_run_to_record(r) for r in sorted(_RUNS.values(), key=lambda x: x.created_at)],
     }
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    store_concurrency.atomic_write_text(_store_file(), json.dumps(payload, indent=2))
 
 
 def reload_for_tests() -> None:
@@ -213,12 +235,8 @@ def _load_template_controls() -> None:
 
 
 def _save_template_controls() -> None:
-    path = _template_controls_file()
-    path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"version": 1, "templates": _TEMPLATE_CONTROLS}
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    store_concurrency.atomic_write_text(_template_controls_file(), json.dumps(payload, indent=2))
 
 
 def _template_control(template_id: str) -> dict:
@@ -428,27 +446,69 @@ def new_run(template_id: str, requested_by: str, inputs: dict) -> WorkflowRun:
     return run
 
 
+# ── Mutators ──────────────────────────────────────────────────────────────────
+#
+# THE RULE, and the reason these look the way they do: a mutator applies its
+# change to the CURRENTLY STORED record, never to the WorkflowRun object the
+# caller passed in. Callers -- `_interpret` above all -- hold one `run` across
+# many `await`s (every governed tool call, every LLM call), so by the time they
+# write back, their copy can be arbitrarily stale. Writing it back wholesale is
+# a lost update: the classic symptom was cancelling a running workflow and
+# watching it finish anyway, because the interpreter's final
+# `update_run(run, status="completed")` overwrote the cancel with a copy taken
+# before it happened (concurrency_and_scale.md §3.2).
+#
+# The caller's object is still accepted and returned, so no call site changed;
+# it is used for its `run_id` and as the fallback if the record has vanished.
+
+
+def _current(run: WorkflowRun) -> WorkflowRun:
+    return _RUNS.get(run.run_id) or run
+
+
 def update_run(run: WorkflowRun, **changes) -> WorkflowRun:
     _load()
-    changes.setdefault("updated_at", time.time())
-    updated = replace(run, **changes)
-    _RUNS[updated.run_id] = updated
-    _save()
-    return updated
+    with _GUARD.lock:
+        current = _current(run)
+        # `cancelled` and `failed` are sticky (store_concurrency.STICKY_STATUSES).
+        # A cancel that lands while work is still in flight must survive whatever
+        # that work writes when it finishes -- otherwise "cancel" is advisory at
+        # best. Everything ELSE in the late write is still applied: the steps it
+        # completed really did happen and belong in the record.
+        if "status" in changes and store_concurrency.is_sticky(current.status) \
+                and changes["status"] != current.status:
+            changes.pop("status", None)
+            changes.pop("error", None)
+        changes.setdefault("updated_at", time.time())
+        updated = replace(current, **changes)
+        _RUNS[updated.run_id] = updated
+        _save()
+        return updated
 
 
 def add_step(run: WorkflowRun, step: WorkflowStep) -> WorkflowRun:
-    return update_run(run, steps=[*run.steps, step])
+    """Append to the stored run's steps, not to the caller's snapshot of them --
+    otherwise two writers each append to their own copy and one list wins whole,
+    silently dropping the other's step."""
+    _load()
+    with _GUARD.lock:
+        return update_run(run, steps=[*_current(run).steps, step])
 
 
 def complete_step(run: WorkflowRun, step_id: str, outputs: dict | None = None) -> WorkflowRun:
-    steps = [replace(s, status="completed", outputs=dict(outputs or {})) if s.step_id == step_id else s for s in run.steps]
-    return update_run(run, steps=steps)
+    _load()
+    with _GUARD.lock:
+        steps = [replace(s, status="completed", outputs=dict(outputs or {})) if s.step_id == step_id else s
+                 for s in _current(run).steps]
+        return update_run(run, steps=steps)
 
 
 def fail_step(run: WorkflowRun, step_id: str, error: str) -> WorkflowRun:
-    steps = [replace(s, status="failed", error=error) if s.step_id == step_id else s for s in run.steps]
-    return update_run(run, steps=steps, status="failed", error=error)
+    _load()
+    with _GUARD.lock:
+        steps = [replace(s, status="failed", error=error) if s.step_id == step_id else s
+                 for s in _current(run).steps]
+        return update_run(run, steps=steps, status="failed", error=error)
 
 
 def workflow_health(now: float | None = None, *, stuck_after_sec: float = 1800) -> dict:

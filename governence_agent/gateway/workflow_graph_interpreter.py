@@ -19,10 +19,12 @@ depend on nothing here.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import replace
 from datetime import datetime, timezone
 
 import approval_store
+import llm_broker
 import workflows
 from policy import manifest
 from workflow_graph_models import GraphNode, WorkflowGraphDefinition
@@ -113,12 +115,105 @@ def _resolve_node_args(node: GraphNode, run: WorkflowRun, *, owner: str) -> dict
     return args
 
 
+# Dual stop-condition defaults for a paginate:true tool_call node -- a page-count
+# cap alone doesn't protect against a slow/degraded upstream (confirmed live:
+# GLTran without a narrowing filter timed out on page 1 alone, well under any
+# page-count cap), so every exhaustion loop is bounded by BOTH count and
+# wall-clock time, whichever is hit first. Same max_pages default paginate_all
+# already uses (minierp_core/graphql_client.py) so a node that doesn't override
+# it behaves like the existing per-tool convention.
+_DEFAULT_MAX_PAGES = 20
+_DEFAULT_MAX_DURATION_SEC = 90.0
+
+
+async def _exhaust_tool_call(
+    tool: str, args: dict, session_id: str, customer_id: str, govern, parse, *, max_pages: int, max_duration_sec: float,
+) -> dict:
+    """Repeat a tool_call node's own call, bumping `page`, while the tool's own
+    JSON response reports `hasMore` -- the same "loop pages, cap at N, flag
+    truncated" shape minierp_core.graphql_client.paginate_all already uses at
+    the transport layer inside individual tools, just driven generically here
+    so ANY tool_call node can opt in with `paginate: true` -- no per-tool
+    allowlist needed. A tool whose response has no list-valued field at all
+    (most tools: single-entity lookups, artifact creation, ...) returns after
+    one call unchanged, same as if paginate had never been set -- a safe no-op,
+    not an error, so setting this flag on the wrong kind of tool costs nothing.
+
+    Each of these tools names its row list differently (customers/rows/
+    invoices/topCustomers/...) -- there is no single common key -- so every
+    list-valued field in the response is merged across pages generically
+    rather than assuming one fixed name.
+
+    `_govern` never raises for a backend failure (timeout, GraphQL error) --
+    it already converts those into a `{"status": "error", ...}` result (see
+    gateway/govern.py's `_error_result`) -- so a page failing mid-walk is
+    detected the same way any other tool failure is, not via a try/except
+    here. Reports WHY it stopped (`truncatedReason`) rather than a bare bool:
+    a scheduled run needs to tell "capped by design" apart from "a page
+    errored partway through," never treat those the same as silent success.
+    """
+    start = time.monotonic()
+    page = int(args.get("page") or 1)
+    merged: dict = {}
+    list_keys: set[str] = set()
+    pages_fetched = 0
+    while True:
+        raw = await govern(tool, session_id, customer_id, {**args, "page": page})
+        result = parse(raw)
+        if result.get("status") in _FAILURE_STATUSES:
+            if pages_fetched == 0:
+                return result  # first page failed outright -- let the normal failure path handle it
+            merged["truncated"] = True
+            merged["truncatedReason"] = "request_error"
+            merged["pagesFetched"] = pages_fetched
+            return merged
+        pages_fetched += 1
+        for key, value in result.items():
+            if isinstance(value, list):
+                list_keys.add(key)
+                merged.setdefault(key, [])
+                merged[key].extend(value)
+            else:
+                merged[key] = value  # latest page's scalars win (status/intent/hasMore/...)
+        if not list_keys:
+            return result  # this tool has no hasMore-shaped output at all -- one call is the whole answer
+        if not result.get("hasMore"):
+            merged["truncated"] = False
+            break
+        if pages_fetched >= max_pages:
+            merged["truncated"] = True
+            merged["truncatedReason"] = "max_pages"
+            break
+        if (time.monotonic() - start) >= max_duration_sec:
+            merged["truncated"] = True
+            merged["truncatedReason"] = "max_duration"
+            break
+        page += 1
+    if len(list_keys) == 1:
+        # Only unambiguous when there's exactly one row-list field -- reflect
+        # the merged row count, not whatever the last individual page reported.
+        merged["count"] = len(merged[next(iter(list_keys))])
+    merged["pagesFetched"] = pages_fetched
+    return merged
+
+
 async def _execute_tool_call_node(run: WorkflowRun, node: GraphNode, *, session_id: str, owner: str, govern, parse) -> tuple[WorkflowRun, dict]:
     args = _resolve_node_args(node, run, owner=owner)
     customer_id = str(args.pop("customer_id", "") or "")
+    # Reserved node-config keys, never valid tool kwargs -- popped here (same
+    # pattern as customer_id above) rather than passed through to the governed
+    # call, which would otherwise reject them as unknown arguments.
+    paginate = bool(args.pop("paginate", False))
+    max_pages = int(args.pop("max_pages", None) or _DEFAULT_MAX_PAGES)
+    max_duration_sec = float(args.pop("max_duration_sec", None) or _DEFAULT_MAX_DURATION_SEC)
     run = workflows.add_step(run, WorkflowStep(step_id=node.node_id, type="tool_call", status="running", tool=node.tool, title=node.title or node.tool, inputs={k: v for k, v in args.items() if k != "owner"}))
-    raw = await govern(node.tool, session_id, customer_id, args)
-    result = parse(raw)
+    if paginate:
+        result = await _exhaust_tool_call(
+            node.tool, args, session_id, customer_id, govern, parse, max_pages=max_pages, max_duration_sec=max_duration_sec,
+        )
+    else:
+        raw = await govern(node.tool, session_id, customer_id, args)
+        result = parse(raw)
     if result.get("status") in _FAILURE_STATUSES:
         run = workflows.fail_step(run, node.node_id, result.get("message") or result.get("errorCode") or f"{node.tool} did not succeed (status={result.get('status')})")
         return run, {"failed": True}
@@ -159,7 +254,18 @@ async def _execute_llm_transform_node(run: WorkflowRun, node: GraphNode) -> tupl
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": (instruction + "\n\n---\n" if instruction else "") + input_text},
     ]
-    msg = llm_complete(messages, None)
+    # BATCH lane: nobody is watching a workflow step, so it queues behind anyone
+    # who is (llm_broker). On a shared local model server that reservation is the
+    # only thing stopping a workflow -- or, later, a loop node's per-row calls --
+    # from taking every slot from people using chat and the copilot.
+    try:
+        msg = await llm_complete(messages, None, lane=llm_broker.BATCH, user=run.requested_by)
+    except llm_broker.LLMBusy as busy:
+        # A queue timeout is a real, explainable outcome, not a crash: fail this
+        # step with the reason rather than letting it surface as an unhandled
+        # exception in workflow_api's catch-all (which reports a generic failure).
+        run = workflows.fail_step(run, node.node_id, f"the assistant was busy: {busy}")
+        return run, {"failed": True}
     text = getattr(msg, "content", "") or ""
     run = workflows.complete_step(run, node.node_id, {"text": text})
     return run, {"failed": False}
@@ -378,41 +484,50 @@ async def _interpret(run: WorkflowRun, graph: WorkflowGraphDefinition, body: dic
         if step is None:
             # First time this walk has ever reached this node -- the ONLY branch
             # with a side effect (a _govern call, an approval created, or an LLM call).
-            if node.kind == "tool_call":
-                run, outcome = await _execute_tool_call_node(run, node, session_id=session_id, owner=owner, govern=_govern, parse=_parse_tool_json)
-                if outcome.get("failed"):
-                    return workflows.run_dict(run)
-                if outcome.get("artifact"):
-                    artifacts.append(outcome["artifact"])
-                    aid = outcome["artifact"].get("artifactId")
-                    if aid and aid not in accumulated_artifact_ids:
-                        accumulated_artifact_ids.append(aid)
-                policy = manifest.get(node.tool)
-                if policy is not None and policy.risk == manifest.EXPORT:
-                    node_args = outcome.get("args") or {}
-                    needs_approval, row_count, threshold = _workflow_requires_broad_export_approval(
-                        node_args.get("tables"), node_args.get("classification"), body, canonical_tool=node.tool,
-                    )
-                    if needs_approval:
-                        run, approval = _workflow_pause_for_broad_export(
-                            run, artifact_ids=list(accumulated_artifact_ids), row_count=row_count, threshold=threshold,
-                            step_id=_export_step_id(node_id),
+            #
+            # One node = one disk write. Each executor writes its step at least
+            # twice (running -> completed) and every write re-serializes EVERY run
+            # in the store, so the cost of a node grows with the whole file's
+            # history. The block is scoped to a single node, not the whole walk,
+            # so a node's outcome is durable before the next one starts -- which
+            # is what resume depends on. Returning from inside it (an approval
+            # pause, a failure) still flushes, because the flush is in `finally`.
+            with workflows.deferred_save():
+                if node.kind == "tool_call":
+                    run, outcome = await _execute_tool_call_node(run, node, session_id=session_id, owner=owner, govern=_govern, parse=_parse_tool_json)
+                    if outcome.get("failed"):
+                        return workflows.run_dict(run)
+                    if outcome.get("artifact"):
+                        artifacts.append(outcome["artifact"])
+                        aid = outcome["artifact"].get("artifactId")
+                        if aid and aid not in accumulated_artifact_ids:
+                            accumulated_artifact_ids.append(aid)
+                    policy = manifest.get(node.tool)
+                    if policy is not None and policy.risk == manifest.EXPORT:
+                        node_args = outcome.get("args") or {}
+                        needs_approval, row_count, threshold = _workflow_requires_broad_export_approval(
+                            node_args.get("tables"), node_args.get("classification"), body, canonical_tool=node.tool,
                         )
-                        return {**workflows.run_dict(run), "artifacts": artifacts, "approval": approval.public_dict()}
-            elif node.kind == "approval_gate":
-                run, outcome = await _execute_approval_gate_node(run, node, artifact_ids=accumulated_artifact_ids)
-                if outcome.get("paused"):
-                    approval_id = _find_step(run, node_id).outputs.get("approvalId")
-                    approval = approval_store.get_approval(approval_id)
-                    return {**workflows.run_dict(run), "artifacts": artifacts, "approval": approval.public_dict() if approval else None}
-            elif node.kind == "llm_transform":
-                run, outcome = await _execute_llm_transform_node(run, node)
-                if outcome.get("failed"):
-                    return workflows.run_dict(run)
-            elif node.kind == "filter":
-                run, outcome = await _execute_filter_node(run, node)
-                if outcome.get("failed"):
-                    return workflows.run_dict(run)
+                        if needs_approval:
+                            run, approval = _workflow_pause_for_broad_export(
+                                run, artifact_ids=list(accumulated_artifact_ids), row_count=row_count, threshold=threshold,
+                                step_id=_export_step_id(node_id),
+                            )
+                            return {**workflows.run_dict(run), "artifacts": artifacts, "approval": approval.public_dict()}
+                elif node.kind == "approval_gate":
+                    run, outcome = await _execute_approval_gate_node(run, node, artifact_ids=accumulated_artifact_ids)
+                    if outcome.get("paused"):
+                        approval_id = _find_step(run, node_id).outputs.get("approvalId")
+                        approval = approval_store.get_approval(approval_id)
+                        return {**workflows.run_dict(run), "artifacts": artifacts, "approval": approval.public_dict() if approval else None}
+                elif node.kind == "llm_transform":
+                    run, outcome = await _execute_llm_transform_node(run, node)
+                    if outcome.get("failed"):
+                        return workflows.run_dict(run)
+                elif node.kind == "filter":
+                    run, outcome = await _execute_filter_node(run, node)
+                    if outcome.get("failed"):
+                        return workflows.run_dict(run)
             continue
 
         # Node already attempted on a prior pass -- never re-execute it.

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import store_concurrency
 import time
 import uuid
 from dataclasses import replace
@@ -118,9 +119,7 @@ def _save() -> None:
     path = _store_file()
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"version": 1, "templates": [_record_to_dict(r) for r in sorted(_TEMPLATES.values(), key=lambda x: x.created_at)]}
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(path)
+    store_concurrency.atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False))
 
 
 def _validate(template_type: str, content: dict) -> None:

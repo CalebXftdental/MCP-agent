@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import store_concurrency
 import time
 import uuid
 from dataclasses import replace
@@ -91,9 +92,7 @@ def _save() -> None:
         "version": 1,
         "shares": [_record_to_dict(r) for r in sorted(_SHARES.values(), key=lambda x: x.created_at)],
     }
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    store_concurrency.atomic_write_text(path, json.dumps(payload, indent=2))
 
 
 def _normalize_permissions(permissions: list[str] | None) -> list[str]:

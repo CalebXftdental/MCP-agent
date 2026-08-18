@@ -44,6 +44,7 @@ def check(name, cond, detail=None):
 sys.path.insert(0, str(ROOT / "gateway"))
 sys.path.insert(0, str(ROOT / "governance_core"))
 gateway_app = importlib.import_module("app")
+from auth.passwords import hash_password  # noqa: E402
 from store.models import ConsumerRecord  # noqa: E402
 
 store = gateway_app.get_store()
@@ -55,7 +56,7 @@ store.upsert_consumer(ConsumerRecord(
     role="user",
     type="user",
     categories=["orders"],
-    login_password_hash=gateway_app.hash_password("ops_password"),
+    login_password_hash=hash_password("ops_password"),
 ))
 
 with TestClient(gateway_app.app, base_url="http://testserver") as client:

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import store_concurrency
 import time
 import uuid
 from dataclasses import replace
@@ -92,9 +93,7 @@ def _save() -> None:
     path = _store_file()
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"version": 1, "agents": [_record_to_dict(a) for a in sorted(_AGENTS.values(), key=lambda x: x.created_at)]}
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    store_concurrency.atomic_write_text(path, json.dumps(payload, indent=2))
 
 
 def create_agent(*, display_name: str, consumer_id: str, categories: list[str] | None = None,

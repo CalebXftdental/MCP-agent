@@ -41,6 +41,8 @@ class KnowledgeChunk:
     ordinal: int
     text: str
     terms: dict[str, int]
+    embedding: list[float] | None = None  # personal-KB only; None for company-tier
+    # local-fallback chunks, which stay TF-IDF-only (see personal_knowledge_store.py)
 
     def public_dict(self, score: float | None = None, max_chars: int = 700) -> dict:
         snippet = self.text.strip()

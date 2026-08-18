@@ -14,6 +14,7 @@ from store.keys import hash_api_key
 from store.models import ConsumerRecord
 import agent_store
 import audit
+import personal_knowledge_store
 import time
 import workflows
 
@@ -197,8 +198,15 @@ async def _admin_consumer_item(request):
         return JSONResponse({"error": "not found"}, status_code=404)
 
     if request.method == "DELETE":
+        # Cascade personal-KB documents BEFORE deleting the consumer record, keyed
+        # by `existing.name` (= `owner` everywhere else in this codebase) -- not
+        # `cid`/consumer_id. If `name` is ever reused for a new consumer after
+        # this, the new person must not silently inherit the old owner's private
+        # documents (digest_persoanl_kb.md §2's cascade-delete gap).
+        deleted_docs = personal_knowledge_store.delete_all_for_owner(existing.name)
         store.delete_consumer(cid)
-        audit.log_policy_change(actor=claims["name"], action="delete_consumer", target=cid)
+        audit.log_policy_change(actor=claims["name"], action="delete_consumer", target=cid,
+                                detail=f"cascaded {deleted_docs} personal knowledge document(s)" if deleted_docs else None)
         return JSONResponse({"ok": True})
 
     body = await request.json()

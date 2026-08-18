@@ -44,7 +44,10 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.responses import JSONResponse
 
+import base64
+
 import knowledge_store
+import personal_knowledge_store
 from policy import manifest
 
 
@@ -230,6 +233,60 @@ async def answer_from_knowledge(owner: str, query: str, limit: int = 5, document
         return _ok(remote)
     result = knowledge_store.answer(owner, query, limit, document_id or None)
     return _ok({"query": query, **result, "mode": "local"})
+
+
+# ── Personal knowledge tier: private per-owner store, no admin bypass ─────────
+# `owner` is a literal argument here (this process is localhost-only, the
+# gateway is its sole client -- see DEPLOY.md) but the gateway's own tool
+# wrappers (gateway/app.py) never forward an LLM/caller-supplied owner: they
+# hardcode it from the authenticated session before calling here. Do not add a
+# route that lets an owner value reach this file from anywhere else.
+
+@mcp.tool()
+async def ingest_my_document(owner: str, title: str, filename: str, content_base64: str, classification: str = "") -> str:
+    """Upload a document into the caller's own private knowledge base (PDF, docx,
+    pptx, xlsx, txt, md, csv, json, log). Not visible to anyone else, including
+    admins."""
+    try:
+        payload = base64.b64decode(content_base64)
+    except Exception as exc:  # noqa: BLE001
+        return json.dumps({"source": "knowledge", "status": "error", "message": f"invalid content_base64: {exc}"})
+    classes = [c.strip() for c in classification.split(",") if c.strip()] or None
+    try:
+        doc = personal_knowledge_store.ingest_document(owner, title, filename, payload, classes)
+    except ValueError as exc:
+        return json.dumps({"source": "knowledge", "status": "error", "message": str(exc)})
+    return _ok({"document": doc.public_dict()})
+
+
+@mcp.tool()
+async def search_my_documents(owner: str, query: str, limit: int = 5, document_id: str = "") -> str:
+    """Search the caller's own private document chunks (semantic search, falls
+    back to keyword search automatically)."""
+    results = personal_knowledge_store.search(owner, query, limit, document_id or None)
+    return _ok({"query": query, "results": results, "mode": "personal"})
+
+
+@mcp.tool()
+async def answer_from_my_documents(owner: str, query: str, limit: int = 5, document_id: str = "") -> str:
+    """Return a citation-backed extractive answer from the caller's own private
+    documents."""
+    result = personal_knowledge_store.answer(owner, query, limit, document_id or None)
+    return _ok({"query": query, **result, "mode": "personal"})
+
+
+@mcp.tool()
+async def list_my_documents(owner: str, limit: int = 100) -> str:
+    """List documents in the caller's own private knowledge base."""
+    docs = personal_knowledge_store.list_documents(owner, limit)
+    return _ok({"documents": [d.public_dict() for d in docs]})
+
+
+@mcp.tool()
+async def delete_my_document(owner: str, document_id: str) -> str:
+    """Delete a document from the caller's own private knowledge base."""
+    deleted = personal_knowledge_store.delete_document(document_id, owner)
+    return _ok({"documentId": document_id, "deleted": deleted})
 
 
 async def _health(_request):

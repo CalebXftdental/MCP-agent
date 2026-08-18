@@ -58,9 +58,17 @@ from sqlagent.accounts.index import (
 from sqlagent.finance.index import (
     get_ap_invoice_details as _fin_get_ap_invoice_details,
     get_ap_invoices_due_soon as _fin_get_ap_invoices_due_soon,
+    get_ap_payment_history as _fin_get_ap_payment_history,
     get_ar_invoices_past_due as _fin_get_ar_invoices_past_due,
+    get_ar_payment_history as _fin_get_ar_payment_history,
+    get_bill_line_items as _fin_get_bill_line_items,
+    get_customer_invoice_history as _fin_get_customer_invoice_history,
     get_gl_account_transactions as _fin_get_gl_account_transactions,
+    get_gl_period_summary as _fin_get_gl_period_summary,
     get_invoice_details as _fin_get_invoice_details,
+    get_invoice_line_items as _fin_get_invoice_line_items,
+    get_item_movement_history as _fin_get_item_movement_history,
+    get_po_line_items as _fin_get_po_line_items,
     get_po_order_status as _fin_get_po_order_status,
     get_sales_price as _fin_get_sales_price,
     get_vendor_ap_invoices as _fin_get_vendor_ap_invoices,
@@ -340,6 +348,83 @@ async def get_ar_invoices_past_due(
     this schema, so this ages by invoice date and cannot be attributed to a
     specific customer (see the underlying tool's own docstring for why)."""
     return await _fin_get_ar_invoices_past_due(min_invoice_age_days=min_invoice_age_days, company_id=company_id, page=page)
+
+
+@mcp.tool()
+async def get_po_line_items(
+    po_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10,
+) -> str:
+    """List the line items (product, quantities, unit/extended cost) inside one purchase order by PO number."""
+    if not po_number.strip():
+        return _missing("po_number", "po_line_items")
+    return await _fin_get_po_line_items(po_number.strip(), company_id=company_id, page=page, page_size=page_size)
+
+
+@mcp.tool()
+async def get_ar_payment_history(customer_id: str, page: int = 1, page_size: int = 10) -> str:
+    """List which invoices a customer's payments/credit memos were applied to, when, and for how much."""
+    if not customer_id.strip():
+        return _MISSING_CUSTOMER
+    return await _fin_get_ar_payment_history(customer_id.strip(), page=page, page_size=page_size)
+
+
+@mcp.tool()
+async def get_ap_payment_history(vendor_code: str, page: int = 1, page_size: int = 10) -> str:
+    """List which bills a vendor's payments were applied to, when, and for how much."""
+    if not vendor_code.strip():
+        return _missing("vendor_code", "ap_payment_history")
+    return await _fin_get_ap_payment_history(vendor_code.strip(), page=page, page_size=page_size)
+
+
+@mcp.tool()
+async def get_gl_period_summary(
+    account_cd: str, fin_period_id: str = "", company_id: int | None = None,
+    page: int = 1, page_size: int = 12,
+) -> str:
+    """Get period-level GL balances (beginning balance, period debit/credit, YTD balance) for one account, optionally narrowed to one fiscal period ("YYYYMM")."""
+    if not account_cd.strip():
+        return _missing("account_cd", "gl_period_summary")
+    return await _fin_get_gl_period_summary(
+        account_cd.strip(), fin_period_id=fin_period_id or "", company_id=company_id, page=page, page_size=page_size,
+    )
+
+
+@mcp.tool()
+async def get_invoice_line_items(invoice_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10) -> str:
+    """List the billed line items (product, quantity, price, sales rep) inside one AR invoice by invoice/reference number."""
+    if not invoice_number.strip():
+        return _missing("invoice_number", "invoice_line_items")
+    return await _fin_get_invoice_line_items(invoice_number.strip(), company_id=company_id, page=page, page_size=page_size)
+
+
+@mcp.tool()
+async def get_bill_line_items(invoice_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10) -> str:
+    """List the billed line items (product, quantity, cost, linked PO) inside one AP bill by invoice/reference number."""
+    if not invoice_number.strip():
+        return _missing("invoice_number", "bill_line_items")
+    return await _fin_get_bill_line_items(invoice_number.strip(), company_id=company_id, page=page, page_size=page_size)
+
+
+@mcp.tool()
+async def get_customer_invoice_history(customer_id: str, page: int = 1, page_size: int = 10) -> str:
+    """List a customer's AR invoices (reference number, order number, payment amount/method)."""
+    if not customer_id.strip():
+        return _MISSING_CUSTOMER
+    return await _fin_get_customer_invoice_history(customer_id.strip(), page=page, page_size=page_size)
+
+
+@mcp.tool()
+async def get_item_movement_history(
+    inventory_id: str, start_date: str = "", end_date: str = "",
+    company_id: int | None = None, page: int = 1, page_size: int = 10,
+) -> str:
+    """List inventory transaction history (receipts, issues, transfers) for one item, including lot/serial number and expiration date where tracked. This is transaction history, NOT live lot status or current stock-on-hand."""
+    if not inventory_id.strip():
+        return _missing("inventory_id", "item_movement_history")
+    return await _fin_get_item_movement_history(
+        inventory_id.strip(), start_date=start_date, end_date=end_date,
+        company_id=company_id, page=page, page_size=page_size,
+    )
 
 
 # ── Secondary resolvers (entry points: human handle -> canonical key) ─────────

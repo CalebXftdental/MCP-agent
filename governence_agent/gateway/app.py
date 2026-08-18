@@ -55,6 +55,7 @@ import workflow_graph_store
 import workflow_scratchpad
 import workflows
 from policy import manifest
+from policy.resolve import resolve as resolve_grant
 from store import get_store
 
 import backend
@@ -371,6 +372,20 @@ async def office_convert_artifact(session_id: SessionId, artifact_id: str, targe
     })
 
 
+@mcp.tool(name="office_edit_office_document")
+async def office_edit_office_document(session_id: SessionId, artifact_id: str, edits: str) -> str:
+    """Apply a small whitelisted set of edits to an existing governed XLSX/DOCX
+    artifact via ONLYOFFICE Document Builder, and persist the result as a new
+    artifact version. `edits` is a JSON-encoded string describing ops, e.g. for
+    xlsx: '[{"op":"set_cell","sheet":"Sheet1","cell":"B4","value":"500"}]';
+    for docx: '[{"op":"replace_text","find":"TBD","replace":"Q3 2026"}]'."""
+    return await _govern("edit_office_document", session_id, "", {
+        "owner": ctx.consumer_ctx.get() or "unknown",
+        "artifact_id": artifact_id,
+        "edits": edits,
+    })
+
+
 @mcp.tool(name="office_extract_tables_from_document")
 async def office_extract_tables_from_document(session_id: SessionId, artifact_id: str, create_json_artifact: bool = False) -> str:
     """Extract table-like data from a governed XLSX/DOCX artifact."""
@@ -502,6 +517,68 @@ async def knowledge_answer_from_knowledge(session_id: SessionId, query: str, lim
         "owner": ctx.consumer_ctx.get() or "unknown",
         "query": query,
         "limit": limit,
+        "document_id": document_id,
+    })
+
+
+# ── Personal knowledge tier -- private per-owner, no admin bypass ─────────────
+# `owner` is hardcoded from the authenticated session on every one of these five,
+# exactly like the company-tier wrappers above -- never a parameter an LLM/caller
+# can set. This is the actual enforcement point for "personal docs are private to
+# their owner" (see digest_persoanl_kb.md §0's "Owner identity source" row).
+
+@mcp.tool(name="knowledge_ingest_my_document")
+async def knowledge_ingest_my_document(
+    session_id: SessionId, title: str, filename: str, content_base64: str, classification: str = "",
+) -> str:
+    """Upload a document into YOUR OWN private knowledge base (PDF, docx, pptx,
+    xlsx, txt, md, csv). Not visible to anyone else, including admins."""
+    return await _govern("ingest_my_document", session_id, "", {
+        "owner": ctx.consumer_ctx.get() or "unknown",
+        "title": title,
+        "filename": filename,
+        "content_base64": content_base64,
+        "classification": classification,
+    })
+
+
+@mcp.tool(name="knowledge_search_my_documents")
+async def knowledge_search_my_documents(session_id: SessionId, query: str, limit: int = 5, document_id: str = "") -> str:
+    """Search YOUR OWN private document chunks (semantic search, falls back to
+    keyword search automatically)."""
+    return await _govern("search_my_documents", session_id, "", {
+        "owner": ctx.consumer_ctx.get() or "unknown",
+        "query": query,
+        "limit": limit,
+        "document_id": document_id,
+    })
+
+
+@mcp.tool(name="knowledge_answer_from_my_documents")
+async def knowledge_answer_from_my_documents(session_id: SessionId, query: str, limit: int = 5, document_id: str = "") -> str:
+    """Return a citation-backed extractive answer from YOUR OWN private documents."""
+    return await _govern("answer_from_my_documents", session_id, "", {
+        "owner": ctx.consumer_ctx.get() or "unknown",
+        "query": query,
+        "limit": limit,
+        "document_id": document_id,
+    })
+
+
+@mcp.tool(name="knowledge_list_my_documents")
+async def knowledge_list_my_documents(session_id: SessionId, limit: int = 100) -> str:
+    """List documents in YOUR OWN private knowledge base."""
+    return await _govern("list_my_documents", session_id, "", {
+        "owner": ctx.consumer_ctx.get() or "unknown",
+        "limit": limit,
+    })
+
+
+@mcp.tool(name="knowledge_delete_my_document")
+async def knowledge_delete_my_document(session_id: SessionId, document_id: str) -> str:
+    """Delete a document from YOUR OWN private knowledge base."""
+    return await _govern("delete_my_document", session_id, "", {
+        "owner": ctx.consumer_ctx.get() or "unknown",
         "document_id": document_id,
     })
 
@@ -663,6 +740,90 @@ async def minierp_finance_get_ar_invoices_past_due(
     })
 
 
+@mcp.tool(name="minierp_finance_get_po_line_items")
+async def minierp_finance_get_po_line_items(
+    session_id: SessionId, po_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10,
+) -> str:
+    """List the line items (product, quantities, unit/extended cost) inside one purchase order by PO number."""
+    return await _govern("get_po_line_items", session_id, "", {
+        "po_number": po_number, "company_id": company_id, "page": page, "page_size": page_size,
+    })
+
+
+@mcp.tool(name="minierp_finance_get_ar_payment_history")
+async def minierp_finance_get_ar_payment_history(
+    session_id: SessionId, customer_id: CustomerId = "", page: int = 1, page_size: int = 10,
+) -> str:
+    """List which invoices a customer's payments/credit memos were applied to, when, and for how much."""
+    return await _govern("get_ar_payment_history", session_id, customer_id, {
+        "page": page, "page_size": page_size,
+    })
+
+
+@mcp.tool(name="minierp_finance_get_ap_payment_history")
+async def minierp_finance_get_ap_payment_history(
+    session_id: SessionId, vendor_code: str, page: int = 1, page_size: int = 10,
+) -> str:
+    """List which bills a vendor's payments were applied to, when, and for how much."""
+    return await _govern("get_ap_payment_history", session_id, "", {
+        "vendor_code": vendor_code, "page": page, "page_size": page_size,
+    })
+
+
+@mcp.tool(name="minierp_finance_get_gl_period_summary")
+async def minierp_finance_get_gl_period_summary(
+    session_id: SessionId, account_cd: str, fin_period_id: str = "",
+    company_id: int | None = None, page: int = 1, page_size: int = 12,
+) -> str:
+    """Get period-level GL balances (beginning balance, period debit/credit, YTD balance) for one account, optionally narrowed to one fiscal period ("YYYYMM")."""
+    return await _govern("get_gl_period_summary", session_id, "", {
+        "account_cd": account_cd, "fin_period_id": fin_period_id,
+        "company_id": company_id, "page": page, "page_size": page_size,
+    })
+
+
+@mcp.tool(name="minierp_finance_get_invoice_line_items")
+async def minierp_finance_get_invoice_line_items(
+    session_id: SessionId, invoice_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10,
+) -> str:
+    """List the billed line items (product, quantity, price, sales rep) inside one AR invoice by invoice/reference number."""
+    return await _govern("get_invoice_line_items", session_id, "", {
+        "invoice_number": invoice_number, "company_id": company_id, "page": page, "page_size": page_size,
+    })
+
+
+@mcp.tool(name="minierp_finance_get_bill_line_items")
+async def minierp_finance_get_bill_line_items(
+    session_id: SessionId, invoice_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10,
+) -> str:
+    """List the billed line items (product, quantity, cost, linked PO) inside one AP bill by invoice/reference number."""
+    return await _govern("get_bill_line_items", session_id, "", {
+        "invoice_number": invoice_number, "company_id": company_id, "page": page, "page_size": page_size,
+    })
+
+
+@mcp.tool(name="minierp_finance_get_customer_invoice_history")
+async def minierp_finance_get_customer_invoice_history(
+    session_id: SessionId, customer_id: CustomerId = "", page: int = 1, page_size: int = 10,
+) -> str:
+    """List a customer's AR invoices (reference number, order number, payment amount/method)."""
+    return await _govern("get_customer_invoice_history", session_id, customer_id, {
+        "page": page, "page_size": page_size,
+    })
+
+
+@mcp.tool(name="minierp_finance_get_item_movement_history")
+async def minierp_finance_get_item_movement_history(
+    session_id: SessionId, inventory_id: str, start_date: str = "", end_date: str = "",
+    company_id: int | None = None, page: int = 1, page_size: int = 10,
+) -> str:
+    """List inventory transaction history (receipts, issues, transfers) for one item, including lot/serial number and expiration date where tracked. This is transaction history, NOT live lot status or current stock-on-hand."""
+    return await _govern("get_item_movement_history", session_id, "", {
+        "inventory_id": inventory_id, "start_date": start_date, "end_date": end_date,
+        "company_id": company_id, "page": page, "page_size": page_size,
+    })
+
+
 @mcp.tool(name="submit_workflow_request")
 async def submit_workflow_request(session_id: SessionId, description: str) -> str:
     """Log a request for a workflow/report capability that does not exist yet
@@ -704,7 +865,12 @@ async def update_workflow_plan(
     goes idle. Always returns the FULL current plan, merging in whatever you
     passed and leaving anything omitted unchanged, so you never have to hold
     the whole plan in your own head or re-derive it from earlier prose --
-    call this with no arguments at any time to just re-read it."""
+    call this with no arguments at any time to just re-read it.
+    The returned plan also includes a `checks` list -- the structured result
+    of validate_graph from your MOST RECENT propose_graph call on this graph
+    (empty once a save is clean). You never set this yourself; it's recorded
+    automatically so you can see what's still outstanding without calling
+    propose_graph again just to check."""
     plan = workflow_scratchpad.update_plan(
         session_id, fields_discovered=fields_discovered, modules_chosen=modules_chosen,
         draft_nodes=draft_nodes, notes=notes,
@@ -841,11 +1007,13 @@ async def propose_graph(
     the same one that made you call it in the first place) must be filled in
     with a real literal or binding before you call this, especially ones easy
     to overlook because they don't come from the data itself: a report tool's
-    own title/name is the most common miss. Leaving one out doesn't fail this
-    call -- there's no server-side check for it -- it just saves a draft that
-    opens with a red "Missing required value" flag on that step, so the user
-    is stuck finishing what you should have finished, for no advantage to
-    anyone. Do NOT set "position" on any node -- omit that field entirely
+    own title/name is the most common miss. Leaving one out DOES fail this
+    call now (status="error", same as any other blocker) rather than saving a
+    broken draft -- fix it and call propose_graph again. The outcome (clean or
+    not) is also recorded in this conversation's scratchpad automatically, so
+    a later update_workflow_plan (with every argument omitted) tells you
+    what's still outstanding without needing to call propose_graph again just
+    to check. Do NOT set "position" on any node -- omit that field entirely
     (when editing, this also means dropping whatever positions get_my_workflow
     showed you -- keep everything else about those nodes, just not position).
     You have no way to see the canvas this draft opens onto and cannot judge
@@ -862,6 +1030,15 @@ async def propose_graph(
     gid = (graph_id or "").strip()
     wire_nodes = [_graph_node_from_wire(n) for n in (nodes or [])]
     wire_edges = [_graph_edge_from_wire(e) for e in (edges or [])]
+    # Record this attempt's structured validation outcome in the copilot's own
+    # scratchpad (RAM-only, session-scoped -- see workflow_scratchpad.py), so a
+    # later update_workflow_plan re-read shows what's still outstanding without
+    # calling propose_graph again just to check. create_graph/add_graph_version
+    # below re-run the same check as their own hard gate -- this call is purely
+    # for the scratchpad copy, never the enforcement itself.
+    owner_grant = resolve_grant(record, store.get_category, store.get_department)
+    checks = workflow_graph_store.validate_graph(wire_nodes, wire_edges, owner_grant=owner_grant)
+    workflow_scratchpad.update_plan(session_id, checks=[c.public_dict() for c in checks])
     if gid:
         existing = workflow_graph_store.get_graph(gid)
         if existing is None or (existing.owner != record.name and record.role != "admin"):
@@ -903,23 +1080,25 @@ app = mcp.streamable_http_app()
 
 # FastMCP's own lifespan (app.router.lifespan_context) runs its stateless-http
 # session manager; this Starlette version dropped add_event_handler("startup"), so
-# to also start the chat-idle sweep we wrap that lifespan rather than replace it --
-# the session manager still runs, we just additionally spin up the sweep task for
-# the life of the process and cancel it on shutdown.
+# to also start the idle sweeps we wrap that lifespan rather than replace it --
+# the session manager still runs, we just additionally spin up the sweep tasks for
+# the life of the process and cancel them on shutdown.
 _mcp_lifespan = app.router.lifespan_context
 
 
 @asynccontextmanager
-async def _lifespan_with_chat_sweep(asgi_app):
-    task = asyncio.create_task(_chat_sweep_loop())
+async def _lifespan_with_sweeps(asgi_app):
+    chat_task = asyncio.create_task(_chat_sweep_loop())
+    scratchpad_task = asyncio.create_task(workflow_scratchpad.scratchpad_sweep_loop())
     try:
         async with _mcp_lifespan(asgi_app) as state:
             yield state
     finally:
-        task.cancel()
+        chat_task.cancel()
+        scratchpad_task.cancel()
 
 
-app.router.lifespan_context = _lifespan_with_chat_sweep
+app.router.lifespan_context = _lifespan_with_sweeps
 
 # Every HTTP route lives in the backend package; see backend/__init__.py for the
 # table and the /backend-vs-legacy prefix rules.

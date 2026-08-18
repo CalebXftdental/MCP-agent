@@ -47,3 +47,14 @@ azure-cosmos==4.16.2
 # and local-fallback tiers need no extra deps.
 azure-search-documents==12.0.0
 azure-core==1.41.0
+
+# Document Intelligence -- personal-KB PDF text extraction (ALL PDFs, not just
+# scanned ones; replaced a local PDF-parsing library entirely, see
+# digest_persoanl_kb.md §0.1). Imported lazily by docintel_client.py, only when
+# GOVERNANCE_DOCINTEL_* is set. Version verified installed/importable 2026-08-17.
+azure-ai-documentintelligence==1.0.2
+
+# Personal-KB embeddings (Azure OpenAI text-embedding-3-large) reuse the `openai`
+# pin above (AzureOpenAI client, same package as the chat client) -- no separate
+# dependency needed. Imported lazily by embeddings_client.py, only when
+# GOVERNANCE_EMBEDDING_* is set.

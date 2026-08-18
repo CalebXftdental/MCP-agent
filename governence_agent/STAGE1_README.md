@@ -255,8 +255,9 @@ Consumer identity = the `GOVERNANCE_KEY_<NAME>` that authenticated the call, or
   buffer are per-instance (POC). Move to Redis + a durable audit sink before >1 replica.
 - **Prod networking.** Backends must be reachable only from the gateway (VNet /
   private endpoint / mTLS) — see `design_plan.md` §10.
-- **`office_edit_office_document`/`office_extract_tables_from_document`
-  gateway exposure.** Only `extract_tables_from_document` is wired through the
-  gateway today; `edit_office_document` exists on `mcp-office` but has no
-  gateway tool, so it's unreachable from an MCP agent (dashboard-only). Wire it
-  up, or document that it's intentionally dashboard-only.
+- ~~`office_edit_office_document`/`office_extract_tables_from_document` gateway
+  exposure.~~ **Resolved 2026-08-17.** `office_edit_office_document` is now
+  wired into `gateway/app.py`, same as `extract_tables_from_document`. Found
+  and fixed via `_smoke/test_tool_registration_consistency.py` (new — run it
+  after adding/renaming any tool; it checks all three registration points:
+  the physical backend, `manifest.py`, and the gateway wrapper).

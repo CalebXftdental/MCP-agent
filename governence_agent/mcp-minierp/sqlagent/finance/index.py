@@ -8,12 +8,24 @@ company 11 (CA) legal entities. Every tool accepts an optional company_id and
 otherwise searches both.
 
 Access note: as of this build, the credential behind this backend can read
-Account, GLTran, Branch, APInvoice, Vendor, POOrder, ARSalesPrice. It cannot
-read APBill, VendorClass, POLine, POReceipt (confirmed FORBIDDEN by direct
-probe against db-api.frontierdental.com) -- so there is no line-item detail
-for AP invoices or POs yet, and no payment-record table. Tools below are
+Account, GLTran, Branch, APInvoice, Vendor, POOrder, ARSalesPrice, POLine,
+ARAdjust, APAdjust. It cannot read APBill, VendorClass, POReceipt (confirmed
+FORBIDDEN by direct probe against db-api.frontierdental.com). Tools below are
 scoped to what's actually reachable; extend MINIERP_ENTITIES/MINIERP_FIELDS
 and add tools once those tables are granted.
+
+POLine/ARAdjust/APAdjust note (2026-08-17): re-probed directly against
+db-api.frontierdental.com -- this module's original note (above) that POLine
+was FORBIDDEN is now stale; it's granted under this same "admin" profile.
+ARPayment/APPayment were also probed and ARE reachable, but carry no amount
+or customer/vendor link field in this schema (only cash-account/deposit/card
+metadata) -- useless for "who paid what, how much." The actual invoice-to-
+payment application data (which invoice, which payment doc, what amount, and
+critically customerId/vendorId directly on the row) lives on ARAdjust/APAdjust
+instead (Acumatica's adjustment/application DACs: "adjd*" fields describe the
+document being paid/adjusted, "adjg*" fields describe the payment/credit memo
+applying it). get_ar_payment_history/get_ap_payment_history below are built on
+*Adjust, not *Payment, for that reason.
 
 ARSalesPrice note (2026-08): confirmed reachable ONLY under the "admin"
 credential profile bound in this module (find_with_offset_pagination below) --
@@ -53,6 +65,14 @@ MINIERP_ENTITIES: dict[str, str] = {
     "gl_tran":   "GLTran",
     "ar_invoice": "ARInvoice",
     "ar_sales_price": "ARSalesPrice",
+    "po_line": "POLine",
+    "ar_adjust": "ARAdjust",
+    "ap_adjust": "APAdjust",
+    "ar_tran": "ARTran",
+    "ap_tran": "APTran",
+    "so_invoice": "SOInvoice",
+    "gl_history": "GLHistory",
+    "in_tran": "INTran",
 }
 
 MINIERP_FIELDS: dict[str, str] = {
@@ -131,6 +151,111 @@ MINIERP_FIELDS: dict[str, str] = {
     "sp_expiration_date":    "expirationDate",
     "sp_price_type":         "priceType",
     "sp_break_qty":          "breakQty",
+    # POLine -- confirmed by direct sampling that orderNbr (not poNbr, which is
+    # null/unused in this tenant's data) is the join key back to POOrder.orderNbr.
+    "pol_order_nbr":     "orderNbr",
+    "pol_line_nbr":      "lineNbr",
+    "pol_inventory_id":  "inventoryId",
+    "pol_descr":         "tranDesc",
+    "pol_order_qty":     "orderQty",
+    "pol_received_qty":  "receivedQty",
+    "pol_billed_qty":    "billedQty",
+    "pol_open_qty":      "openQty",
+    "pol_unit_cost":     "curyUnitCost",
+    "pol_ext_cost":      "curyExtCost",
+    "pol_uom":           "uom",
+    "pol_promised_date": "promisedDate",
+    "pol_closed":        "closed",
+    "pol_cancelled":     "cancelled",
+    "pol_completed":     "completed",
+    # ARAdjust (invoice-to-payment application; customerId confirmed present
+    # directly on this table even though ARInvoice itself has no customer link)
+    "ara_customer_id":      "customerId",
+    "ara_invoice_ref_nbr":  "adjdRefNbr",
+    "ara_invoice_doc_type": "adjdDocType",
+    "ara_payment_ref_nbr":  "adjgRefNbr",
+    "ara_payment_doc_type": "adjgDocType",
+    "ara_amount_applied":   "curyAdjdAmt",
+    "ara_invoice_date":     "adjdDocDate",
+    "ara_payment_date":     "adjgDocDate",
+    "ara_released":         "released",
+    "ara_voided":           "voided",
+    "ara_hold":             "hold",
+    # APAdjust (bill-to-payment application; vendorId confirmed present directly)
+    "apa_vendor_id":          "vendorId",
+    "apa_invoice_ref_nbr":    "adjdRefNbr",
+    "apa_invoice_doc_type":   "adjdDocType",
+    "apa_payment_ref_nbr":    "adjgRefNbr",
+    "apa_payment_doc_type":   "adjgDocType",
+    "apa_amount_applied":     "curyAdjdAmt",
+    "apa_invoice_date":       "adjdDocDate",
+    "apa_payment_date":       "adjgDocDate",
+    "apa_released":           "released",
+    "apa_voided":             "voided",
+    "apa_hold":               "hold",
+    "apa_payment_method_id":  "paymentMethodId",
+    # ARTran (billed line detail for one AR invoice -- confirmed 2026-08-17
+    # reachable; salesPersonId lives directly on the row, no separate
+    # SalesPerson/EPEmployee lookup needed for rep attribution)
+    "art_ref_nbr":          "refNbr",
+    "art_line_nbr":         "lineNbr",
+    "art_tran_type":        "tranType",
+    "art_inventory_id":     "inventoryId",
+    "art_descr":            "tranDesc",
+    "art_qty":              "qty",
+    "art_unit_price":       "unitPrice",
+    "art_ext_price":        "curyExtPrice",
+    "art_tax_category_id":  "taxCategoryId",
+    "art_sales_person_id":  "salesPersonId",
+    # APTran (billed line detail for one AP bill -- mirrors ARTran)
+    "apt_ref_nbr":         "refNbr",
+    "apt_line_nbr":        "lineNbr",
+    "apt_tran_type":       "tranType",
+    "apt_inventory_id":    "inventoryId",
+    "apt_descr":           "tranDesc",
+    "apt_qty":             "qty",
+    "apt_unit_cost":       "unitCost",
+    "apt_line_amt":        "curyLineAmt",
+    "apt_tax_category_id": "taxCategoryId",
+    "apt_po_nbr":          "poNbr",
+    # SOInvoice -- confirmed 2026-08-17 to carry customerId directly, unlike
+    # ARInvoice (see get_invoice_details' docstring for that gap). refNbr joins
+    # to ARInvoice/ARAdjust.refNbr; soOrderNbr joins to SOOrder.orderNbr.
+    "soi_ref_nbr":            "refNbr",
+    "soi_doc_type":           "docType",
+    "soi_customer_id":        "customerId",
+    "soi_order_nbr":          "soOrderNbr",
+    "soi_payment_amt":        "curyPaymentAmt",
+    "soi_payment_method_id":  "paymentMethodId",
+    # GLHistory (real period-level balances -- confirmed 2026-08-17; no
+    # client-side aggregation over GLTran needed for a period summary)
+    "glh_account_id":    "accountId",
+    "glh_fin_period_id": "finPeriodId",
+    "glh_ledger_id":     "ledgerId",
+    "glh_sub_id":        "subId",
+    "glh_balance_type":  "balanceType",
+    "glh_beg_balance":   "finBegBalance",
+    "glh_ptd_debit":     "finPtdDebit",
+    "glh_ptd_credit":    "finPtdCredit",
+    "glh_ytd_balance":   "finYtdBalance",
+    # INTran -- inventory transaction history (receipts/issues/transfers).
+    # Confirmed 2026-08-17: carries lotSerialNbr/expireDate per movement even
+    # though INLotSerStatus (live lot status) is FORBIDDEN -- this is
+    # transaction history, not current lot status; most sampled items have no
+    # lot data at all (blank/null), which is real, not a bug. See
+    # get_item_movement_history's own docstring for the framing this requires.
+    "int_ref_nbr":         "refNbr",
+    "int_tran_type":       "tranType",
+    "int_doc_type":        "docType",
+    "int_inventory_id":    "inventoryId",
+    "int_qty":             "qty",
+    "int_lot_serial_nbr":  "lotSerialNbr",
+    "int_expire_date":     "expireDate",
+    "int_tran_date":       "tranDate",
+    "int_site_id":         "siteId",
+    "int_location_id":     "locationId",
+    "int_so_order_nbr":    "soOrderNbr",
+    "int_po_receipt_nbr":  "poReceiptNbr",
 }
 
 _DEFAULT_LIST_PAGE_SIZE = 10
@@ -469,6 +594,30 @@ async def get_po_order_status(po_number: str, company_id: int | None = None) -> 
 # ── GL account transactions (client-side net movement -- API has no aggregate) ─
 
 
+async def _resolve_account_id(account_cd: str, company_id: int | None) -> tuple[int | None, int | None]:
+    """Resolve a GL account code (prefix match, since accountCd is fixed-width
+    and space-padded -- e.g. "11110CAD  " -- so an exact match against a
+    user-typed code would almost never hit) to (accountId, matchedCompanyId).
+    Shared by get_gl_account_transactions and get_gl_period_summary."""
+    f = MINIERP_FIELDS
+    for candidate in _identifier_candidates(account_cd):
+        for company_candidate in _company_ids(company_id):
+            options = {
+                "select": _select_all_for("gl_account_id", "gl_account_cd", "gl_description"),
+                "where": {
+                    f["gl_account_cd"]: {"startsWith": candidate},
+                    f["company_id"]: company_candidate,
+                },
+                "page": 1,
+                "pageSize": 1,
+            }
+            result = await find_with_offset_pagination(MINIERP_ENTITIES["account"], options)
+            items = result.get("items") or []
+            if items:
+                return items[0].get(f["gl_account_id"]), company_candidate
+    return None, None
+
+
 async def get_gl_account_transactions(
     account_cd: str,
     start_date: str | None = None,
@@ -478,30 +627,7 @@ async def get_gl_account_transactions(
     page_size: int = _DEFAULT_LIST_PAGE_SIZE,
 ) -> str:
     f = MINIERP_FIELDS
-    account_id: int | None = None
-    matched_company: int | None = None
-    for candidate in _identifier_candidates(account_cd):
-        for company_candidate in _company_ids(company_id):
-            options = {
-                "select": _select_all_for("gl_account_id", "gl_account_cd", "gl_description"),
-                # accountCd is a fixed-width, space-padded field ("11110CAD  ")
-                # -- exact match against a user-typed code would almost never
-                # hit, so match by prefix instead.
-                "where": {
-                    MINIERP_FIELDS["gl_account_cd"]: {"startsWith": candidate},
-                    MINIERP_FIELDS["company_id"]: company_candidate,
-                },
-                "page": 1,
-                "pageSize": 1,
-            }
-            result = await find_with_offset_pagination(MINIERP_ENTITIES["account"], options)
-            items = result.get("items") or []
-            if items:
-                account_id = items[0].get(f["gl_account_id"])
-                matched_company = company_candidate
-                break
-        if account_id is not None:
-            break
+    account_id, matched_company = await _resolve_account_id(account_cd, company_id)
 
     if account_id is None:
         return _json_tool_result(
@@ -803,4 +929,532 @@ async def get_ar_invoices_past_due(
     return _json_tool_result(
         status="ok", intent="ar_invoices_past_due",
         invoices=invoices, count=len(invoices), truncated=truncated,
+    )
+
+
+# ── POLine (line-item detail for a PO -- mirrors mcp-minierp's
+# get_product_details_in_order, header-only get_po_order_status's missing half) ─
+
+
+async def get_po_line_items(
+    po_number: str, company_id: int | None = None,
+    page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE,
+) -> str:
+    """List line items (product, quantities, cost) for one purchase order by PO number."""
+    f = MINIERP_FIELDS
+    for candidate in _identifier_candidates(po_number):
+        for company_candidate in _company_ids(company_id):
+            options = {
+                "select": _select_all_for(
+                    "pol_line_nbr", "pol_inventory_id", "pol_descr",
+                    "pol_order_qty", "pol_received_qty", "pol_billed_qty",
+                    "pol_open_qty", "pol_unit_cost", "pol_ext_cost", "pol_uom",
+                    "pol_promised_date", "pol_closed", "pol_cancelled", "pol_completed",
+                ),
+                "where": {
+                    f["pol_order_nbr"]: candidate,
+                    f["company_id"]: company_candidate,
+                },
+                "orderBy": {f["pol_line_nbr"]: "ASC"},
+                "page": _clamp_page(page),
+                "pageSize": _clamp_page_size(page_size),
+            }
+            result = await find_with_offset_pagination(MINIERP_ENTITIES["po_line"], options)
+            items = result.get("items") or []
+            if items:
+                records = [
+                    {
+                        "lineNumber": it.get(f["pol_line_nbr"]),
+                        "inventoryId": it.get(f["pol_inventory_id"]),
+                        "description": it.get(f["pol_descr"]),
+                        "orderedQty": float(it.get(f["pol_order_qty"]) or 0),
+                        "receivedQty": float(it.get(f["pol_received_qty"]) or 0),
+                        "billedQty": float(it.get(f["pol_billed_qty"]) or 0),
+                        "openQty": float(it.get(f["pol_open_qty"]) or 0),
+                        "unitCost": float(it.get(f["pol_unit_cost"]) or 0),
+                        "extCost": float(it.get(f["pol_ext_cost"]) or 0),
+                        "uom": it.get(f["pol_uom"]),
+                        "promisedDate": it.get(f["pol_promised_date"]),
+                        "closed": bool(it.get(f["pol_closed"])),
+                        "cancelled": bool(it.get(f["pol_cancelled"])),
+                        "completed": bool(it.get(f["pol_completed"])),
+                    }
+                    for it in items
+                ]
+                pagination = {
+                    "page": result.get("page") or page,
+                    "pageSize": result.get("pageSize") or page_size,
+                    "returned": len(records),
+                    "hasMore": bool(result.get("hasMore")),
+                }
+                return _json_tool_result(
+                    status="success", intent="po_line_items",
+                    orderNumber=po_number, company=company_candidate,
+                    records=records, pagination=pagination,
+                )
+    return _json_tool_result(
+        status="not_found", intent="po_line_items",
+        message=f"No line items found for PO {po_number}.",
+        orderNumber=po_number, records=[],
+    )
+
+
+# ── ARAdjust / APAdjust (payment-application history) -- see module docstring
+# for why these, not ARPayment/APPayment, are the right tables for this. ──────
+
+
+async def get_ar_payment_history(
+    customer_id: str, page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE,
+) -> str:
+    """List AR payment applications for a customer: which invoice was paid or
+    credited by which payment/credit-memo document, when, and for how much."""
+    baccount_id = await _resolve_baccount_id(customer_id)
+    if baccount_id is None:
+        return _json_tool_result(
+            status="not_found", intent="ar_payment_history",
+            message=f"No customer account found for {customer_id}.",
+            customerId=customer_id, records=[],
+        )
+    f = MINIERP_FIELDS
+    options = {
+        "select": _select_all_for(
+            "ara_invoice_ref_nbr", "ara_invoice_doc_type",
+            "ara_payment_ref_nbr", "ara_payment_doc_type", "ara_amount_applied",
+            "ara_invoice_date", "ara_payment_date", "ara_released", "ara_voided", "ara_hold",
+        ),
+        "where": {f["ara_customer_id"]: baccount_id},
+        "orderBy": {f["ara_payment_date"]: "DESC"},
+        "page": _clamp_page(page),
+        "pageSize": _clamp_page_size(page_size),
+    }
+    result = await find_with_offset_pagination(MINIERP_ENTITIES["ar_adjust"], options)
+    items = result.get("items") or []
+    if not items:
+        return _json_tool_result(
+            status="not_found", intent="ar_payment_history",
+            message=f"No payment history found for customer {customer_id}.",
+            customerId=customer_id, records=[],
+        )
+    records = [
+        {
+            "invoiceRefNbr": it.get(f["ara_invoice_ref_nbr"]),
+            "invoiceDocType": it.get(f["ara_invoice_doc_type"]),
+            "paymentRefNbr": it.get(f["ara_payment_ref_nbr"]),
+            "paymentDocType": it.get(f["ara_payment_doc_type"]),
+            "amountApplied": float(it.get(f["ara_amount_applied"]) or 0),
+            "invoiceDate": it.get(f["ara_invoice_date"]),
+            "paymentDate": it.get(f["ara_payment_date"]),
+            "released": bool(it.get(f["ara_released"])),
+            "voided": bool(it.get(f["ara_voided"])),
+            "onHold": bool(it.get(f["ara_hold"])),
+        }
+        for it in items
+    ]
+    pagination = {
+        "page": result.get("page") or page,
+        "pageSize": result.get("pageSize") or page_size,
+        "returned": len(records),
+        "hasMore": bool(result.get("hasMore")),
+    }
+    return _json_tool_result(
+        status="success", intent="ar_payment_history",
+        customerId=customer_id, records=records, pagination=pagination,
+    )
+
+
+async def get_ap_payment_history(
+    vendor_code: str, page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE,
+) -> str:
+    """List AP payment applications for a vendor: which bill was paid by which
+    payment document, when, and for how much."""
+    baccount_id = await _resolve_baccount_id(vendor_code)
+    if baccount_id is None:
+        return _json_tool_result(
+            status="not_found", intent="ap_payment_history",
+            message=f"No vendor account found for {vendor_code}.",
+            vendorCode=vendor_code, records=[],
+        )
+    f = MINIERP_FIELDS
+    options = {
+        "select": _select_all_for(
+            "apa_invoice_ref_nbr", "apa_invoice_doc_type",
+            "apa_payment_ref_nbr", "apa_payment_doc_type", "apa_amount_applied",
+            "apa_invoice_date", "apa_payment_date", "apa_released", "apa_voided",
+            "apa_hold", "apa_payment_method_id",
+        ),
+        "where": {f["apa_vendor_id"]: baccount_id},
+        "orderBy": {f["apa_payment_date"]: "DESC"},
+        "page": _clamp_page(page),
+        "pageSize": _clamp_page_size(page_size),
+    }
+    result = await find_with_offset_pagination(MINIERP_ENTITIES["ap_adjust"], options)
+    items = result.get("items") or []
+    if not items:
+        return _json_tool_result(
+            status="not_found", intent="ap_payment_history",
+            message=f"No payment history found for vendor {vendor_code}.",
+            vendorCode=vendor_code, records=[],
+        )
+    records = [
+        {
+            "invoiceRefNbr": it.get(f["apa_invoice_ref_nbr"]),
+            "invoiceDocType": it.get(f["apa_invoice_doc_type"]),
+            "paymentRefNbr": it.get(f["apa_payment_ref_nbr"]),
+            "paymentDocType": it.get(f["apa_payment_doc_type"]),
+            "amountApplied": float(it.get(f["apa_amount_applied"]) or 0),
+            "invoiceDate": it.get(f["apa_invoice_date"]),
+            "paymentDate": it.get(f["apa_payment_date"]),
+            "released": bool(it.get(f["apa_released"])),
+            "voided": bool(it.get(f["apa_voided"])),
+            "onHold": bool(it.get(f["apa_hold"])),
+            "paymentMethodId": it.get(f["apa_payment_method_id"]),
+        }
+        for it in items
+    ]
+    pagination = {
+        "page": result.get("page") or page,
+        "pageSize": result.get("pageSize") or page_size,
+        "returned": len(records),
+        "hasMore": bool(result.get("hasMore")),
+    }
+    return _json_tool_result(
+        status="success", intent="ap_payment_history",
+        vendorCode=vendor_code, records=records, pagination=pagination,
+    )
+
+
+# ── GLHistory (real period-level balances) ──────────────────────────────────
+
+
+async def get_gl_period_summary(
+    account_cd: str, fin_period_id: str = "", company_id: int | None = None,
+    page: int = 1, page_size: int = 12,
+) -> str:
+    """Period-level GL balances (beginning balance, period debit/credit, YTD
+    balance) for one account -- a direct rollup from GLHistory, not a
+    client-side aggregation over get_gl_account_transactions' raw GLTran rows.
+    fin_period_id, if given, is Acumatica's "YYYYMM" format (e.g. "202401")."""
+    account_id, matched_company = await _resolve_account_id(account_cd, company_id)
+    if account_id is None:
+        return _json_tool_result(
+            status="not_found", intent="gl_period_summary",
+            message=f"GL account {account_cd} not found.",
+            accountCd=account_cd, records=[],
+        )
+    f = MINIERP_FIELDS
+    where: dict[str, Any] = {
+        f["glh_account_id"]: account_id,
+        f["company_id"]: matched_company,
+    }
+    if fin_period_id:
+        where[f["glh_fin_period_id"]] = fin_period_id.strip()
+    options = {
+        "select": _select_all_for(
+            "glh_fin_period_id", "glh_ledger_id", "glh_sub_id", "glh_balance_type",
+            "glh_beg_balance", "glh_ptd_debit", "glh_ptd_credit", "glh_ytd_balance",
+        ),
+        "where": where,
+        "orderBy": {f["glh_fin_period_id"]: "DESC"},
+        "page": _clamp_page(page),
+        "pageSize": _clamp_page_size(page_size),
+    }
+    result = await find_with_offset_pagination(MINIERP_ENTITIES["gl_history"], options)
+    items = result.get("items") or []
+    if not items:
+        return _json_tool_result(
+            status="not_found", intent="gl_period_summary",
+            message=f"No period history found for {account_cd}.",
+            accountCd=account_cd, records=[],
+        )
+    records = [
+        {
+            "finPeriodId": it.get(f["glh_fin_period_id"]),
+            "ledgerId": it.get(f["glh_ledger_id"]),
+            "subId": it.get(f["glh_sub_id"]),
+            "balanceType": it.get(f["glh_balance_type"]),
+            "beginningBalance": float(it.get(f["glh_beg_balance"]) or 0),
+            "periodDebit": float(it.get(f["glh_ptd_debit"]) or 0),
+            "periodCredit": float(it.get(f["glh_ptd_credit"]) or 0),
+            "ytdBalance": float(it.get(f["glh_ytd_balance"]) or 0),
+        }
+        for it in items
+    ]
+    pagination = {
+        "page": result.get("page") or page,
+        "pageSize": result.get("pageSize") or page_size,
+        "returned": len(records),
+        "hasMore": bool(result.get("hasMore")),
+    }
+    return _json_tool_result(
+        status="success", intent="gl_period_summary",
+        accountCd=account_cd, company=matched_company,
+        records=records, pagination=pagination,
+    )
+
+
+# ── ARTran / APTran (billed line-item detail) -- mirrors get_po_line_items,
+# just for AR/AP documents instead of POs. ──────────────────────────────────
+
+
+async def get_invoice_line_items(
+    invoice_number: str, company_id: int | None = None,
+    page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE,
+) -> str:
+    """List billed line items (product, qty, price, sales rep) for one AR
+    invoice by invoice/reference number -- line-level detail get_invoice_details
+    doesn't carry."""
+    f = MINIERP_FIELDS
+    for candidate in _identifier_candidates(invoice_number):
+        for company_candidate in _company_ids(company_id):
+            options = {
+                "select": _select_all_for(
+                    "art_line_nbr", "art_tran_type", "art_inventory_id", "art_descr",
+                    "art_qty", "art_unit_price", "art_ext_price",
+                    "art_tax_category_id", "art_sales_person_id",
+                ),
+                "where": {
+                    f["art_ref_nbr"]: candidate,
+                    f["company_id"]: company_candidate,
+                },
+                "orderBy": {f["art_line_nbr"]: "ASC"},
+                "page": _clamp_page(page),
+                "pageSize": _clamp_page_size(page_size),
+            }
+            result = await find_with_offset_pagination(MINIERP_ENTITIES["ar_tran"], options)
+            items = result.get("items") or []
+            if items:
+                records = [
+                    {
+                        "lineNumber": it.get(f["art_line_nbr"]),
+                        "docType": it.get(f["art_tran_type"]),
+                        "inventoryId": it.get(f["art_inventory_id"]),
+                        "description": it.get(f["art_descr"]),
+                        "qty": float(it.get(f["art_qty"]) or 0),
+                        "unitPrice": float(it.get(f["art_unit_price"]) or 0),
+                        "extPrice": float(it.get(f["art_ext_price"]) or 0),
+                        "taxCategoryId": it.get(f["art_tax_category_id"]),
+                        "salesPersonId": it.get(f["art_sales_person_id"]),
+                    }
+                    for it in items
+                ]
+                pagination = {
+                    "page": result.get("page") or page,
+                    "pageSize": result.get("pageSize") or page_size,
+                    "returned": len(records),
+                    "hasMore": bool(result.get("hasMore")),
+                }
+                return _json_tool_result(
+                    status="success", intent="invoice_line_items",
+                    invoiceNumber=invoice_number, company=company_candidate,
+                    records=records, pagination=pagination,
+                )
+    return _json_tool_result(
+        status="not_found", intent="invoice_line_items",
+        message=f"No line items found for invoice {invoice_number}.",
+        invoiceNumber=invoice_number, records=[],
+    )
+
+
+async def get_bill_line_items(
+    invoice_number: str, company_id: int | None = None,
+    page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE,
+) -> str:
+    """List billed line items (product, qty, cost, linked PO) for one AP bill
+    by invoice/reference number -- mirrors get_invoice_line_items for AP."""
+    f = MINIERP_FIELDS
+    for candidate in _identifier_candidates(invoice_number):
+        for company_candidate in _company_ids(company_id):
+            options = {
+                "select": _select_all_for(
+                    "apt_line_nbr", "apt_tran_type", "apt_inventory_id", "apt_descr",
+                    "apt_qty", "apt_unit_cost", "apt_line_amt",
+                    "apt_tax_category_id", "apt_po_nbr",
+                ),
+                "where": {
+                    f["apt_ref_nbr"]: candidate,
+                    f["company_id"]: company_candidate,
+                },
+                "orderBy": {f["apt_line_nbr"]: "ASC"},
+                "page": _clamp_page(page),
+                "pageSize": _clamp_page_size(page_size),
+            }
+            result = await find_with_offset_pagination(MINIERP_ENTITIES["ap_tran"], options)
+            items = result.get("items") or []
+            if items:
+                records = [
+                    {
+                        "lineNumber": it.get(f["apt_line_nbr"]),
+                        "docType": it.get(f["apt_tran_type"]),
+                        "inventoryId": it.get(f["apt_inventory_id"]),
+                        "description": it.get(f["apt_descr"]),
+                        "qty": float(it.get(f["apt_qty"]) or 0),
+                        "unitCost": float(it.get(f["apt_unit_cost"]) or 0),
+                        "lineAmt": float(it.get(f["apt_line_amt"]) or 0),
+                        "taxCategoryId": it.get(f["apt_tax_category_id"]),
+                        "poNumber": it.get(f["apt_po_nbr"]),
+                    }
+                    for it in items
+                ]
+                pagination = {
+                    "page": result.get("page") or page,
+                    "pageSize": result.get("pageSize") or page_size,
+                    "returned": len(records),
+                    "hasMore": bool(result.get("hasMore")),
+                }
+                return _json_tool_result(
+                    status="success", intent="bill_line_items",
+                    invoiceNumber=invoice_number, company=company_candidate,
+                    records=records, pagination=pagination,
+                )
+    return _json_tool_result(
+        status="not_found", intent="bill_line_items",
+        message=f"No line items found for bill {invoice_number}.",
+        invoiceNumber=invoice_number, records=[],
+    )
+
+
+# ── SOInvoice (fixes "ARInvoice has no customer link" -- see get_invoice_details'
+# own docstring for that limitation; SOInvoice.customerId is the real fix) ────
+
+
+async def get_customer_invoice_history(
+    customer_id: str, page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE,
+) -> str:
+    """List a customer's AR invoices via SOInvoice -- the one AR-adjacent table
+    confirmed to carry a real customerId link (ARInvoice itself has none)."""
+    baccount_id = await _resolve_baccount_id(customer_id)
+    if baccount_id is None:
+        return _json_tool_result(
+            status="not_found", intent="customer_invoice_history",
+            message=f"No customer account found for {customer_id}.",
+            customerId=customer_id, records=[],
+        )
+    f = MINIERP_FIELDS
+    options = {
+        "select": _select_all_for(
+            "soi_ref_nbr", "soi_doc_type", "soi_order_nbr",
+            "soi_payment_amt", "soi_payment_method_id",
+        ),
+        "where": {
+            f["soi_customer_id"]: baccount_id,
+            f["company_id"]: {"in": _company_ids(None)},
+        },
+        "page": _clamp_page(page),
+        "pageSize": _clamp_page_size(page_size),
+    }
+    result = await find_with_offset_pagination(MINIERP_ENTITIES["so_invoice"], options)
+    items = result.get("items") or []
+    if not items:
+        return _json_tool_result(
+            status="not_found", intent="customer_invoice_history",
+            message=f"No invoice history found for customer {customer_id}.",
+            customerId=customer_id, records=[],
+        )
+    records = [
+        {
+            "invoiceRefNbr": it.get(f["soi_ref_nbr"]),
+            "docType": it.get(f["soi_doc_type"]),
+            "orderNumber": it.get(f["soi_order_nbr"]),
+            "paymentAmount": float(it.get(f["soi_payment_amt"]) or 0),
+            "paymentMethodId": it.get(f["soi_payment_method_id"]),
+        }
+        for it in items
+    ]
+    pagination = {
+        "page": result.get("page") or page,
+        "pageSize": result.get("pageSize") or page_size,
+        "returned": len(records),
+        "hasMore": bool(result.get("hasMore")),
+    }
+    return _json_tool_result(
+        status="success", intent="customer_invoice_history",
+        customerId=customer_id, records=records, pagination=pagination,
+    )
+
+
+# ── INTran (inventory transaction history -- NOT live lot status) ───────────
+
+
+async def get_item_movement_history(
+    inventory_id: str, start_date: str = "", end_date: str = "",
+    company_id: int | None = None, page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE,
+) -> str:
+    """Inventory transaction history (receipts/issues/transfers) for one item,
+    including lot/serial number and expiration date where the item is tracked
+    that way.
+
+    NOT live lot status. INLotSerStatus (current qty/status per lot) is
+    confirmed FORBIDDEN under this credential -- this reconstructs movement
+    history from INTran instead. lotSerialNbr/expireDate come back blank/null
+    for items that aren't lot-tracked (confirmed true for most sampled items) --
+    that's real, not a bug. Report this to users as transaction history, never
+    as "current lot status" or "what's expiring soon" -- this tool cannot
+    answer either of those without a live status table.
+    """
+    inv = (inventory_id or "").strip()
+    if not inv:
+        return _json_tool_result(
+            status="missing_identifier", intent="item_movement_history",
+            message="An inventory_id is required.", missingFields=["inventory_id"],
+            records=[],
+        )
+    f = MINIERP_FIELDS
+    where: dict[str, Any] = {
+        f["int_inventory_id"]: inv,
+        f["company_id"]: {"in": _company_ids(company_id)},
+    }
+    if start_date:
+        where[f["int_tran_date"]] = {**where.get(f["int_tran_date"], {}), "gte": _format_date(start_date)}
+    if end_date:
+        existing = where.get(f["int_tran_date"], {})
+        if isinstance(existing, dict):
+            existing["lte"] = _format_date(end_date, end_of_day=True)
+            where[f["int_tran_date"]] = existing
+        else:
+            where[f["int_tran_date"]] = {"lte": _format_date(end_date, end_of_day=True)}
+    options = {
+        "select": _select_all_for(
+            "int_ref_nbr", "int_tran_type", "int_doc_type", "int_qty",
+            "int_lot_serial_nbr", "int_expire_date", "int_tran_date",
+            "int_site_id", "int_location_id", "int_so_order_nbr", "int_po_receipt_nbr",
+        ),
+        "where": where,
+        "orderBy": {f["int_tran_date"]: "DESC"},
+        "page": _clamp_page(page),
+        "pageSize": _clamp_page_size(page_size),
+    }
+    result = await find_with_offset_pagination(MINIERP_ENTITIES["in_tran"], options)
+    items = result.get("items") or []
+    if not items:
+        return _json_tool_result(
+            status="not_found", intent="item_movement_history",
+            message=f"No movement history found for item {inventory_id}.",
+            inventoryId=inv, records=[],
+        )
+    records = [
+        {
+            "refNbr": it.get(f["int_ref_nbr"]),
+            "tranType": it.get(f["int_tran_type"]),
+            "docType": it.get(f["int_doc_type"]),
+            "qty": float(it.get(f["int_qty"]) or 0),
+            "lotSerialNbr": it.get(f["int_lot_serial_nbr"]) or None,
+            "expireDate": it.get(f["int_expire_date"]),
+            "tranDate": it.get(f["int_tran_date"]),
+            "siteId": it.get(f["int_site_id"]),
+            "locationId": it.get(f["int_location_id"]),
+            "orderNumber": it.get(f["int_so_order_nbr"]),
+            "poReceiptNumber": it.get(f["int_po_receipt_nbr"]),
+        }
+        for it in items
+    ]
+    pagination = {
+        "page": result.get("page") or page,
+        "pageSize": result.get("pageSize") or page_size,
+        "returned": len(records),
+        "hasMore": bool(result.get("hasMore")),
+    }
+    return _json_tool_result(
+        status="success", intent="item_movement_history",
+        inventoryId=inv, records=records, pagination=pagination,
+        note="Transaction history, not live lot/serial status -- INLotSerStatus is not reachable under this credential.",
     )

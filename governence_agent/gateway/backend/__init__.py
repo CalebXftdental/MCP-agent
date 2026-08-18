@@ -230,6 +230,11 @@ def register(app) -> None:
     api("/knowledge/documents/{did}", knowledge._knowledge_document_item, methods=["GET", "DELETE"])
     api("/knowledge/search", knowledge._knowledge_search, methods=["POST"])
     api("/knowledge/answer", knowledge._knowledge_answer, methods=["POST"])
+    # Personal knowledge tier -- private per-owner, no admin bypass (see
+    # gateway/backend/knowledge.py's _personal_knowledge_allowed docstring).
+    api("/knowledge/mine", knowledge._knowledge_mine, methods=["GET", "POST"])
+    api("/knowledge/mine/{did}", knowledge._knowledge_mine_item, methods=["DELETE"])
+    api("/knowledge/mine/search", knowledge._knowledge_mine_search, methods=["POST"])
     api("/code-plans", code_plans._code_plans, spa=True)
     api("/code-plans/{pid}", code_plans._code_plan_item)
     api("/code-plans/{pid}/request-approval", code_plans._code_plan_request_approval, methods=["POST"])

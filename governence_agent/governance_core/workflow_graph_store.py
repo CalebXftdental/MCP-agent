@@ -21,7 +21,7 @@ from pathlib import Path
 from policy import manifest
 from policy.categories import CATEGORIES
 from policy.resolve import EffectiveGrant, resolve as resolve_grant
-from workflow_graph_models import GraphEdge, GraphNode, WorkflowGraphDefinition, WorkflowGraphVersion
+from workflow_graph_models import GraphCheck, GraphEdge, GraphNode, WorkflowGraphDefinition, WorkflowGraphVersion
 
 _GRAPHS: dict[str, WorkflowGraphDefinition] = {}
 _LOADED = False
@@ -245,58 +245,87 @@ def topological_node_ids(nodes: list[GraphNode], edges: list[GraphEdge]) -> list
     return _topological_order(nodes, edges)
 
 
-def validate_graph(nodes: list[GraphNode] | list[dict], edges: list[GraphEdge] | list[dict], *, owner_grant: EffectiveGrant) -> list[str]:
-    """Deterministic build-time validation. Returns a list of human-readable
-    blocker strings; [] means valid. Never raises -- callers decide whether to
-    hard-reject (create_graph/add_graph_version do) or just display blockers
-    (the /workflow-graphs/{gid}/validate dry-run route does)."""
+def validate_graph(nodes: list[GraphNode] | list[dict], edges: list[GraphEdge] | list[dict], *, owner_grant: EffectiveGrant) -> list[GraphCheck]:
+    """Deterministic build-time validation. Returns a list of structured
+    GraphCheck results; [] means valid. Never raises -- callers decide
+    whether to hard-reject (create_graph/add_graph_version do, by joining
+    each check's `.message`) or just display them (the
+    /workflow-graphs/{gid}/validate dry-run route, and the workflow
+    copilot's scratchpad -- see gateway/app.py's propose_graph)."""
     nodes = [n if isinstance(n, GraphNode) else _node_from_dict(n) for n in nodes]
     edges = [e if isinstance(e, GraphEdge) else _edge_from_dict(e) for e in edges]
-    blockers: list[str] = []
+    checks: list[GraphCheck] = []
+
+    def blocker(check: str, message: str, node_id: str | None = None) -> None:
+        checks.append(GraphCheck(check=check, severity="error", message=message, node_id=node_id))
 
     node_ids = [n.node_id for n in nodes]
     if len(set(node_ids)) != len(node_ids):
-        blockers.append("duplicate node ids in graph")
-        return blockers  # everything below assumes unique ids
+        blocker("duplicate_node_ids", "duplicate node ids in graph")
+        return checks  # everything below assumes unique ids
     for nid in node_ids:
         if nid.endswith(RESERVED_NODE_ID_SUFFIX):
-            blockers.append(f"node id {nid!r} uses the reserved suffix {RESERVED_NODE_ID_SUFFIX!r}")
+            blocker("reserved_node_id", f"node id {nid!r} uses the reserved suffix {RESERVED_NODE_ID_SUFFIX!r}", nid)
 
     for n in nodes:
         if n.kind not in VALID_NODE_KINDS:
-            blockers.append(
+            blocker(
+                "unknown_node_kind",
                 f"node {n.node_id!r} has unknown kind {n.kind!r} -- must be one of "
                 f"{sorted(VALID_NODE_KINDS)} (any other value is silently skipped at run time, "
-                "never executed, rather than failing loudly, so this is rejected here instead)"
+                "never executed, rather than failing loudly, so this is rejected here instead)",
+                n.node_id,
             )
 
     triggers = [n for n in nodes if n.kind == "trigger"]
     if len(triggers) != 1:
-        blockers.append(f"a graph must have exactly one trigger node (found {len(triggers)})")
+        blocker("trigger_count", f"a graph must have exactly one trigger node (found {len(triggers)})")
 
     order = _topological_order(nodes, edges)
     if order is None:
-        blockers.append("graph contains a cycle -- it must be a directed acyclic graph")
+        blocker("cycle", "graph contains a cycle -- it must be a directed acyclic graph")
 
     if triggers and order is not None:
         trigger = triggers[0]
         _, in_degree = _build_adjacency(nodes, edges)
         if in_degree.get(trigger.node_id, 0) != 0:
-            blockers.append("the trigger node cannot have any incoming connections")
+            blocker("trigger_has_incoming_edge", "the trigger node cannot have any incoming connections", trigger.node_id)
         reachable = _reachable_from(trigger.node_id, nodes, edges)
         orphans = [n.node_id for n in nodes if n.node_id != trigger.node_id and n.node_id not in reachable]
         if orphans:
-            blockers.append(f"nodes not reachable from the trigger: {', '.join(sorted(orphans))}")
+            blocker("unreachable_node", f"nodes not reachable from the trigger: {', '.join(sorted(orphans))}")
 
     for n in nodes:
         if n.kind != "tool_call":
             continue
         policy = manifest.get(n.tool)
         if policy is None:
-            blockers.append(f"node {n.node_id!r} references an unknown tool {n.tool!r}")
+            blocker("unknown_tool", f"node {n.node_id!r} references an unknown tool {n.tool!r}", n.node_id)
             continue
         if not owner_grant.allows_tool(policy.backend, n.tool):
-            blockers.append(f"node {n.node_id!r}: you do not have access to {n.tool!r} (backend {policy.backend!r})")
+            blocker("tool_access_denied", f"node {n.node_id!r}: you do not have access to {n.tool!r} (backend {policy.backend!r})", n.node_id)
+
+    # Every arg the tool's policy marks required_args must be set -- either a
+    # literal in config, or wired to a binding (resolved at run time, so not
+    # checkable here). An omission here would otherwise reach the backend tool
+    # silently (e.g. create_excel_report falling back to a generic filename when
+    # `title` is missing) instead of failing loudly at author time.
+    for n in nodes:
+        if n.kind != "tool_call":
+            continue
+        policy = manifest.get(n.tool)
+        if policy is None or not policy.required_args:
+            continue
+        config = n.config or {}
+        bindings = n.input_bindings or {}
+        missing = [arg for arg in policy.required_args if arg not in bindings and not config.get(arg)]
+        if missing:
+            blocker(
+                "missing_required_args",
+                f"node {n.node_id!r}: {n.tool!r} is missing required field(s) {missing} -- "
+                "set a value or bind it to another node's output",
+                n.node_id,
+            )
 
     # Mandatory approval-gate before any send-risk tool_call node, on EVERY path.
     if triggers and order is not None:
@@ -307,7 +336,11 @@ def validate_graph(nodes: list[GraphNode] | list[dict], edges: list[GraphEdge] |
                 continue
             policy = manifest.get(n.tool)
             if policy is not None and policy.risk == manifest.SEND and n.node_id in reachable_without_gates:
-                blockers.append(f"node {n.node_id!r} calls a send-risk tool ({n.tool!r}) reachable without passing through an approval gate")
+                blocker(
+                    "send_risk_without_approval_gate",
+                    f"node {n.node_id!r} calls a send-risk tool ({n.tool!r}) reachable without passing through an approval gate",
+                    n.node_id,
+                )
 
     # llm_transform input_text may only bind to a tool_call/llm_transform node's output
     # (never approval_gate) -- trigger/literal sources are always fine.
@@ -319,9 +352,13 @@ def validate_graph(nodes: list[GraphNode] | list[dict], edges: list[GraphEdge] |
         if isinstance(binding, dict) and binding.get("source") == "node":
             source_node = by_id.get(binding.get("node_id"))
             if source_node is None:
-                blockers.append(f"node {n.node_id!r}: input_text is bound to an unknown node {binding.get('node_id')!r}")
+                blocker("llm_transform_dangling_reference", f"node {n.node_id!r}: input_text is bound to an unknown node {binding.get('node_id')!r}", n.node_id)
             elif source_node.kind not in _LLM_TRANSFORM_ALLOWED_SOURCE_KINDS:
-                blockers.append(f"node {n.node_id!r}: input_text may only be bound to a tool_call or llm_transform node's output, not {source_node.kind!r}")
+                blocker(
+                    "llm_transform_invalid_input_source",
+                    f"node {n.node_id!r}: input_text may only be bound to a tool_call or llm_transform node's output, not {source_node.kind!r}",
+                    n.node_id,
+                )
 
     # filter: `input` may only reference an existing node (same dangling-reference
     # shape as llm_transform's input_text above), and every condition-tree leaf's
@@ -342,12 +379,12 @@ def validate_graph(nodes: list[GraphNode] | list[dict], edges: list[GraphEdge] |
         binding = n.input_bindings.get("input")
         if isinstance(binding, dict) and binding.get("source") == "node":
             if by_id.get(binding.get("node_id")) is None:
-                blockers.append(f"node {n.node_id!r}: input is bound to an unknown node {binding.get('node_id')!r}")
+                blocker("filter_dangling_reference", f"node {n.node_id!r}: input is bound to an unknown node {binding.get('node_id')!r}", n.node_id)
         bad_ops = sorted({op for op in _filter_condition_ops((n.config or {}).get("conditions") or {}) if op not in FILTER_OPS})
         if bad_ops:
-            blockers.append(f"node {n.node_id!r}: unknown filter condition op(s) {bad_ops}")
+            blocker("filter_unknown_op", f"node {n.node_id!r}: unknown filter condition op(s) {bad_ops}", n.node_id)
 
-    return blockers
+    return checks
 
 
 def _categories_for_tool(canonical_tool: str) -> set[str]:
@@ -398,9 +435,9 @@ def create_graph(*, display_name: str, description: str = "", owner_record, get_
                   graph_id: str = "", reserved_ids: set[str] | None = None) -> WorkflowGraphDefinition:
     _load()
     owner_grant = resolve_grant(owner_record, get_category, get_department)
-    blockers = validate_graph(nodes, edges, owner_grant=owner_grant)
-    if blockers:
-        raise ValueError("; ".join(blockers))
+    checks = validate_graph(nodes, edges, owner_grant=owner_grant)
+    if checks:
+        raise ValueError("; ".join(c.message for c in checks))
     reserved = reserved_ids or set()
     now = time.time()
     if graph_id:
@@ -437,9 +474,9 @@ def add_graph_version(graph_id: str, *, nodes: list[dict], edges: list[dict], ow
     if existing is None:
         raise ValueError(f"graph {graph_id!r} not found")
     owner_grant = resolve_grant(owner_record, get_category, get_department)
-    blockers = validate_graph(nodes, edges, owner_grant=owner_grant)
-    if blockers:
-        raise ValueError("; ".join(blockers))
+    checks = validate_graph(nodes, edges, owner_grant=owner_grant)
+    if checks:
+        raise ValueError("; ".join(c.message for c in checks))
     next_version = max([v.version for v in existing.versions] or [0]) + 1
     version = WorkflowGraphVersion(
         version=next_version, created_by=created_by, created_at=time.time(),

@@ -79,6 +79,12 @@ class ToolPolicy:
     risk: str = READ_LOW
     approval_required: bool = False           # this tool's effect always needs a prior approval
     max_rows_without_approval: int | None = None  # None = no row-count gate for this tool
+    required_args: tuple[str, ...] = ()       # arg names a workflow-graph tool_call node for
+                                               # this tool MUST set (literal config or a wired
+                                               # binding) -- validate_graph rejects a save that
+                                               # omits one. Only list args the AUTHOR must supply;
+                                               # never server-derived ones (owner/session_id/
+                                               # customer_id), which never appear in node config.
 
 
 # canonical tool name -> policy
@@ -545,6 +551,182 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
             "breakQty": INTERNAL,
         },
     ),
+    # Confirmed reachable 2026-08-17 by direct probe against
+    # db-api.frontierdental.com under the "admin" credential profile -- see
+    # sqlagent/finance/index.py's module docstring for the full access-note history.
+    "get_po_line_items": ToolPolicy(
+        backend="minierp_finance",
+        intent="po_line_items",
+        account_scoped=False,
+        risk=READ_SENSITIVE,
+        description="Lists the line items (product, quantities, cost) inside one purchase order.",
+        fields={
+            "orderNumber": INTERNAL,
+            "lineNumber": INTERNAL,
+            "inventoryId": INTERNAL,
+            "description": INTERNAL,
+            "orderedQty": INTERNAL,
+            "receivedQty": INTERNAL,
+            "billedQty": INTERNAL,
+            "openQty": INTERNAL,
+            "unitCost": SENSITIVE,
+            "extCost": SENSITIVE,
+            "uom": INTERNAL,
+            "promisedDate": INTERNAL,
+            "closed": INTERNAL,
+            "cancelled": INTERNAL,
+            "completed": INTERNAL,
+        },
+    ),
+    # account_scoped=True: takes a customer_id directly, same trust model as
+    # get_customer_profile/get_contacts/get_addresses. Built on ARAdjust, not
+    # ARInvoice -- ARAdjust is the one AR-domain table confirmed to carry a real
+    # customerId link (see sqlagent/finance/index.py's module docstring).
+    "get_ar_payment_history": ToolPolicy(
+        backend="minierp_finance",
+        intent="ar_payment_history",
+        account_scoped=True,
+        risk=READ_SENSITIVE,
+        description="Shows which invoices a customer's payments or credit memos were applied to, and how much.",
+        fields={
+            "customerId": INTERNAL,
+            "invoiceRefNbr": INTERNAL,
+            "invoiceDocType": INTERNAL,
+            "paymentRefNbr": INTERNAL,
+            "paymentDocType": INTERNAL,
+            "amountApplied": SENSITIVE,
+            "invoiceDate": INTERNAL,
+            "paymentDate": INTERNAL,
+            "released": INTERNAL,
+            "voided": INTERNAL,
+            "onHold": INTERNAL,
+        },
+    ),
+    # Same trust model as get_vendor_ap_invoices (vendor_code, not identity-scoped).
+    "get_ap_payment_history": ToolPolicy(
+        backend="minierp_finance",
+        intent="ap_payment_history",
+        account_scoped=False,
+        risk=READ_SENSITIVE,
+        description="Shows which bills a vendor's payments were applied to, and how much.",
+        fields={
+            "vendorCode": INTERNAL,
+            "invoiceRefNbr": INTERNAL,
+            "invoiceDocType": INTERNAL,
+            "paymentRefNbr": INTERNAL,
+            "paymentDocType": INTERNAL,
+            "amountApplied": SENSITIVE,
+            "invoiceDate": INTERNAL,
+            "paymentDate": INTERNAL,
+            "released": INTERNAL,
+            "voided": INTERNAL,
+            "onHold": INTERNAL,
+            "paymentMethodId": INTERNAL,
+        },
+    ),
+    # Confirmed reachable 2026-08-17 by a wider probe of db-api.frontierdental.com
+    # (see minierp_reachable.md) -- built on GLHistory, a direct period-balance
+    # table, not a client-side aggregation over GLTran.
+    "get_gl_period_summary": ToolPolicy(
+        backend="minierp_finance",
+        intent="gl_period_summary",
+        account_scoped=False,
+        risk=READ_SENSITIVE,
+        description="Shows period-level GL balances (beginning balance, period debit/credit, YTD balance) for one account.",
+        fields={
+            "accountCd": INTERNAL,
+            "finPeriodId": INTERNAL,
+            "ledgerId": INTERNAL,
+            "subId": INTERNAL,
+            "balanceType": INTERNAL,
+            "beginningBalance": SENSITIVE,
+            "periodDebit": SENSITIVE,
+            "periodCredit": SENSITIVE,
+            "ytdBalance": SENSITIVE,
+        },
+    ),
+    # Built on ARTran -- confirmed reachable 2026-08-17, see minierp_reachable.md.
+    "get_invoice_line_items": ToolPolicy(
+        backend="minierp_finance",
+        intent="invoice_line_items",
+        account_scoped=False,
+        risk=READ_SENSITIVE,
+        description="Lists the billed line items inside one AR invoice.",
+        fields={
+            "invoiceNumber": INTERNAL,
+            "lineNumber": INTERNAL,
+            "docType": INTERNAL,
+            "inventoryId": INTERNAL,
+            "description": INTERNAL,
+            "qty": INTERNAL,
+            "unitPrice": SENSITIVE,
+            "extPrice": SENSITIVE,
+            "taxCategoryId": INTERNAL,
+            "salesPersonId": INTERNAL,
+        },
+    ),
+    # Built on APTran -- confirmed reachable 2026-08-17, see minierp_reachable.md.
+    "get_bill_line_items": ToolPolicy(
+        backend="minierp_finance",
+        intent="bill_line_items",
+        account_scoped=False,
+        risk=READ_SENSITIVE,
+        description="Lists the billed line items inside one AP bill.",
+        fields={
+            "invoiceNumber": INTERNAL,
+            "lineNumber": INTERNAL,
+            "docType": INTERNAL,
+            "inventoryId": INTERNAL,
+            "description": INTERNAL,
+            "qty": INTERNAL,
+            "unitCost": SENSITIVE,
+            "lineAmt": SENSITIVE,
+            "taxCategoryId": INTERNAL,
+            "poNumber": INTERNAL,
+        },
+    ),
+    # account_scoped=True: takes a customer_id directly. Built on SOInvoice,
+    # which fixes ARInvoice's missing customer link (see get_invoice_details).
+    "get_customer_invoice_history": ToolPolicy(
+        backend="minierp_finance",
+        intent="customer_invoice_history",
+        account_scoped=True,
+        risk=READ_SENSITIVE,
+        description="Lists a customer's AR invoices — reference number, linked order, payment amount and method.",
+        fields={
+            "customerId": INTERNAL,
+            "invoiceRefNbr": INTERNAL,
+            "docType": INTERNAL,
+            "orderNumber": INTERNAL,
+            "paymentAmount": SENSITIVE,
+            "paymentMethodId": INTERNAL,
+        },
+    ),
+    # Built on INTran -- confirmed reachable 2026-08-17. NOT live lot status
+    # (INLotSerStatus is confirmed FORBIDDEN); this is transaction history.
+    # No SENSITIVE fields -- quantities/dates/locations, no financial figures.
+    "get_item_movement_history": ToolPolicy(
+        backend="minierp_finance",
+        intent="item_movement_history",
+        account_scoped=False,
+        risk=READ_LOW,
+        description="Shows inventory transaction history (receipts, issues, transfers) for one item, including lot/serial number and expiration date where tracked. Not live stock-on-hand.",
+        fields={
+            "inventoryId": INTERNAL,
+            "refNbr": INTERNAL,
+            "tranType": INTERNAL,
+            "docType": INTERNAL,
+            "qty": INTERNAL,
+            "lotSerialNbr": INTERNAL,
+            "expireDate": INTERNAL,
+            "tranDate": INTERNAL,
+            "siteId": INTERNAL,
+            "locationId": INTERNAL,
+            "orderNumber": INTERNAL,
+            "poReceiptNumber": INTERNAL,
+            "note": INTERNAL,
+        },
+    ),
     # Office artifact generation. These tools receive already-governed,
     # already-redacted structured data and persist generated files through the
     # artifact store. The artifact's own classification is returned so the UI can
@@ -555,6 +737,7 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
         account_scoped=False,
         risk=EXPORT,
         max_rows_without_approval=100,
+        required_args=("title",),
         description="Creates an XLSX report artifact from structured table data.",
         fields={
             "artifactId": INTERNAL,
@@ -570,6 +753,7 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
         account_scoped=False,
         risk=EXPORT,
         max_rows_without_approval=100,
+        required_args=("title",),
         description="Creates a PPTX deck artifact from structured sections.",
         fields={
             "artifactId": INTERNAL,
@@ -585,6 +769,7 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
         account_scoped=False,
         risk=EXPORT,
         max_rows_without_approval=100,
+        required_args=("title",),
         description="Creates a DOCX report artifact from structured sections and tables.",
         fields={
             "artifactId": INTERNAL,
@@ -600,6 +785,7 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
         account_scoped=False,
         risk=EXPORT,
         max_rows_without_approval=100,
+        required_args=("title",),
         description="Creates a PDF review packet artifact from structured sections and tables.",
         fields={
             "artifactId": INTERNAL,
@@ -725,6 +911,87 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
             "documentId": INTERNAL,
             "documentTitle": INTERNAL,
             "score": INTERNAL,
+        },
+    ),
+    # Personal knowledge tier (digest_persoanl_kb.md) -- private to the owner, no
+    # admin bypass anywhere in this path (unlike the company tier's "All
+    # principals" listing toggle). `owner` is never an LLM/MCP-caller-supplied
+    # argument on any of these five: the gateway/app.py wrapper hardcodes it from
+    # the authenticated session, same shape as search_knowledge/
+    # answer_from_knowledge above.
+    "ingest_my_document": ToolPolicy(
+        backend="knowledge",
+        intent="ingest_my_document",
+        account_scoped=False,
+        risk=WRITE,
+        description="Uploads a document into your own private knowledge base (not visible to anyone else, including admins).",
+        fields={
+            "documentId": INTERNAL,
+            "title": INTERNAL,
+            "filename": INTERNAL,
+            "sourceType": INTERNAL,
+            "chunkCount": INTERNAL,
+            "classification": INTERNAL,
+        },
+    ),
+    "search_my_documents": ToolPolicy(
+        backend="knowledge",
+        intent="search_my_documents",
+        account_scoped=False,
+        risk=READ_LOW,
+        description="Searches your own private document chunks with citations (semantic, falls back to keyword search).",
+        fields={
+            "query": INTERNAL,
+            "results": INTERNAL,
+            "documentId": INTERNAL,
+            "documentTitle": INTERNAL,
+            "filename": INTERNAL,
+            "text": INTERNAL,
+            "score": INTERNAL,
+            "classification": INTERNAL,
+        },
+    ),
+    "answer_from_my_documents": ToolPolicy(
+        backend="knowledge",
+        intent="answer_from_my_documents",
+        account_scoped=False,
+        risk=READ_LOW,
+        description="Builds a citation-backed extractive answer from your own private documents.",
+        fields={
+            "query": INTERNAL,
+            "answer": INTERNAL,
+            "citations": INTERNAL,
+            "documentId": INTERNAL,
+            "documentTitle": INTERNAL,
+            "score": INTERNAL,
+        },
+    ),
+    "list_my_documents": ToolPolicy(
+        backend="knowledge",
+        intent="list_my_documents",
+        account_scoped=False,
+        risk=READ_LOW,
+        description="Lists documents in your own private knowledge base.",
+        fields={
+            "documentId": INTERNAL,
+            "title": INTERNAL,
+            "filename": INTERNAL,
+            "sourceType": INTERNAL,
+            "chunkCount": INTERNAL,
+            "classification": INTERNAL,
+            "createdAt": INTERNAL,
+            "updatedAt": INTERNAL,
+        },
+    ),
+    "delete_my_document": ToolPolicy(
+        backend="knowledge",
+        intent="delete_my_document",
+        account_scoped=False,
+        risk=WRITE,
+        description="Deletes a document from your own private knowledge base.",
+        fields={
+            "documentId": INTERNAL,
+            "deleted": INTERNAL,
         },
     ),
     "draft_calendar_invite": ToolPolicy(

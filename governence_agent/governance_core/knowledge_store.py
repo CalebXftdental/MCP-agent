@@ -11,6 +11,7 @@ import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+import docintel_client
 from knowledge_models import KnowledgeChunk, KnowledgeDocument
 from policy.manifest import INTERNAL
 
@@ -84,8 +85,12 @@ def extract_text(filename: str, payload: bytes) -> tuple[str, str]:
                 parts.append(_TAG_RE.sub(" ", xml))
             return _normalize_text(" ".join(shared + parts)), suffix
     if suffix == "pdf":
-        # Keep this dependency-free for local smoke tests. A later slice can use pypdf/pdfplumber when installed.
-        return _normalize_text(payload.decode("latin-1", "ignore")), suffix
+        # Azure AI Document Intelligence (prebuilt-read), not a local PDF-parsing
+        # library -- see docintel_client.py's docstring and digest_persoanl_kb.md
+        # §0.1 for why. "" (not an exception) when unconfigured/unreachable, same
+        # as any other extraction miss -- ingest_document() below raises on empty
+        # text either way.
+        return _normalize_text(docintel_client.extract_pdf_text(payload)), suffix
     return _normalize_text(payload.decode("utf-8", "ignore")), suffix
 
 

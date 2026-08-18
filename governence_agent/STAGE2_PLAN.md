@@ -12,6 +12,23 @@ ability to pick the right tool.
 
 ---
 
+> **Read this before implementing anything below.** Every row in every "decisions
+> locked" table in this doc is this session's best-effort design given what we knew
+> talking it through — not a final spec, and not a green light to implement
+> unquestioned. Docs in this repo go stale fast in both directions: `expansion.md`
+> and `improve_myworkflow_with_nodes.md` both turned out to be wrong about "what's
+> already built" within weeks. Before starting implementation on **any** item here:
+> 1. **Re-verify the relevant claim against the live code** — grep for the thing,
+>    read the actual file, don't trust the doc's description of current state.
+> 2. **Ask the user clarifying questions** about anything with a real tradeoff, a
+>    security/privacy implication, or a dependency on something outside this repo
+>    (IT-owned infra, credentials, a coworker's system, a business decision like
+>    which entity to pilot a write tool on) — rather than silently proceeding with
+>    whatever this doc currently says. Treat "the doc says X" as a hypothesis to
+>    confirm with the person who'll actually own the consequences, not an
+>    instruction to execute.
+> 3. Only after 1-2, start writing code.
+
 ## 0. Decisions locked (quick reference)
 
 | # | Decision | Choice |
@@ -26,6 +43,12 @@ ability to pick the right tool.
 | Embed/rerank model choice | Cohere Embed/Rerank vs open-weight | **Open-weight, self-hosted** — Cohere's Embed/Rerank are API-only, not open-weight (confirmed; see §6). Use **Qwen3-Embedding + Qwen3-Reranker** (Apache-2.0) or **BGE-M3 + bge-reranker-v2** for both tool-retrieval and `mcp-knowledge` search. |
 | Local LLM + RL | fine-tune with agentic RL now vs. later | **Not yet.** Ladder: tool retrieval → structured/JSON-schema tool calls → SFT on our own audit-log traces → RL only much later, only for a specific hard skill (e.g. disambiguating among many similar write tools), not as a general chatbot upgrade. See §7. |
 | Model routing by risk | one model everywhere vs. split by lane | **Keep the split `orchestrator.py` already supports** (local OpenAI-compatible / Azure OpenAI / Anthropic via env vars) — reserve the hosted/stronger model for the workflow-copilot lane (especially once ERP writes exist), local model for the lower-stakes home-chatbot lane. |
+| Web search | build it vs. skip | **Build `mcp-websearch`** (§6) — real, currently-missing capability (tool catalog is almost entirely ERP-shaped today). Treat returned page content as untrusted/adversarial by default, same defense class as uploaded documents. |
+| ClickUp integration | adopt ClickUp's official MCP server vs. build our own | **Build `mcp-clickup`** (§7) — same reasoning as HubSpot: the official server is per-user-OAuth, doesn't fit our per-consumer service-identity model, so wrap the REST API narrowly ourselves. |
+| `mcp-code`/opencode scope | keep read-only planning vs. embed opencode's real run mode | **Keep read-only planning as the default; embedding opencode's server+SDK for real execution is a deliberate, separate scope expansion** (§8), not a side effect of "we found an embeddable SDK." Real run mode means real read/write/bash on a directory — gate it at least as hard as `mcp-acumatica` writes. |
+| Real inbox/calendar reads (`mcp-outlook`) | bundle into the ClickUp/websearch batch vs. treat separately | **Treat separately, sequence later** (§9). Today's `calendar`/`email` tools are draft-only; reading someone's actual mailbox/calendar is a materially bigger privacy step than anything else in this batch, and deserves its own explicit decision, not a quiet scope-creep alongside lower-stakes additions. |
+| `mcp-outlook` auth model | per-user OAuth (delegated) vs. one IT-provisioned credential (application permissions) | **Application permissions, IT-provisioned** (§9.1) — consistent with every other backend's "one governed service credential" shape; no user ever hand-types a Graph API key under either model, so this is a backend-architecture choice, not a UX one. Blast radius is bounded via an Exchange Application Access Policy (§9.2), not by asking users to individually consent. |
+| `mcp-outlook` mailbox identity | assume `consumer_id`/login maps to a mailbox vs. add an explicit field | **Add `mailbox_upn` to `ConsumerRecord`, IT-maintained** (§9.3) — confirmed no such mapping exists today; login is custom username+password, not Microsoft SSO, so there's no implicit link to resolve. Gateway derives the target mailbox from this field only, never a caller-supplied argument — same rule as `digest_persoanl_kb.md`'s owner-derivation decision. |
 
 ---
 
@@ -155,7 +178,159 @@ risk than Acumatica writes, so it's the right place to find scaffold problems fi
 
 ---
 
-## 6. Tool-selection at scale (why not just keep adding tools to every prompt)
+## 6. `mcp-websearch`
+
+The tool catalog today is almost entirely ERP-shaped (30 miniERP tools vs. 6 office,
+4 calendar, 2 email). Web search is a real, currently-missing capability, not a
+nice-to-have — closing this gap matters as much as the new backends above.
+
+- **Provider**: Tavily or Brave Search API — built for/friendly to LLM agents,
+  return cleaned content rather than raw HTML to parse. Self-hosted SearXNG is the
+  alternative if minimizing third-party query exposure matters more than result
+  quality (it still ultimately queries external engines per request, just
+  aggregated rather than logged by one vendor).
+- **The governance angle that's unique to this tool, and the one to get right
+  before anything else**: search results are adversarial-by-default content —
+  unlike ERP data, web pages can be deliberately crafted to inject instructions.
+  Apply the same defense already specified for uploaded documents (§13's prompt
+  injection notes, `expansion.md`'s): fence/quote returned content, instruct the
+  model to never treat page content as instructions, log the source URLs a
+  response actually used. This is a bigger risk class than any read tool built so
+  far — worth its own manifest note, not just another `read_low` tool.
+- **Rate/cost limiting** distinct from internal reads — this is metered, external,
+  per-query cost, not a free internal GraphQL call.
+- First tools: `web_search(query, limit)`, `fetch_page_summary(url)` — narrow,
+  matching the existing per-backend philosophy; not a general-purpose browsing tool.
+
+---
+
+## 7. `mcp-clickup`
+
+Same reasoning as HubSpot (§5): an official ClickUp MCP server exists, but it's
+per-user OAuth (built for a human connecting their own editor), not a fit for our
+per-consumer service-identity model. Build a thin governed wrapper over ClickUp's
+REST API instead, in the same shape as every other backend here.
+
+First tools (read-first, in priority order):
+- `list_my_tasks` (tasks assigned to the resolved consumer)
+- `get_task_details`
+- `create_task` (`write` risk tier — needs a manifest entry and, per §3's rule,
+  can't register without one)
+- `update_task_status`, `add_comment` — hold until `create_task` has run in
+  production long enough to trust the write path, same discipline as
+  `mcp-acumatica`'s single-pilot-tool rollout (§4.7).
+
+---
+
+## 8. `mcp-code` scope: embedding opencode for real execution
+
+`opencode` (already the tool `mcp-code` wraps in read-only planning mode —
+`opencode_plan_change`, `opencode_review_repo`, `opencode_generate_template`) has a
+genuine embeddable server mode: `opencode serve` exposes an OpenAPI 3.1 HTTP API,
+with a TS/JS SDK meant for embedding in a custom app's own UI rather than a
+terminal. Technically, embedding it into this workspace's "Agent"/"Code" panels is
+straightforward — that is **not** the decision that matters here.
+
+**The actual decision: do we want to give it real read/write/bash on a directory,**
+not just plan-and-propose. That's a materially bigger risk surface (arbitrary code
+execution) than what's governed today, and it's the same class of problem
+`mcp-acumatica` writes are (§4) — an agent that can mutate real state, not just
+describe a change for a human to apply.
+
+If this is wanted:
+- Admin/developer category only (already true for the planning tools — keep it).
+- Every write/bash action stays gated behind approval per action, not a blanket
+  "developer mode" toggle — matches `expansion.md` §8.5's original rule
+  ("never allow arbitrary shell execution for non-admin workflows").
+- Run it against an isolated worktree per session, not the live repo directly.
+- Land as an explicit new risk tier/tool set alongside the existing planning
+  tools, not a silent upgrade of what `opencode_plan_change` already does.
+
+(**Pi**, another open-source coding agent, is comparably embeddable — SDK mode,
+RPC mode for process integration. No reason to switch off `opencode` given the
+existing integration precedent; noted here only in case a specific gap in
+`opencode` ever makes it worth a second look.)
+
+---
+
+## 9. `mcp-outlook`: real inbox/calendar reads (Microsoft Graph)
+
+Today's `calendar`/`email` tools are **draft-only** — `list_upcoming_meetings`
+lists this consumer's own drafted invites, not a real calendar; there is no
+inbox-read tool at all. Reading someone's actual mailbox/calendar is a materially
+bigger privacy step than drafting on their behalf, and deserves its own explicit
+decision rather than riding along with the ClickUp/websearch batch. Confirmed
+target: Microsoft Graph (Outlook/365), not Google.
+
+### 9.1 Auth model: application permissions (IT-provisioned), not per-user key entry
+
+**A user never has a "Graph API key" to type in, under either auth model** —
+that's not how Graph auth works, full stop. The real choice is between two
+legitimate patterns:
+
+| | Delegated (per-user OAuth) | Application permissions (app-only) |
+|---|---|---|
+| Setup | Each user clicks "Connect mailbox," redirected to Microsoft login, consents once; app exchanges the code for tokens | IT registers **one** Entra ID app with application permissions (`Mail.Read`, `Mail.Send`, `Calendars.Read`/`ReadWrite`, application — not delegated — scope), admin-consents once, tenant-wide |
+| Per-user friction | One-time consent click per user | None |
+| New secret category | Per-user refresh tokens — encrypted storage, rotation, revoke-on-offboarding — **nothing like this exists in the platform today** | None — one client credential, same shape as every other backend's service credential (`minierp_core`, HubSpot token) |
+| Blast radius if credential leaks | One person's mailbox | Every mailbox the app is scoped to — **must be bounded separately** (§9.2) |
+| Fits existing architecture? | No — new identity model, nothing else here does per-user OAuth | **Yes** — same "one governed service credential, consumer/category-scoped" shape as `mcp-minierp`, `mcp-hubspot`, `mcp-clickup` |
+
+**Decision: application permissions, IT-provisioned, matching the "include it in
+the backend" instinct** — consistent with every other backend in this repo and
+avoids building a per-user OAuth/token-storage subsystem that nothing else needs.
+The cost of this choice is that the app credential itself can technically act on
+any mailbox in scope, which shifts more weight onto the mitigations in §9.2 and
+the identity-derivation rule in §9.3 — this isn't a free lunch, it's a real
+trade against blast radius, made deliberately because the alternative (per-user
+OAuth) is a bigger net-new subsystem for a single backend.
+
+### 9.2 Bounding blast radius: Exchange Application Access Policies
+
+Even with tenant-wide application permissions granted, **Exchange Online supports
+an Application Access Policy** (`New-ApplicationAccessPolicy`) that restricts a
+specific app's Graph mail/calendar reach to a named mail-enabled security group —
+independent of code, managed entirely by IT. Concretely: create a security group
+(e.g. `mcp-outlook-enrolled`), scope the app's access policy to it, and only
+mailboxes IT adds to that group are ever reachable by this app's credential —
+even though the underlying OAuth grant is technically tenant-wide. This is the
+mitigation that makes application permissions an acceptable choice here rather
+than an unbounded one; it should be treated as required, not optional-hardening.
+
+### 9.3 The gap this exposes: no mailbox identity exists in `ConsumerRecord` today
+
+Confirmed: `governance_core/store/models.py`'s `ConsumerRecord` has no email/UPN
+field at all (`consumer_id`, `name`, `full_name`, `categories`, ... — nothing that
+maps a platform login to a real O365 mailbox address). This isn't an oversight to
+route around — login here is custom username+password (`design_plan_v2.md`), not
+Microsoft SSO, so there is genuinely no existing link between a platform identity
+and an O365 identity. Needed regardless of §9.1's auth choice:
+
+- Add a `mailbox_upn` field to `ConsumerRecord`, settable via the existing admin
+  consumer-management UI (IT maintains it — matches the app-only model's
+  "no per-user action" property).
+- The gateway derives the target mailbox **strictly from `mailbox_upn` on the
+  authenticated session's own consumer record** — never a caller-supplied
+  argument. Identical rule to `digest_persoanl_kb.md`'s "owner is server-derived
+  only, never MCP-caller-supplied" decision — same shape of risk (one person
+  reading another person's private data via a spoofed identifier), same fix.
+- A consumer with no `mailbox_upn` set simply gets no Outlook tools available
+  (or a clear "mailbox not linked, ask IT" response) — fails closed, not open.
+
+### 9.4 Tools
+
+First tools, read-only: `get_upcoming_meetings` (real calendar, not drafts),
+`get_free_busy`, `search_inbox` (scoped, e.g. by sender/subject/date — not a
+full-mailbox dump tool). Hold write/send Graph tools until these are proven and
+until `mcp-clickup`/`mcp-acumatica` have already exercised the write-approval
+pattern (§4, §7) at least once.
+
+Sequence after `mcp-websearch`/`mcp-clickup` (§12) — §9.1-§9.3 above needed their
+own answer before build starts, and now do.
+
+---
+
+## 10. Tool-selection at scale (why not just keep adding tools to every prompt)
 
 Today's only scoping mechanism, `orchestrator.WORKFLOW_ONLY_TOOLS`, is a static,
 hand-maintained exclude-list checked in one place (`gateway/backend/chat.py`). It works
@@ -188,11 +363,11 @@ integration is BYO-MCP — which is exactly this repo's architecture.
 
 ---
 
-## 7. Local LLM strategy for home-chatbot + workflow-copilot
+## 11. Local LLM strategy for home-chatbot + workflow-copilot
 
 Do **not** reach for agentic RL post-training first. In order of actual leverage:
 
-1. **Tool retrieval (§6)** — shrinking the choice set from ~100 tools to ~15 relevant
+1. **Tool retrieval (§10)** — shrinking the choice set from ~100 tools to ~15 relevant
    ones is the single biggest lever on tool-selection accuracy, and it's not a model
    change at all.
 2. **Structured/JSON-schema-enforced tool-call output** — `orchestrator.py` already
@@ -217,20 +392,37 @@ where mistakes are cheap.
 
 ---
 
-## 8. Rollout sequencing
+## 12. Rollout sequencing
 
 1. Shared backend scaffold (§3) — nothing else should be built on the old ad hoc pattern.
 2. `mcp-hubspot`, read-only (§5) — proves the scaffold on a lower-risk backend.
-3. Tool retrieval / embed+rerank layer (§6) — needed once backend #4+ lands, not before.
-4. `mcp-acumatica` pilot write tool (§4) — highest risk, most conservative, goes last,
+3. `mcp-websearch` (§6) — independent of the ERP-shaped backends, closes the
+   biggest non-ERP tool-catalog gap, low governance novelty beyond the injection
+   defense.
+4. `mcp-clickup`, read-first (§7) — same scaffold, same risk-tier discipline.
+5. Tool retrieval / embed+rerank layer (§10) — needed once backend #4+ lands, not before.
+6. `mcp-acumatica` pilot write tool (§4) — highest risk, most conservative, goes last,
    gated on the scaffold and the approval pattern both being proven elsewhere first.
-5. Outlook / ClickUp / further backends — should be near-zero-novelty once 1-3 exist;
-   each is "config on the scaffold," not a new architecture decision.
+7. `mcp-code`/opencode real-execution decision (§8) — independent of the rest;
+   make the scope decision explicitly rather than letting it happen as a side
+   effect of finding an embeddable SDK.
+8. `mcp-outlook` real inbox/calendar reads (§9) — sequence last: needs its own
+   identity-model answer (acting *as* a specific person vs. a shared service
+   account) before build starts.
 
-## 9. Open questions blocking work
+## 13. Open questions blocking work
 
 - Acumatica contract-based REST API availability + version, and provisioning a scoped
   pilot integration user — **owned by whoever admins the Acumatica instance**, not us.
 - Which entity to pick for the Acumatica write pilot (order note vs. tracking number
   vs. something else) — needs a product decision on what's actually useful *and* low-risk.
 - Whether a staging/sandbox Acumatica tenant exists to test against before production.
+- Web search provider choice (Tavily vs. Brave vs. self-hosted SearXNG) — needs a
+  cost/quality/data-exposure tradeoff decision, not just a technical pick.
+- Do we actually want opencode's real-execution mode in this workspace at all, or
+  is read-only planning sufficient? (§8) — a product decision, not just "we found
+  an SDK for it."
+- ~~Which mailbox/calendar system does Frontier Dental actually use~~ — **resolved:
+  Microsoft Graph/365** (§9). Auth model and mailbox-identity gap resolved in §9.1-9.3;
+  remaining open item is purely operational: who in IT registers the Entra ID app
+  and owns the Application Access Policy / enrolled-mailbox security group (§9.2)?

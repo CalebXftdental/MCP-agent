@@ -1,12 +1,32 @@
 # Improve "My Workflow": a Generic Filter Node + Field Catalog + Build-Time Copilot
 
-**Status:** Proposed (design only; nothing in this doc is built yet)
+**Status:** Partially built — verified against the code 2026-08-17. Phase 2 (the
+`filter` node: `GraphNode.kind == "filter"`, `_execute_filter_node` in
+`workflow_graph_interpreter.py`) and most of Phase 3 (the copilot — see
+`workflow_scratchpad.py` + the copilot tool-loop in `orchestrator.py`/`app.py`, demoed
+end-to-end in `howtocreatemyworkflowdemo.md`) are **live**. Only Phase 1 (§1's
+persisted, sampled field catalog — `governance_core/tool_catalog.py`) is still
+unbuilt; the copilot currently runs on `workflow_scratchpad.py`'s lighter,
+in-memory, per-session substitute instead. See `finalize_stage_1.md` §3 for the
+loop/pagination node gap this doc doesn't cover and the plan to finish Phase 1.
 **Builds on:** `governance_core/workflow_graph_models.py`, `gateway/workflow_graph_interpreter.py`,
 `gateway/frontend/src/components/workflow/*` (the "My Workflow" canvas), and the
 array/object literal-JSON fix already shipped in `StepConfigFields.tsx`.
 **Scope:** Let a non-technical user build a *correct*, *deterministic*, *reusable*
 workflow like "flag customers that need a win-back" without writing code and
 without the platform needing a new node kind for every business rule.
+
+---
+
+> **Read this before implementing anything below.** This is a best-effort design
+> from when it was written, not a final spec — and docs in this repo go stale fast
+> in both directions (this doc's own status line above is itself an example: it
+> claimed nothing was built when most of it already was). Before starting
+> implementation on any item here: (1) re-verify the relevant claim against the
+> live code, don't trust the doc's description of current state; (2) ask the user
+> clarifying questions about anything with a real tradeoff, a security/privacy
+> implication, or an external dependency, rather than silently proceeding with
+> whatever this doc currently says; (3) only then start writing code.
 
 ---
 

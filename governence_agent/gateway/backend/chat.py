@@ -158,7 +158,8 @@ async def _workflow_chat(request):
     try:
         result = await orchestrator.run_chat(mcp, message, session_id, record,
                                              llm_complete=llm_complete, history=history,
-                                             system_prompt=orchestrator.WORKFLOW_COPILOT_SYSTEM_PROMPT)
+                                             system_prompt=orchestrator.WORKFLOW_COPILOT_SYSTEM_PROMPT,
+                                             max_turns=orchestrator.WORKFLOW_CHAT_MAX_TURNS)
     except Exception as exc:  # noqa: BLE001 -- see _chat's identical handling
         return JSONResponse({"error": f"assistant turn failed: {exc}"}, status_code=502)
     chat_log.record_turn(store, session_id, record.consumer_id, "user", message)
@@ -202,7 +203,8 @@ async def _workflow_chat_stream(request):
         try:
             async for ev in orchestrator.run_chat_stream(mcp, message, session_id, record,
                                                           llm_complete=llm_complete, history=history,
-                                                          system_prompt=orchestrator.WORKFLOW_COPILOT_SYSTEM_PROMPT):
+                                                          system_prompt=orchestrator.WORKFLOW_COPILOT_SYSTEM_PROMPT,
+                                                          max_turns=orchestrator.WORKFLOW_CHAT_MAX_TURNS):
                 t = ev.get("type")
                 if t == "delta":
                     parts.append(ev.get("text", ""))

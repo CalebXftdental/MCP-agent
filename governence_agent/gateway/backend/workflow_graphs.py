@@ -157,8 +157,10 @@ async def _workflow_graph_validate(request):
         nodes = [_graph_node_from_wire(n.public_dict()) for n in (version.nodes if version else [])]
         edges = [_graph_edge_from_wire(e.public_dict()) for e in (version.edges if version else [])]
     owner_grant = resolve_grant(record, store.get_category, store.get_department)
-    blockers = workflow_graph_store.validate_graph(nodes, edges, owner_grant=owner_grant)
-    return JSONResponse({"ready": not blockers, "blockers": blockers, "warnings": []})
+    checks = workflow_graph_store.validate_graph(nodes, edges, owner_grant=owner_grant)
+    blockers = [c.message for c in checks if c.severity == "error"]
+    warnings = [c.message for c in checks if c.severity == "warning"]
+    return JSONResponse({"ready": not blockers, "blockers": blockers, "warnings": warnings})
 
 
 async def _workflow_graph_catalog(request):

@@ -51,6 +51,25 @@ class GraphEdge:
 
 
 @dataclass(frozen=True)
+class GraphCheck:
+    """One structured result from validate_graph -- a stable machine `check`
+    id plus the same human-readable `message` it always produced, now with
+    `severity` and (where applicable) which node it concerns broken out as
+    real fields instead of embedded ad hoc in message text. Every check is
+    "error" severity today (validate_graph has no lesser-severity checks
+    yet); the field exists so a caller (e.g. the workflow copilot's
+    scratchpad) can distinguish severities if/when one is ever added, rather
+    than requiring every future check to also be a hard blocker."""
+    check: str
+    severity: str
+    message: str
+    node_id: str | None = None
+
+    def public_dict(self) -> dict:
+        return {"check": self.check, "severity": self.severity, "message": self.message, "nodeId": self.node_id}
+
+
+@dataclass(frozen=True)
 class WorkflowGraphVersion:
     version: int
     created_by: str

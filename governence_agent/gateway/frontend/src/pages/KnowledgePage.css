@@ -127,6 +127,11 @@
   gap: 0.25rem;
 }
 
+.knowledge-inline-confirm {
+  display: flex;
+  gap: 0.4rem;
+}
+
 /* ── drawer ───────────────────────────────────────────────────────────────── */
 
 .knowledge-drawer-body {

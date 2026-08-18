@@ -4,3 +4,10 @@ python-dotenv==1.2.2
 httpx==0.28.1
 azure-search-documents==12.0.0
 azure-core==1.41.0
+
+# Personal-KB tier (digest_persoanl_kb.md): PDF extraction (Document
+# Intelligence) and embeddings (Azure OpenAI). Both imported lazily -- a process
+# with neither GOVERNANCE_DOCINTEL_* nor GOVERNANCE_EMBEDDING_* set never
+# actually imports these.
+azure-ai-documentintelligence==1.0.2
+openai==2.46.0

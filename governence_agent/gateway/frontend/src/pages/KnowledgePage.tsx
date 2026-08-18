@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
+import type { ChangeEvent as ReactChangeEvent, KeyboardEvent as ReactKeyboardEvent } from 'react'
 import {
   Badge,
   Button,
@@ -23,12 +23,16 @@ import {
   ApiError,
   answerFromKnowledge,
   deleteKnowledgeDocument,
+  deleteMyDocument,
   getKnowledgeDocument,
   listKnowledgeDocuments,
+  listMyDocuments,
   searchKnowledge,
+  uploadMyDocument,
   type KnowledgeAnswer,
   type KnowledgeDocument,
   type KnowledgeSearchHit,
+  type MyDocument,
 } from '../lib/api'
 import { formatRelative, formatWhen } from '../lib/format'
 import type { PageProps } from './types'
@@ -36,22 +40,26 @@ import './KnowledgePage.css'
 
 /**
  * Knowledge — ports `renderKnowledge()`: search and citation-backed answers
- * over the shared knowledge base.
+ * over the shared knowledge base, plus a real personal-document tier.
  *
- * The legacy panel also had "Ingest text" / "Ingest file" forms, but their
- * buttons called `POST /knowledge/documents`, a route that isn't mounted —
- * `backend/knowledge.py` is read-only by design (new documents arrive through
- * AraTestEnvBE's own ingestion pipeline, never through this gateway; see the
- * module's own docstring and governance_core/policy/manifest.py's "Deliberately
- * no ingest_knowledge_text/ingest_knowledge_file entries" comment). Those
- * buttons have 405'd since before this port existed. Dropped rather than
- * carried forward — an ingest form that can't ingest is worse than none.
+ * The legacy panel's "Ingest text" / "Ingest file" forms called
+ * `POST /knowledge/documents`, a route that was never mounted —
+ * `backend/knowledge.py` is read-only BY DESIGN for the shared company tier
+ * (new company documents arrive through AraTestEnvBE's own ingestion pipeline,
+ * never through this gateway). Those buttons 405'd since before this port
+ * existed and were dropped rather than carried forward.
  *
- * What's real and ported: Ask (answer, grounded with citations, or a raw
- * search over passages) and the indexed-document list (view detail, delete).
- * A citation or a search hit opens straight into that document's detail via
- * the same drawer the list uses, and the drawer's own "Ask about this
- * document" scopes the Ask card back to it — one detail view either way in.
+ * "My documents" below is a genuinely different, separate tier
+ * (digest_persoanl_kb.md): private per-owner upload, backed by its own
+ * `/knowledge/mine*` routes and its own `personal_knowledge` category grant —
+ * not the same read-only path as "Indexed documents", and never visible to
+ * anyone but the uploader (no admin bypass, unlike "All principals" below).
+ *
+ * What's real and ported for the company tier: Ask (answer, grounded with
+ * citations, or a raw search over passages) and the indexed-document list
+ * (view detail, delete). A citation or a search hit opens straight into that
+ * document's detail via the same drawer the list uses, and the drawer's own
+ * "Ask about this document" scopes the Ask card back to it.
  */
 
 const LIMIT_OPTIONS: DropdownOption[] = [
@@ -97,6 +105,126 @@ function KnowledgePage({ session }: PageProps) {
   const [askError, setAskError] = useState<string | null>(null)
   const [answer, setAnswer] = useState<KnowledgeAnswer | null>(null)
   const [hits, setHits] = useState<KnowledgeSearchHit[] | null>(null)
+
+  // ── my documents (personal tier) ─────────────────────────────────────────
+  const [myDocs, setMyDocs] = useState<MyDocument[]>([])
+  const [myDocsState, setMyDocsState] = useState<'loading' | 'ready' | 'error' | 'unavailable'>('loading')
+  const [myDocsError, setMyDocsError] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const [deletingMine, setDeletingMine] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const loadMine = useCallback(() => {
+    let live = true
+    setMyDocsState('loading')
+    listMyDocuments()
+      .then((result) => {
+        if (!live) return
+        setMyDocs(result.documents ?? [])
+        setMyDocsError(null)
+        setMyDocsState('ready')
+      })
+      .catch((cause: unknown) => {
+        if (!live) return
+        // A 403 here almost always just means this consumer hasn't been
+        // granted the `personal_knowledge` category yet, not a real error —
+        // show a plain "not available" state instead of an error banner.
+        if (cause instanceof ApiError && cause.isForbidden) {
+          setMyDocsState('unavailable')
+          return
+        }
+        setMyDocsError(cause instanceof Error ? cause.message : 'Could not load your documents.')
+        setMyDocsState('error')
+      })
+    return () => {
+      live = false
+    }
+  }, [])
+
+  useEffect(() => loadMine(), [loadMine])
+
+  const onPickFile = () => fileInputRef.current?.click()
+
+  const onFileSelected = useCallback(
+    async (e: ReactChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0]
+      e.target.value = '' // allow re-selecting the same file next time
+      if (!file) return
+      setUploading(true)
+      try {
+        await uploadMyDocument(file)
+        toast.success(`Uploaded "${file.name}"`)
+        loadMine()
+      } catch (cause) {
+        toast.error(cause instanceof ApiError ? cause.message : 'Could not upload that file.')
+      } finally {
+        setUploading(false)
+      }
+    },
+    [toast, loadMine],
+  )
+
+  const confirmDeleteMine = useCallback(async () => {
+    if (!pendingDeleteId) return
+    setDeletingMine(true)
+    try {
+      await deleteMyDocument(pendingDeleteId)
+      toast.success('Document deleted')
+      setPendingDeleteId(null)
+      loadMine()
+    } catch (cause) {
+      toast.error(cause instanceof ApiError ? cause.message : 'Could not delete that document.')
+    } finally {
+      setDeletingMine(false)
+    }
+  }, [pendingDeleteId, toast, loadMine])
+
+  const myDocColumns = useMemo<Column<MyDocument>[]>(
+    () => [
+      {
+        key: 'title',
+        header: 'Title',
+        render: (d) => (
+          <div className="knowledge-doc-cell">
+            <p className="knowledge-doc-title">{d.title || d.filename}</p>
+            <p className="knowledge-doc-filename ui-mono">{d.filename}</p>
+          </div>
+        ),
+      },
+      { key: 'type', header: 'Type', width: '7rem', render: (d) => <Badge subtle>{d.sourceType}</Badge> },
+      { key: 'chunks', header: 'Chunks', width: '5.5rem', numeric: true, render: (d) => d.chunkCount },
+      {
+        key: 'created',
+        header: 'Uploaded',
+        width: '8.5rem',
+        muted: true,
+        nowrap: true,
+        render: (d) => <span title={formatWhen(d.createdAt)}>{formatRelative(d.createdAt)}</span>,
+      },
+      {
+        key: 'actions',
+        header: '',
+        width: '9rem',
+        render: (d) =>
+          pendingDeleteId === d.documentId ? (
+            <div className="knowledge-inline-confirm">
+              <Button variant="danger" size="sm" onClick={confirmDeleteMine} loading={deletingMine}>
+                Confirm
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setPendingDeleteId(null)} disabled={deletingMine}>
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <Button variant="ghost" size="sm" onClick={() => setPendingDeleteId(d.documentId)}>
+              Delete
+            </Button>
+          ),
+      },
+    ],
+    [pendingDeleteId, deletingMine, confirmDeleteMine],
+  )
 
   // ── manage drawer ─────────────────────────────────────────────────────────
   const [manageId, setManageId] = useState<string | null>(null)
@@ -441,6 +569,55 @@ function KnowledgePage({ session }: PageProps) {
           </div>
         </Card>
       </div>
+
+      {myDocsState !== 'unavailable' && (
+        <Card
+          title="My documents"
+          description="Private to you — not visible to anyone else, including admins. Upload PDFs, Word/Excel/PowerPoint, or plain text."
+          actions={
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                onChange={onFileSelected}
+                style={{ display: 'none' }}
+                accept=".pdf,.docx,.pptx,.xlsx,.txt,.md,.csv,.json,.log"
+              />
+              <Button size="sm" onClick={onPickFile} loading={uploading}>
+                Upload document
+              </Button>
+            </>
+          }
+        >
+          {myDocsState === 'error' ? (
+            <EmptyState
+              title="Couldn't load your documents"
+              description={myDocsError ?? undefined}
+              action={
+                <Button size="sm" variant="ghost" onClick={loadMine}>
+                  Try again
+                </Button>
+              }
+            />
+          ) : (
+            <DataTable
+              columns={myDocColumns}
+              rows={myDocs}
+              rowKey={(d) => d.documentId}
+              loading={myDocsState === 'loading'}
+              caption="My documents"
+              maxHeight="min(40vh, 22rem)"
+              empty={
+                <EmptyState
+                  title="No documents uploaded yet"
+                  description="Upload a document to search and ask about it from chat, using search_my_documents/answer_from_my_documents."
+                  compact
+                />
+              }
+            />
+          )}
+        </Card>
+      )}
 
       <Card
         title="Indexed documents"

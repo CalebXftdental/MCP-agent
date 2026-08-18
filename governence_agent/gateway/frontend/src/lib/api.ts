@@ -1420,6 +1420,41 @@ export const answerFromKnowledge = (query: string, limit = 5, documentId = '') =
   return api.post<KnowledgeAnswer>('/knowledge/answer', body)
 }
 
+// ── Personal knowledge tier ──────────────────────────────────────────────────
+// Private to the uploading user, no admin bypass — separate MCP tools and a
+// separate category grant from the company tier above (governance_core/
+// policy/categories.py's "personal_knowledge"). A 403 here most likely means
+// the signed-in user simply hasn't been granted that category yet, not a bug.
+
+/** Same shape as KnowledgeDocument — a personal doc has no extra fields. */
+export type MyDocument = KnowledgeDocument
+
+export const listMyDocuments = () => api.get<{ documents: MyDocument[] }>('/knowledge/mine')
+
+/** Multipart upload — deliberately bypasses api.post's JSON body path (passing
+ *  `body: undefined` up front so `request()` never sets a JSON Content-Type,
+ *  letting the browser set the multipart boundary itself). */
+export const uploadMyDocument = (file: File, title?: string) => {
+  const form = new FormData()
+  form.append('file', file, file.name)
+  if (title) form.append('title', title)
+  return api.post<{ document: MyDocument }>('/knowledge/mine', undefined, { body: form })
+}
+
+export const deleteMyDocument = (id: string) =>
+  api.del<{ documentId: string; deleted: boolean }>(`/knowledge/mine/${encodeURIComponent(id)}`)
+
+export const searchMyDocuments = async (
+  query: string,
+  limit = 5,
+  documentId = '',
+): Promise<KnowledgeSearchHit[]> => {
+  const body: Record<string, unknown> = { query, limit }
+  if (documentId) body.document_id = documentId
+  const result = await api.post<{ results?: KnowledgeSearchHit[] }>('/knowledge/mine/search', body)
+  return result.results ?? []
+}
+
 // ── Workflows ────────────────────────────────────────────────────────────────
 // A "workflow" is either one of the 5 hardcoded templates (gateway/workflows.py)
 // or a published user-built graph (see Workflow graphs, below) — both project

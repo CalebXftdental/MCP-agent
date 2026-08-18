@@ -55,7 +55,7 @@ CATEGORIES: dict[str, Category] = {
     "finance": Category(
         id="finance", display_name="Finance", backend="minierp_finance",
         tools="*", levels=_FIN,   # AR/AP/GL/PO financial figures; no contact PII
-        data_domains=["ARInvoice", "APInvoice", "Vendor", "POOrder", "GLTran", "Account", "ARSalesPrice"],
+        data_domains=["ARInvoice", "APInvoice", "Vendor", "POOrder", "POLine", "GLTran", "Account", "ARSalesPrice", "ARAdjust", "APAdjust"],
     ),
     # Cross-customer analytics (ranking/aggregates). Seeded but NOT assigned to any
     # principal by default -- an admin grants "analytics" explicitly to enable
@@ -91,15 +91,34 @@ CATEGORIES: dict[str, Category] = {
         tools=frozenset({"send_email_draft"}), levels=_FULL,
         data_domains=["Send to approved internal domains, no approval required"],
     ),
-    # Read-only: search_knowledge/answer_from_knowledge are the only tools this
-    # backend exposes (no ingest tools exist -- see manifest.py). Proxies the
-    # SAME Azure Blob/AI Search knowledge base AraTestEnvBE's ragAgent already
-    # owns (KNOWLEDGE_RETRIEVAL_BASE_URL); new documents go through
-    # AraTestEnvBE's own ingestion pipeline, never through this gateway.
+    # Read-only, company-shared tier only. Explicit tool list, NOT "*" -- the
+    # "knowledge" backend also now serves the personal tier (ingest_my_document
+    # and friends, see manifest.py's digest_persoanl_kb.md-referencing comment),
+    # and a wildcard here would silently hand write-capable personal-KB tools to
+    # every consumer already entitled to this read-only company category. Keep
+    # this category and "personal_knowledge" below explicit and separate.
+    # Proxies the SAME Azure Blob/AI Search knowledge base AraTestEnvBE's
+    # ragAgent already owns (KNOWLEDGE_RETRIEVAL_BASE_URL); new company-KB
+    # documents go through AraTestEnvBE's own ingestion pipeline, never through
+    # this gateway.
     "knowledge": Category(
         id="knowledge", display_name="Knowledge Base (read-only)", backend="knowledge",
-        tools="*", levels=_FULL,
+        tools=frozenset({"search_knowledge", "answer_from_knowledge"}), levels=_FULL,
         data_domains=["Indexed chunks (shared with AraTestEnvBE)", "Document Q&A"],
+    ),
+    # Personal tier: private per-owner documents (digest_persoanl_kb.md). No admin
+    # bypass exists anywhere in this path regardless of grant -- see
+    # personal_knowledge_store.py -- this category only controls whether a
+    # consumer can use their OWN private knowledge base at all, not visibility
+    # into anyone else's.
+    "personal_knowledge": Category(
+        id="personal_knowledge", display_name="My Documents (personal, private)", backend="knowledge",
+        tools=frozenset({
+            "ingest_my_document", "search_my_documents", "answer_from_my_documents",
+            "list_my_documents", "delete_my_document",
+        }),
+        levels=_FULL,
+        data_domains=["Your own uploaded documents -- private, no admin access"],
     ),
     "calendar_draft": Category(
         id="calendar_draft", display_name="Calendar Drafts", backend="calendar",

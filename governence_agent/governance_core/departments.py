@@ -31,10 +31,20 @@ class Department:
     categories: tuple[str, ...] = field(default_factory=tuple)
 
 
+# "personal_knowledge" (digest_persoanl_kb.md) is added to every department below
+# so every self-service-signed-up user gets their own private knowledge base by
+# default -- it holds only the user's own uploaded documents, so unlike every
+# other category here it carries no shared-data exposure to grant. Because
+# department categories resolve LIVE (see this module's docstring / resolve.py),
+# adding it here is retroactive: existing members pick it up on their very next
+# request, no backfill script needed. A consumer with no department at all
+# (env-seeded Stage-1 consumers, or an admin-created one with no department
+# picked) already resolves to allow-all-tools under resolve.py's legacy
+# fallback, so it's already covered without appearing in any tuple here.
 DEPARTMENTS: dict[str, Department] = {
-    "sales": Department("sales", "Sales", ("orders",)),
-    "customer_service": Department("customer_service", "Customer Service", ("accounts", "orders")),
-    "finance": Department("finance", "Finance", ("finance",)),
+    "sales": Department("sales", "Sales", ("orders", "personal_knowledge")),
+    "customer_service": Department("customer_service", "Customer Service", ("accounts", "orders", "personal_knowledge")),
+    "finance": Department("finance", "Finance", ("finance", "personal_knowledge")),
 }
 
 

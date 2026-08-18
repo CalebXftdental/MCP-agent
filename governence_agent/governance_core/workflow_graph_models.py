@@ -9,6 +9,16 @@ those routes. GraphNode.node_id becomes a WorkflowStep.step_id 1:1 at run time
 separate "run context" structure; a node's resolved output IS its matching
 WorkflowStep.outputs, looked up directly, which is what makes resuming a
 paused run replay-safe without any new WorkflowRun field.
+
+ONE exception to that 1:1, and only one: a node inside a `loop` node's body runs
+once per row, so it records one step per iteration under the synthetic id
+`{node_id}#{i}` (workflow_graph_store.ITERATION_SEPARATOR; `#` is a reserved
+character in user node ids because of it). Everything else still holds -- those
+steps live in the same run.steps, a body node's output is still just its
+matching step's outputs, and the loop adds no new WorkflowRun field either. The
+scoping that makes "which step is mine" unambiguous is threaded through
+execution as a parameter (LoopScope), never stored, which is what keeps this a
+local relaxation instead of an ambient one.
 """
 from __future__ import annotations
 
@@ -18,7 +28,7 @@ from dataclasses import dataclass, field
 @dataclass(frozen=True)
 class GraphNode:
     node_id: str
-    kind: str                                          # "trigger" | "tool_call" | "approval_gate" | "llm_transform" | "filter"
+    kind: str                                          # "trigger" | "tool_call" | "approval_gate" | "llm_transform" | "filter" | "loop"
     title: str = ""
     tool: str = ""                                      # canonical tool name; required iff kind == "tool_call"
     config: dict = field(default_factory=dict)          # literal arg values / node-kind-specific settings
@@ -35,7 +45,24 @@ class GraphNode:
     #                               Both caps apply together (whichever hits first)
     #                               -- a page-count cap alone doesn't protect
     #                               against a slow/degraded upstream.
-    input_bindings: dict = field(default_factory=dict)  # {arg_name: {"source": "node"|"trigger"|"literal", ...}}
+    # Config keys for kind == "loop" (validated in workflow_graph_store, executed
+    # in workflow_graph_interpreter's _execute_loop_node):
+    #   body (list[str])         -- node ids this loop OWNS and runs once per row.
+    #                               They stay real nodes with real edges; the loop
+    #                               must dominate them and be their single entry.
+    #   result_node (str)        -- which body node's output becomes results[i];
+    #                               defaults to the body's topological last.
+    #   max_iterations (int)     -- hard cap, default 25, ceiling 100.
+    #   max_duration_sec (float) -- wall-clock cap, default 300, checked BETWEEN
+    #                               iterations. Both caps apply, as for paginate.
+    #   on_error ("fail"|        -- stop at the first failed row (default), or
+    #             "continue")       record it and carry on.
+    #   max_failures (int)       -- only with on_error="continue"; stop once
+    #                               exceeded, reporting truncatedReason.
+    # The loop's own `input` binding is the list to iterate. Body nodes reference
+    # the current row with {"source": "loop_item", "path": ...} and its position
+    # with {"source": "loop_index"} -- legal ONLY inside a body.
+    input_bindings: dict = field(default_factory=dict)  # {arg_name: {"source": "node"|"trigger"|"literal"|"loop_item"|"loop_index", ...}}
     position: dict = field(default_factory=dict)        # UI-only {x, y}; ignored by the interpreter
 
     def public_dict(self) -> dict:

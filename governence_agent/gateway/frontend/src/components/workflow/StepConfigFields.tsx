@@ -42,8 +42,13 @@ export interface NodeSource {
   label: string
 }
 
+/** Which of the three value sources this editor can render. `loop_item` /
+ *  `loop_index` bindings exist on the wire (a node inside a loop body binds the
+ *  current row) but have no picker here yet — they read as 'literal' rather than
+ *  crashing the form, and the loop's own editor is where they get set. */
 function bindingSource(binding: WorkflowBinding | undefined): 'literal' | 'trigger' | 'node' {
-  return binding?.source ?? 'literal'
+  const source = binding?.source
+  return source === 'trigger' || source === 'node' || source === 'literal' ? source : 'literal'
 }
 
 /** A filter node's condition list, in the flat "all of these" shape the manual

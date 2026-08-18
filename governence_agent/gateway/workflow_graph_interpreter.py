@@ -9,6 +9,17 @@ from any separate in-memory cache. This is what makes "pause at an approval
 gate, then resume into the next node" safe to implement as "just walk the
 whole graph again."
 
+A `loop` node bends the third of those, and only the third: the nodes it owns
+run once per row, so each records a step under `{node_id}#{i}` instead. The
+first two hold unchanged -- per-iteration steps are still the single source of
+truth for what ran and what it produced, and the current row is threaded through
+execution as a `LoopScope` parameter rather than stored anywhere, so the "no
+separate run context" rule survives too. Body nodes keep their real edges and
+stay in the topological order (they are simply skipped by the top-level walk),
+which is what lets reachability, cycle detection and the mandatory
+approval-gate-before-send check keep working with no special case and no way to
+fail open.
+
 `_workflow_requires_broad_export_approval`/`_workflow_pause_for_broad_export`
 live in backend/workflow_api.py, which imports THIS module (to dispatch into it)
 -- importing them back at module load time would be a circular import, so those
@@ -20,7 +31,7 @@ depend on nothing here.
 from __future__ import annotations
 
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 
 import approval_store
@@ -28,7 +39,14 @@ import llm_broker
 import workflows
 from policy import manifest
 from workflow_graph_models import GraphNode, WorkflowGraphDefinition
-from workflow_graph_store import FILTER_OPS, RESERVED_NODE_ID_SUFFIX, topological_node_ids
+from workflow_graph_store import (
+    FILTER_OPS,
+    ITERATION_SEPARATOR,
+    LOOP_DEFAULT_MAX_DURATION_SEC,
+    LOOP_DEFAULT_MAX_ITERATIONS,
+    RESERVED_NODE_ID_SUFFIX,
+    topological_node_ids,
+)
 from workflow_models import WorkflowRun, WorkflowStep
 
 import orchestrator
@@ -77,7 +95,28 @@ def _find_step(run: WorkflowRun, step_id: str) -> WorkflowStep | None:
     return next((s for s in run.steps if s.step_id == step_id), None)
 
 
-def _resolve_binding(binding: dict | None, run: WorkflowRun):
+@dataclass(frozen=True)
+class LoopScope:
+    """The current row of a `loop` node, threaded through execution rather than
+    stored anywhere.
+
+    Threaded, not global and not a field on WorkflowRun, for three reasons: the
+    interpreter's "inputs are always resolved by reading run.steps/run.inputs
+    directly" invariant stays true (the item is re-derivable from the loop's own
+    durable input on any re-walk), nested loops cannot collide when they are
+    eventually allowed, and nothing about the relaxation leaks into code that
+    isn't inside a body.
+    """
+    item: object
+    index: int
+    owned_ids: frozenset          # the body node ids of THIS loop
+    node_id: str                  # the owning loop node, for error messages
+
+    def step_id(self, node_id: str) -> str:
+        return f"{node_id}{ITERATION_SEPARATOR}{self.index}"
+
+
+def _resolve_binding(binding: dict | None, run: WorkflowRun, scope: LoopScope | None = None):
     if not isinstance(binding, dict):
         return None
     source = binding.get("source")
@@ -85,16 +124,35 @@ def _resolve_binding(binding: dict | None, run: WorkflowRun):
         return binding.get("value")
     if source == "trigger":
         return run.inputs.get(binding.get("path"))
+    if source == "loop_item":
+        # Outside a body this is unreachable -- validate_graph rejects the binding
+        # at author time (`loop_item_outside_body`) rather than letting it resolve
+        # to nothing here.
+        if scope is None:
+            return None
+        path = binding.get("path")
+        if not path:
+            return scope.item                       # scalar arrays: the row IS the value
+        return scope.item.get(path) if isinstance(scope.item, dict) else None
+    if source == "loop_index":
+        return scope.index if scope is not None else None
     if source == "node":
-        step = _find_step(run, binding.get("node_id"))
+        node_id = binding.get("node_id")
+        # A reference to a node in MY loop's body means this iteration's copy of
+        # it; a reference to anything else is global, exactly as before. Without
+        # this, a two-node body (draft -> create) would look up a step id that
+        # never exists, resolve to None, and silently drop the argument.
+        if scope is not None and node_id in scope.owned_ids:
+            node_id = scope.step_id(node_id)
+        step = _find_step(run, node_id)
         return step.outputs.get(binding.get("path")) if step else None
     return None
 
 
-def _resolve_node_args(node: GraphNode, run: WorkflowRun, *, owner: str) -> dict:
+def _resolve_node_args(node: GraphNode, run: WorkflowRun, *, owner: str, scope: LoopScope | None = None) -> dict:
     args = dict(node.config or {})
     for arg_name, binding in (node.input_bindings or {}).items():
-        resolved = _resolve_binding(binding, run)
+        resolved = _resolve_binding(binding, run, scope)
         # A binding to a trigger path the run never supplied (e.g. an optional
         # territory field left blank) resolves to None -- omit the key entirely
         # rather than pass a literal None, which the MCP layer's pydantic
@@ -197,8 +255,13 @@ async def _exhaust_tool_call(
     return merged
 
 
-async def _execute_tool_call_node(run: WorkflowRun, node: GraphNode, *, session_id: str, owner: str, govern, parse) -> tuple[WorkflowRun, dict]:
-    args = _resolve_node_args(node, run, owner=owner)
+async def _execute_tool_call_node(run: WorkflowRun, node: GraphNode, *, session_id: str, owner: str, govern, parse,
+                                   scope: LoopScope | None = None) -> tuple[WorkflowRun, dict]:
+    # `step_id` is the node id everywhere except inside a loop body, where each
+    # iteration records its own step (`{node_id}#{i}`) so the "already executed,
+    # never re-run" check stays exact per row.
+    step_id = scope.step_id(node.node_id) if scope is not None else node.node_id
+    args = _resolve_node_args(node, run, owner=owner, scope=scope)
     customer_id = str(args.pop("customer_id", "") or "")
     # Reserved node-config keys, never valid tool kwargs -- popped here (same
     # pattern as customer_id above) rather than passed through to the governed
@@ -206,7 +269,7 @@ async def _execute_tool_call_node(run: WorkflowRun, node: GraphNode, *, session_
     paginate = bool(args.pop("paginate", False))
     max_pages = int(args.pop("max_pages", None) or _DEFAULT_MAX_PAGES)
     max_duration_sec = float(args.pop("max_duration_sec", None) or _DEFAULT_MAX_DURATION_SEC)
-    run = workflows.add_step(run, WorkflowStep(step_id=node.node_id, type="tool_call", status="running", tool=node.tool, title=node.title or node.tool, inputs={k: v for k, v in args.items() if k != "owner"}))
+    run = workflows.add_step(run, WorkflowStep(step_id=step_id, type="tool_call", status="running", tool=node.tool, title=node.title or node.tool, inputs={k: v for k, v in args.items() if k != "owner"}))
     if paginate:
         result = await _exhaust_tool_call(
             node.tool, args, session_id, customer_id, govern, parse, max_pages=max_pages, max_duration_sec=max_duration_sec,
@@ -215,9 +278,10 @@ async def _execute_tool_call_node(run: WorkflowRun, node: GraphNode, *, session_
         raw = await govern(node.tool, session_id, customer_id, args)
         result = parse(raw)
     if result.get("status") in _FAILURE_STATUSES:
-        run = workflows.fail_step(run, node.node_id, result.get("message") or result.get("errorCode") or f"{node.tool} did not succeed (status={result.get('status')})")
-        return run, {"failed": True}
-    run = workflows.complete_step(run, node.node_id, {"status": result.get("status"), "intent": result.get("intent"), **{k: v for k, v in result.items() if k not in ("status", "intent")}})
+        message = result.get("message") or result.get("errorCode") or f"{node.tool} did not succeed (status={result.get('status')})"
+        run = workflows.fail_step(run, step_id, message)
+        return run, {"failed": True, "error": message}
+    run = workflows.complete_step(run, step_id, {"status": result.get("status"), "intent": result.get("intent"), **{k: v for k, v in result.items() if k not in ("status", "intent")}})
     artifact = result if result.get("artifactId") else None
     return run, {"failed": False, "args": args, "artifact": artifact}
 
@@ -239,17 +303,19 @@ async def _execute_approval_gate_node(run: WorkflowRun, node: GraphNode, *, arti
     return run, {"paused": True}
 
 
-async def _execute_llm_transform_node(run: WorkflowRun, node: GraphNode) -> tuple[WorkflowRun, dict]:
+async def _execute_llm_transform_node(run: WorkflowRun, node: GraphNode, scope: LoopScope | None = None) -> tuple[WorkflowRun, dict]:
+    step_id = scope.step_id(node.node_id) if scope is not None else node.node_id
     config = node.config or {}
     kind = str(config.get("kind") or "summarize")
     system_prompt = _LLM_TRANSFORM_SYSTEM_PROMPTS.get(kind, _LLM_TRANSFORM_SYSTEM_PROMPTS["summarize"])
     instruction = str(config.get("instruction") or "")
-    input_text = str(_resolve_binding((node.input_bindings or {}).get("input_text"), run) or "")
-    run = workflows.add_step(run, WorkflowStep(step_id=node.node_id, type="llm_transform", status="running", tool="", title=node.title or kind))
+    input_text = str(_resolve_binding((node.input_bindings or {}).get("input_text"), run, scope) or "")
+    run = workflows.add_step(run, WorkflowStep(step_id=step_id, type="llm_transform", status="running", tool="", title=node.title or kind))
     llm_complete = orchestrator.default_llm_complete()
     if llm_complete is None:
-        run = workflows.fail_step(run, node.node_id, "The assistant model is not configured (GOVERNANCE_CHAT_BASE_URL/GOVERNANCE_CHAT_MODEL).")
-        return run, {"failed": True}
+        message = "The assistant model is not configured (GOVERNANCE_CHAT_BASE_URL/GOVERNANCE_CHAT_MODEL)."
+        run = workflows.fail_step(run, step_id, message)
+        return run, {"failed": True, "error": message}
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": (instruction + "\n\n---\n" if instruction else "") + input_text},
@@ -264,10 +330,11 @@ async def _execute_llm_transform_node(run: WorkflowRun, node: GraphNode) -> tupl
         # A queue timeout is a real, explainable outcome, not a crash: fail this
         # step with the reason rather than letting it surface as an unhandled
         # exception in workflow_api's catch-all (which reports a generic failure).
-        run = workflows.fail_step(run, node.node_id, f"the assistant was busy: {busy}")
-        return run, {"failed": True}
+        message = f"the assistant was busy: {busy}"
+        run = workflows.fail_step(run, step_id, message)
+        return run, {"failed": True, "error": message}
     text = getattr(msg, "content", "") or ""
-    run = workflows.complete_step(run, node.node_id, {"text": text})
+    run = workflows.complete_step(run, step_id, {"text": text})
     return run, {"failed": False}
 
 
@@ -441,6 +508,177 @@ async def _execute_filter_node(run: WorkflowRun, node: GraphNode) -> tuple[Workf
     return run, {"failed": False}
 
 
+# How many rows of a list-valued output survive per-iteration compaction. A body
+# tool_call's raw output can be a whole row set, and a 25-iteration loop would
+# otherwise multiply that into the run record -- which run_dict ships to the UI
+# in full on every read.
+_ITERATION_PREVIEW_ROWS = 3
+
+
+def _compacted_outputs(outputs: dict) -> dict:
+    """Shrink one finished iteration's step outputs: scalars and ids kept whole,
+    list-valued fields cut to a short preview plus their true length.
+
+    Safe ONLY because v1 forbids pausing inside a body (no approval_gate, no
+    export-risk tool -- enforced in workflow_graph_store), so a completed
+    iteration's outputs are never read again: in-body bindings only ever
+    reference the CURRENT iteration, and the loop's own `results` are captured
+    before this runs. If a future version allows a body to pause and resume, this
+    has to go or become resume-aware -- see loopnodedesign.md §7.2/§10.
+    """
+    compacted: dict = {}
+    for key, value in (outputs or {}).items():
+        if isinstance(value, list) and len(value) > _ITERATION_PREVIEW_ROWS:
+            compacted[key] = value[:_ITERATION_PREVIEW_ROWS]
+            compacted[f"{key}TotalCount"] = len(value)
+            compacted[f"{key}Truncated"] = True
+        else:
+            compacted[key] = value
+    return compacted
+
+
+def _compact_iteration(run: WorkflowRun, step_ids: list[str]) -> WorkflowRun:
+    ids = set(step_ids)
+    steps = [replace(s, outputs=_compacted_outputs(s.outputs)) if s.step_id in ids and s.outputs else s
+             for s in run.steps]
+    return workflows.update_run(run, steps=steps)
+
+
+async def _execute_loop_node(
+    run: WorkflowRun, node: GraphNode, *, session_id: str, owner: str, govern, parse,
+    nodes_by_id: dict[str, GraphNode], body_order: list[str],
+) -> tuple[WorkflowRun, dict]:
+    """Run this loop's body once per row of its `input` array, sequentially.
+
+    Sequential is a v1 decision with two independent reasons: it keeps the audit
+    trail and (in v2) approval ordering single-threaded, and with USE_LOCAL_LLM
+    the whole app shares a model server with a handful of slots, of which batch
+    work may hold exactly one (gateway/llm_broker.py). See loopnodedesign.md §2.
+
+    Every stop is loud: hitting a cap, a cancel, or too many row failures all set
+    `truncated` with a `truncatedReason`, never a silently short result -- the
+    same contract paginate already ships.
+    """
+    config = node.config or {}
+    resolved = _resolve_binding((node.input_bindings or {}).get("input"), run)
+    run = workflows.add_step(run, WorkflowStep(step_id=node.node_id, type="loop", status="running", tool="", title=node.title or "For each"))
+
+    if not isinstance(resolved, list):
+        # Deliberately NOT the filter node's "coerce to []" behaviour: a filter
+        # over nothing is a legitimate empty result, whereas a fan-out that
+        # silently does nothing is indistinguishable from a mis-wired graph.
+        message = (f"loop input did not resolve to a list (got {type(resolved).__name__}) -- "
+                   "wire it to a list-valued output such as a filter's `matched`")
+        run = workflows.fail_step(run, node.node_id, message)
+        return run, {"failed": True}
+
+    items = resolved
+    max_iterations = int(config.get("max_iterations") or LOOP_DEFAULT_MAX_ITERATIONS)
+    max_duration_sec = float(config.get("max_duration_sec") or LOOP_DEFAULT_MAX_DURATION_SEC)
+    on_error = str(config.get("on_error") or "fail")
+    max_failures = int(config.get("max_failures") or 0)
+    result_node = str(config.get("result_node") or (body_order[-1] if body_order else ""))
+    owned = frozenset(body_order)
+
+    started = time.monotonic()
+    results: list = []
+    errors: list[dict] = []
+    artifact_ids: list[str] = []
+    artifacts: list[dict] = []
+    succeeded = 0
+    truncated_reason: str | None = None
+
+    for index, item in enumerate(items):
+        if index >= max_iterations:
+            truncated_reason = "max_iterations"
+            break
+        if (time.monotonic() - started) >= max_duration_sec:
+            truncated_reason = "max_duration"
+            break
+        # Cancellation is only actionable BETWEEN rows -- an in-flight governed
+        # call cannot be pulled back -- but without this a long fan-out ignores
+        # cancel_run entirely and keeps producing artifacts after someone
+        # explicitly stopped it.
+        live = workflows.get_run_record(run.run_id)
+        if live is not None and live.status == "cancelled":
+            truncated_reason = "cancelled"
+            break
+
+        scope = LoopScope(item=item, index=index, owned_ids=owned, node_id=node.node_id)
+        iteration_step_ids = [scope.step_id(bid) for bid in body_order]
+        failure: str | None = None
+        failed_node = ""
+
+        # One disk write per row rather than two per body node (Stage B).
+        with workflows.deferred_save():
+            for body_id in body_order:
+                body_node = nodes_by_id[body_id]
+                if body_node.kind == "tool_call":
+                    run, outcome = await _execute_tool_call_node(
+                        run, body_node, session_id=session_id, owner=owner, govern=govern, parse=parse, scope=scope,
+                    )
+                elif body_node.kind == "llm_transform":
+                    run, outcome = await _execute_llm_transform_node(run, body_node, scope)
+                else:
+                    # Unreachable: validate_graph rejects any other kind in a body
+                    # at author time (loop_body_invalid_kind). Fail loudly rather
+                    # than skip, so a validator gap can never become a silent no-op.
+                    outcome = {"failed": True, "error": f"node kind {body_node.kind!r} is not allowed inside a loop body"}
+                if outcome.get("failed"):
+                    failure = str(outcome.get("error") or f"{body_id} failed")
+                    failed_node = body_id
+                    break
+                if outcome.get("artifact"):
+                    artifacts.append(outcome["artifact"])
+                    aid = outcome["artifact"].get("artifactId")
+                    if aid and aid not in artifact_ids:
+                        artifact_ids.append(aid)
+
+        if failure is not None:
+            errors.append({"index": index, "nodeId": failed_node, "message": failure})
+            if on_error != "continue":
+                # Fail loudly, but record how far we actually got first: N rows
+                # of durable side effects already exist and the record is the
+                # only place that says so.
+                run = workflows.update_run(run, steps=[
+                    replace(s, outputs={**s.outputs, **_loop_outputs(
+                        items, index + 1, succeeded, errors, results, artifact_ids, True, "row_failed")})
+                    if s.step_id == node.node_id else s for s in run.steps
+                ])
+                run = workflows.fail_step(run, node.node_id, f"iteration {index} failed: {failure}")
+                return run, {"failed": True, "artifacts": artifacts, "artifactIds": artifact_ids}
+            if len(errors) > max_failures:
+                truncated_reason = "max_failures"
+                break
+            continue
+
+        # Capture the row's result BEFORE compaction shrinks the step outputs.
+        result_step = _find_step(run, scope.step_id(result_node)) if result_node else None
+        results.append(dict(result_step.outputs) if result_step is not None else None)
+        succeeded += 1
+        run = _compact_iteration(run, iteration_step_ids)
+
+    iterations = succeeded + len(errors)
+    outputs = _loop_outputs(items, iterations, succeeded, errors, results, artifact_ids,
+                            truncated_reason is not None, truncated_reason)
+    run = workflows.complete_step(run, node.node_id, outputs)
+    return run, {"failed": False, "artifacts": artifacts, "artifactIds": artifact_ids}
+
+
+def _loop_outputs(items, iterations, succeeded, errors, results, artifact_ids, truncated, reason) -> dict:
+    return {
+        "itemCount": len(items),
+        "iterations": iterations,
+        "succeeded": succeeded,
+        "failed": len(errors),
+        "results": results,
+        "errors": errors,
+        "artifactIds": list(artifact_ids),
+        "truncated": bool(truncated),
+        "truncatedReason": reason,
+    }
+
+
 async def _interpret(run: WorkflowRun, graph: WorkflowGraphDefinition, body: dict) -> dict:
     # Still lazy, and still for the original reason: backend.workflow_api imports
     # THIS module to dispatch into it, so importing it back at module load time
@@ -464,6 +702,21 @@ async def _interpret(run: WorkflowRun, graph: WorkflowGraphDefinition, body: dic
         run = workflows.update_run(run, status="failed", error="graph contains a cycle")
         return workflows.run_dict(run)
 
+    # Loop bodies. The body nodes stay in `order` -- their edges are real, which
+    # is what keeps every graph check honest -- but the top-level walk must not
+    # EXECUTE them: they run N times, driven by their loop, not once at their own
+    # position. Their execution order inside the body is the topological order of
+    # the body's own edges, so the same ordering rule applies one level down.
+    body_owner: dict[str, str] = {}
+    body_order_by_loop: dict[str, list[str]] = {}
+    for n in version.nodes:
+        if n.kind != "loop":
+            continue
+        body = [b for b in ((n.config or {}).get("body") or []) if b in nodes_by_id]
+        for bid in body:
+            body_owner.setdefault(bid, n.node_id)
+        body_order_by_loop[n.node_id] = [nid for nid in order if nid in set(body)]
+
     session_id = "workflow:" + run.run_id
     owner = run.requested_by
     artifacts: list[dict] = []
@@ -477,6 +730,16 @@ async def _interpret(run: WorkflowRun, graph: WorkflowGraphDefinition, body: dic
         node = nodes_by_id[node_id]
         if node.kind == "trigger":
             continue
+        if node_id in body_owner:
+            continue  # owned by a loop -- executed per row by _execute_loop_node
+
+        # A cancel that lands mid-walk must actually stop the walk. Without this
+        # the run keeps executing nodes (and creating artifacts) after someone
+        # explicitly stopped it; the sticky-status rule in workflows.update_run
+        # then keeps the record cancelled while the work carried on regardless.
+        live = workflows.get_run_record(run.run_id)
+        if live is not None and live.status == "cancelled":
+            return workflows.run_dict(live)
 
         step = _find_step(run, node_id)
         export_step = _find_step(run, _export_step_id(node_id))
@@ -528,6 +791,20 @@ async def _interpret(run: WorkflowRun, graph: WorkflowGraphDefinition, body: dic
                     run, outcome = await _execute_filter_node(run, node)
                     if outcome.get("failed"):
                         return workflows.run_dict(run)
+                elif node.kind == "loop":
+                    run, outcome = await _execute_loop_node(
+                        run, node, session_id=session_id, owner=owner, govern=_govern, parse=_parse_tool_json,
+                        nodes_by_id=nodes_by_id, body_order=body_order_by_loop.get(node_id, []),
+                    )
+                    # Artifacts from every row, so the run record lists all N of
+                    # them (and a later approval gate attaches to all N) rather
+                    # than however many the last iteration happened to make.
+                    artifacts.extend(outcome.get("artifacts") or [])
+                    for aid in outcome.get("artifactIds") or []:
+                        if aid not in accumulated_artifact_ids:
+                            accumulated_artifact_ids.append(aid)
+                    if outcome.get("failed"):
+                        return {**workflows.run_dict(run), "artifacts": artifacts}
             continue
 
         # Node already attempted on a prior pass -- never re-execute it.
@@ -535,6 +812,22 @@ async def _interpret(run: WorkflowRun, graph: WorkflowGraphDefinition, body: dic
             return workflows.run_dict(run)
         if node.kind == "approval_gate" and step.status in ("pending", "running"):
             return {**workflows.run_dict(run), "artifacts": artifacts}
+        if step.status == "running":
+            # A non-approval step still "running" on a LATER walk means the
+            # previous attempt died mid-flight (process restart, unhandled crash)
+            # -- the step is added as `running` before its governed call and only
+            # becomes completed/failed after it returns. Every branch below used
+            # to fall through to "fully resolved, nothing to do", so a crashed
+            # node was silently treated as a SUCCESSFUL one and everything bound
+            # to its output resolved to nothing. Fail loudly instead: we cannot
+            # know whether its side effect happened, so we must not pretend it
+            # did or blindly repeat it.
+            run = workflows.fail_step(
+                run, node_id,
+                f"step {node_id!r} was interrupted mid-execution and cannot be resumed safely "
+                "-- start a new run",
+            )
+            return workflows.run_dict(run)
         if export_step is not None and export_step.status in ("pending", "running"):
             return {**workflows.run_dict(run), "artifacts": artifacts}
         if export_step is not None and export_step.status == "failed":

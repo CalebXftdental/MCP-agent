@@ -195,7 +195,10 @@ function WorkflowCanvas({
     (e: ReactPointerEvent, nodeId: string, arg: string) => {
       if (e.button !== 0) return
       const binding = byId.get(nodeId)?.inputBindings?.[arg]
-      if (!binding || binding.source === 'literal') return
+      // Only a wire can be re-dragged. A literal has no line, and a loop_item /
+      // loop_index binding draws no line either -- the current row comes from
+      // the owning loop, not from a port on another node.
+      if (!binding || (binding.source !== 'trigger' && binding.source !== 'node')) return
       const sourceId = bindingSourceNodeId(binding)
       const sourceNode = sourceId ? byId.get(sourceId) : undefined
       if (!sourceNode) return
@@ -336,7 +339,10 @@ function WorkflowCanvas({
         const key = `${node.nodeId}:${slot.name}`
         if (key === held) return
         const binding = node.inputBindings?.[slot.name]
-        if (!binding || binding.source === 'literal') return
+        // A literal has no line; nor does a loop_item / loop_index binding,
+        // whose value comes from the owning loop's current row rather than from
+        // another node's output port.
+        if (!binding || (binding.source !== 'trigger' && binding.source !== 'node')) return
         const sourceId = bindingSourceNodeId(binding)
         const sourceNode = sourceId ? byId.get(sourceId) : undefined
         if (!sourceNode) return

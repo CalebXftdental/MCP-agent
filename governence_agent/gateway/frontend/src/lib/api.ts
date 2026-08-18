@@ -1708,8 +1708,14 @@ export type WorkflowBinding =
   | { source: 'literal'; value: unknown }
   | { source: 'trigger'; path: string }
   | { source: 'node'; node_id: string; path: string }
+  // Only legal on a node inside a `loop`'s body: the current row, or its 0-based
+  // position. `path` picks one field out of a row object; omit it when the rows
+  // are plain values (ids, strings). validate_graph rejects these anywhere else
+  // (`loop_item_outside_body`) rather than letting them resolve to nothing.
+  | { source: 'loop_item'; path?: string }
+  | { source: 'loop_index' }
 
-export type GraphNodeKind = 'trigger' | 'tool_call' | 'approval_gate' | 'llm_transform' | 'filter'
+export type GraphNodeKind = 'trigger' | 'tool_call' | 'approval_gate' | 'llm_transform' | 'filter' | 'loop'
 
 /** One leaf test in a filter node's condition tree, or a nested `all`/`any`
  *  group of them — mirrors `workflow_graph_store.FILTER_OPS` and the recursive

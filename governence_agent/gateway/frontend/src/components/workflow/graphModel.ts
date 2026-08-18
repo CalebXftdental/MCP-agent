@@ -38,7 +38,23 @@ export function inputSlotsFor(node: GraphNode, catalog: CatalogIndex): InputSlot
   }
   if (node.kind === 'llm_transform') return [{ name: 'input_text', label: 'Text to work from', required: true }]
   if (node.kind === 'filter') return [{ name: 'input', label: 'List to filter', required: true }]
+  if (node.kind === 'loop') return [{ name: 'input', label: 'List to repeat over', required: true }]
   return []
+}
+
+/** The node ids each loop owns, and the reverse lookup. A body node is a normal
+ *  node that happens to run once per row -- ownership is what the server checks
+ *  (dominance, single entry, no escaping output), so the canvas has to know it
+ *  too or it will draw and save edges the server rejects. */
+export function loopBodyOwners(nodes: GraphNode[]): Map<string, string> {
+  const owners = new Map<string, string>()
+  for (const n of nodes) {
+    if (n.kind !== 'loop') continue
+    for (const bid of (n.config.body as string[] | undefined) ?? []) {
+      if (!owners.has(bid)) owners.set(bid, n.nodeId)
+    }
+  }
+  return owners
 }
 
 /** Values a node produces, which can be wired onward (right-hand ports). For
@@ -53,6 +69,12 @@ export function outputPinsFor(node: GraphNode, catalog: CatalogIndex): string[] 
   if (node.kind === 'tool_call') return catalog[node.tool]?.outputFields ?? []
   if (node.kind === 'approval_gate') return ['approvalId']
   if (node.kind === 'llm_transform') return ['text']
+  if (node.kind === 'loop') {
+    // Only the loop's AGGREGATE output may be consumed downstream -- a body
+    // node's own output is per-row and has no meaning outside the loop, which
+    // the server enforces as `loop_body_output_escapes`.
+    return ['results', 'artifactIds', 'itemCount', 'iterations', 'succeeded', 'failed', 'errors', 'truncated', 'truncatedReason']
+  }
   if (node.kind === 'filter') {
     return ['matched', 'unmatched', 'matchedCount', 'totalMatchCount', 'totalCount', 'matchLimitReached', 'matchedTable', 'unmatchedTable']
   }
@@ -121,10 +143,12 @@ function nextEdgeId(): string {
 export function derivedEdges(nodes: GraphNode[]): GraphEdge[] {
   const trigger = nodes.find((n) => n.kind === 'trigger')
   const byId = new Set(nodes.map((n) => n.nodeId))
+  const owners = loopBodyOwners(nodes)
   const edges: GraphEdge[] = []
 
   for (const node of nodes) {
     if (node.kind === 'trigger') continue
+    const owner = owners.get(node.nodeId)
     const sources = new Set<string>()
     for (const binding of Object.values(node.inputBindings ?? {})) {
       const sourceId = bindingSourceNodeId(binding)
@@ -132,7 +156,18 @@ export function derivedEdges(nodes: GraphNode[]): GraphEdge[] {
       // become a dangling edge -- the server rejects the whole graph for one.
       if (sourceId && sourceId !== node.nodeId && byId.has(sourceId)) sources.add(sourceId)
     }
-    if (sources.size === 0 && trigger) sources.add(trigger.nodeId)
+    if (owner) {
+      // A body node's fallback source is its LOOP, never the trigger. A node
+      // wired only to `loop_item` has no node-source binding at all, so the
+      // trigger fallback below would have given it an edge straight from the
+      // trigger -- which is exactly the shape the server rejects as
+      // `loop_body_not_dominated`, since it means there is a way into the body
+      // that bypasses the loop.
+      sources.delete(trigger?.nodeId ?? '')
+      if (sources.size === 0) sources.add(owner)
+    } else if (sources.size === 0 && trigger) {
+      sources.add(trigger.nodeId)
+    }
     for (const sourceId of sources) {
       edges.push({ edgeId: nextEdgeId(), sourceNodeId: sourceId, targetNodeId: node.nodeId })
     }
@@ -253,9 +288,23 @@ export function canConnectNodes(nodes: GraphNode[], sourceNodeId: string, target
  *  `trigger` source, not a `node` one), but never from an `approval_gate`'s
  *  output. Every other slot/source combination has no server-side kind
  *  restriction. */
-export function isBindingKindAllowed(targetNode: GraphNode, slot: InputSlot, sourceNode: GraphNode): boolean {
+export function isBindingKindAllowed(
+  targetNode: GraphNode,
+  slot: InputSlot,
+  sourceNode: GraphNode,
+  nodes: GraphNode[] = [],
+): boolean {
   if (targetNode.kind === 'llm_transform' && slot.name === 'input_text' && sourceNode.kind === 'approval_gate') {
     return false
+  }
+  // A body node's output is per-row; only its loop's aggregate output means
+  // anything outside (server: `loop_body_output_escapes`). Two body nodes in the
+  // SAME loop may of course wire to each other — that is the normal shape, and
+  // the interpreter resolves it to the current iteration's copy.
+  if (nodes.length) {
+    const owners = loopBodyOwners(nodes)
+    const sourceOwner = owners.get(sourceNode.nodeId)
+    if (sourceOwner && owners.get(targetNode.nodeId) !== sourceOwner) return false
   }
   return true
 }
@@ -266,6 +315,7 @@ export function nodeLabel(node: GraphNode, catalog: CatalogIndex): string {
   if (node.kind === 'approval_gate') return 'Approval gate'
   if (node.kind === 'llm_transform') return `AI: ${String(node.config.kind ?? 'summarize')}`
   if (node.kind === 'filter') return 'Filter'
+  if (node.kind === 'loop') return 'For each'
   return catalog[node.tool]?.canonical ?? node.tool
 }
 

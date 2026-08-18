@@ -1,6 +1,18 @@
 # Loop / For-Each Node Design — `GraphNode.kind == "loop"`
 
-**Status:** Proposed, rev 2 (design only — nothing here is built yet).
+**Status:** rev 2 — **v1 BUILT** (branch `llm-async-broker`), except the Step-view
+builder UI (§9). Everything below describes what now exists unless a line says
+"v2" or "deferred". Verified by `_smoke/test_loop_node.py` (59 checks: executor
+mechanics against a stubbed backend, plus every §5 region rule and budget cap
+rejected by its own check id). What is NOT built: the "Repeat for each" bracket
+in Step view and the grouped per-iteration run view. The wire format, the
+validator, the interpreter, the api.ts types and the Canvas edge/port handling
+are all in — so a loop is authorable today via the API or the copilot, just not
+yet from the Step-view step list.
+
+Also built, as the prerequisites §12 named: the crashed-`running`-step fix
+(step 0) and Stage A/B of `concurrency_and_scale.md` (step 0b, §7.1's
+`deferred_save`).
 **Supersedes:** rev 1 of this file, and `finalize_stage_1.md` §3.2b (the
 "for-each / fan-out per row" gap), now that §3.2a (paginate) has shipped
 (`gateway/workflow_graph_interpreter.py::_exhaust_tool_call`, verified against

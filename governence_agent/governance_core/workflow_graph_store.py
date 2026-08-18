@@ -44,7 +44,37 @@ _LLM_TRANSFORM_ALLOWED_SOURCE_KINDS = {"tool_call", "llm_transform"}
 # output resolves to nothing with no indication why. That failure mode is exactly
 # the kind of thing that must never reach a saved graph -- hence the check in
 # validate_graph below, at BUILD time, where a clear blocker can still stop it.
-VALID_NODE_KINDS = {"trigger", "tool_call", "approval_gate", "llm_transform", "filter"}
+VALID_NODE_KINDS = {"trigger", "tool_call", "approval_gate", "llm_transform", "filter", "loop"}
+
+# ── loop node (see loopnodedesign.md) ─────────────────────────────────────────
+#
+# A loop runs a span of nodes once per row of an array. Its `body` nodes stay
+# REAL nodes with real edges -- the loop node just owns them -- which is what
+# lets every check in validate_graph keep working unchanged and fail closed. The
+# region rules enforced below are what make that ownership well defined:
+# dominance (the only way into a body is through its loop), single entry, no
+# output escaping the body, and no node owned by two loops.
+ITERATION_SEPARATOR = "#"
+
+# v1 body restrictions. `approval_gate`, nested `loop` and `filter` are excluded
+# because each needs semantics that do not exist yet (resume-mid-loop, nested
+# scopes, per-row tables). SEND is excluded for the obvious reason; EXPORT is
+# excluded because it has its OWN implicit pause path -- the broad-export
+# approval in workflow_graph_interpreter -- which v1 equally cannot resume from.
+LOOP_BODY_KINDS = {"tool_call", "llm_transform"}
+
+LOOP_DEFAULT_MAX_ITERATIONS = 25
+LOOP_MAX_ITERATIONS_CEILING = 100
+LOOP_DEFAULT_MAX_DURATION_SEC = 300.0
+# max_iterations x tool_call nodes in the body. Every one is a real governed
+# call, so this makes a published graph's blast radius knowable BEFORE it runs
+# -- closing finalize_stage_1.md's open per-run budget question as a build-time
+# blocker rather than a run-time surprise.
+LOOP_MAX_GOVERNED_CALLS = 200
+# A body containing an llm_transform is bounded far tighter: with USE_LOCAL_LLM
+# every iteration is an inference on one shared server with a handful of slots
+# (see concurrency_and_scale.md), so 25 rows is minutes of GPU, not seconds.
+LOOP_MAX_ITERATIONS_WITH_LLM = 5
 
 # A filter node's condition ops -- pure, deterministic, no library/network call.
 # Single source of truth: the interpreter (gateway/workflow_graph_interpreter.py)
@@ -212,11 +242,15 @@ def _topological_order(nodes: list[GraphNode], edges: list[GraphEdge]) -> list[s
     return order if len(order) == len(nodes) else None
 
 
-def _reachable_from(start: str, nodes: list[GraphNode], edges: list[GraphEdge], *, exclude_kinds: set[str] = frozenset()) -> set[str]:
+def _reachable_from(start: str, nodes: list[GraphNode], edges: list[GraphEdge], *,
+                     exclude_kinds: set[str] = frozenset(), exclude_ids: set[str] = frozenset()) -> set[str]:
     """BFS reachable set from `start`, walking only through edges whose endpoints
-    are NOT in `exclude_kinds` (used by the mandatory-gate-before-send check: removing
-    approval_gate nodes severs any path that passes through one)."""
-    excluded_ids = {n.node_id for n in nodes if n.kind in exclude_kinds}
+    are NOT excluded. `exclude_kinds` severs paths through a whole node kind (the
+    mandatory-gate-before-send check removes approval_gate nodes); `exclude_ids`
+    severs specific nodes (the loop dominance check removes the loop node, so a
+    body node that is STILL reachable proves there is a way in that bypasses its
+    loop)."""
+    excluded_ids = {n.node_id for n in nodes if n.kind in exclude_kinds} | set(exclude_ids)
     if start in excluded_ids:
         return set()
     out_edges, _ = _build_adjacency(
@@ -263,6 +297,14 @@ def validate_graph(nodes: list[GraphNode] | list[dict], edges: list[GraphEdge] |
     for nid in node_ids:
         if nid.endswith(RESERVED_NODE_ID_SUFFIX):
             blocker("reserved_node_id", f"node id {nid!r} uses the reserved suffix {RESERVED_NODE_ID_SUFFIX!r}", nid)
+        if ITERATION_SEPARATOR in nid:
+            blocker(
+                "reserved_node_id_char",
+                f"node id {nid!r} contains the reserved character {ITERATION_SEPARATOR!r}, which the "
+                "interpreter uses to build per-iteration step ids inside a loop body "
+                f"({ITERATION_SEPARATOR}0, {ITERATION_SEPARATOR}1, ...)",
+                nid,
+            )
 
     for n in nodes:
         if n.kind not in VALID_NODE_KINDS:
@@ -358,9 +400,190 @@ def validate_graph(nodes: list[GraphNode] | list[dict], edges: list[GraphEdge] |
                     n.node_id,
                 )
 
+    by_id = {n.node_id: n for n in nodes}
+
+    # ── loop nodes: the structured-region rules (loopnodedesign.md §3, §5) ────
+    #
+    # Body membership is ownership, not an exemption: body nodes keep their edges
+    # and stay subject to every other check above, so reachability and the
+    # mandatory send-gate check need no special case and cannot fail open. What
+    # must be proved here is that the ownership is unambiguous.
+    loops = [n for n in nodes if n.kind == "loop"]
+    body_owner: dict[str, str] = {}
+    for loop in loops:
+        config = loop.config or {}
+        body = config.get("body")
+        if not isinstance(body, list) or not body:
+            blocker("loop_missing_body", f"node {loop.node_id!r}: a loop needs a non-empty `body` list of node ids", loop.node_id)
+            continue
+        for bid in body:
+            if bid not in by_id:
+                blocker("loop_body_unknown_node", f"node {loop.node_id!r}: body references unknown node {bid!r}", loop.node_id)
+            elif bid == loop.node_id:
+                blocker("loop_body_unknown_node", f"node {loop.node_id!r}: a loop cannot contain itself", loop.node_id)
+            elif bid in body_owner:
+                blocker(
+                    "loop_body_shared",
+                    f"node {bid!r} is in the body of both {body_owner[bid]!r} and {loop.node_id!r} -- "
+                    "a node may belong to at most one loop",
+                    loop.node_id,
+                )
+            else:
+                body_owner[bid] = loop.node_id
+
+    for loop in loops:
+        config = loop.config or {}
+        body = [b for b in (config.get("body") or []) if b in by_id and body_owner.get(b) == loop.node_id]
+        if not body:
+            continue
+
+        if not isinstance(loop.input_bindings, dict) or "input" not in (loop.input_bindings or {}):
+            blocker("loop_missing_input", f"node {loop.node_id!r}: a loop needs an `input` binding -- the list to iterate", loop.node_id)
+
+        llm_in_body = 0
+        tool_calls_in_body = 0
+        for bid in body:
+            b = by_id[bid]
+            if b.kind not in LOOP_BODY_KINDS:
+                blocker(
+                    "loop_body_invalid_kind",
+                    f"node {bid!r} (kind {b.kind!r}) cannot be inside a loop body -- v1 allows only "
+                    f"{sorted(LOOP_BODY_KINDS)}. An approval gate, a nested loop or a filter inside a "
+                    "body needs semantics that do not exist yet (pausing mid-iteration, nested item "
+                    "scopes, per-row tables).",
+                    bid,
+                )
+                continue
+            if b.kind == "llm_transform":
+                llm_in_body += 1
+                continue
+            tool_calls_in_body += 1
+            policy = manifest.get(b.tool)
+            if policy is None:
+                continue
+            if policy.risk == manifest.SEND:
+                blocker(
+                    "loop_body_forbidden_risk",
+                    f"node {bid!r} calls a send-risk tool ({b.tool!r}) inside a loop body -- a fan-out of "
+                    "sends needs one approval per row, which v1 cannot pause for",
+                    bid,
+                )
+            elif policy.risk == manifest.EXPORT:
+                blocker(
+                    "loop_body_forbidden_risk",
+                    f"node {bid!r} calls an export-risk tool ({b.tool!r}) inside a loop body -- an export "
+                    "can trigger the broad-export approval and pause mid-iteration, which v1 cannot "
+                    "resume from. Build the export once, after the loop, over its collected results.",
+                    bid,
+                )
+
+        # Dominance: with the loop node removed, no body node may still be
+        # reachable from the trigger -- otherwise there is a way into the body
+        # that does not go through its loop, and "once per row" is meaningless.
+        if triggers and order is not None:
+            bypass = _reachable_from(triggers[0].node_id, nodes, edges, exclude_ids={loop.node_id})
+            escaped = sorted(b for b in body if b in bypass)
+            if escaped:
+                blocker(
+                    "loop_body_not_dominated",
+                    f"node {loop.node_id!r}: body node(s) {escaped} are reachable without passing through "
+                    "the loop -- every path into a body must go through its loop node",
+                    loop.node_id,
+                )
+
+        # Single entry: exactly one body node is wired directly from the loop.
+        entries = sorted({e.target_node_id for e in edges
+                          if e.source_node_id == loop.node_id and e.target_node_id in body})
+        if len(entries) != 1:
+            blocker(
+                "loop_body_multiple_entries",
+                f"node {loop.node_id!r}: a loop body must have exactly one entry node wired from the loop "
+                f"(found {len(entries)}: {entries})",
+                loop.node_id,
+            )
+
+        # No escape: a per-iteration value has no single meaning outside the loop,
+        # so only the loop's own aggregate output may be consumed downstream.
+        for n in nodes:
+            if n.node_id in body or n.node_id == loop.node_id:
+                continue
+            for arg, binding in (n.input_bindings or {}).items():
+                if isinstance(binding, dict) and binding.get("source") == "node" and binding.get("node_id") in body:
+                    blocker(
+                        "loop_body_output_escapes",
+                        f"node {n.node_id!r} binds {arg!r} to {binding.get('node_id')!r}, which runs once per "
+                        f"iteration inside loop {loop.node_id!r} -- bind to the loop's own output "
+                        "(results/artifactIds/...) instead",
+                        n.node_id,
+                    )
+
+        result_node = config.get("result_node")
+        if result_node is not None and result_node not in body:
+            blocker(
+                "invalid_loop_config",
+                f"node {loop.node_id!r}: result_node {result_node!r} is not in this loop's body",
+                loop.node_id,
+            )
+
+        def _positive(value) -> bool:
+            return isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
+
+        for key in ("max_iterations", "max_duration_sec"):
+            value = config.get(key)
+            if value is not None and not _positive(value):
+                blocker("invalid_loop_config", f"node {loop.node_id!r}: {key} must be a positive number, got {value!r}", loop.node_id)
+        on_error = config.get("on_error")
+        if on_error is not None and on_error not in ("fail", "continue"):
+            blocker("invalid_loop_config", f"node {loop.node_id!r}: on_error must be 'fail' or 'continue', got {on_error!r}", loop.node_id)
+        max_failures = config.get("max_failures")
+        if max_failures is not None and (not isinstance(max_failures, int) or isinstance(max_failures, bool) or max_failures < 0):
+            blocker("invalid_loop_config", f"node {loop.node_id!r}: max_failures must be a non-negative integer, got {max_failures!r}", loop.node_id)
+
+        raw_iterations = config.get("max_iterations")
+        max_iterations = int(raw_iterations) if _positive(raw_iterations) else LOOP_DEFAULT_MAX_ITERATIONS
+        if max_iterations > LOOP_MAX_ITERATIONS_CEILING:
+            blocker(
+                "loop_iteration_ceiling",
+                f"node {loop.node_id!r}: max_iterations {max_iterations} exceeds the ceiling of "
+                f"{LOOP_MAX_ITERATIONS_CEILING}. Runs execute inside one request against shared backends; "
+                "raising this needs background execution first, not a config change.",
+                loop.node_id,
+            )
+        if tool_calls_in_body and max_iterations * tool_calls_in_body > LOOP_MAX_GOVERNED_CALLS:
+            blocker(
+                "loop_call_budget",
+                f"node {loop.node_id!r}: {max_iterations} iterations x {tool_calls_in_body} tool call(s) per row "
+                f"= {max_iterations * tool_calls_in_body} governed calls, over the per-run budget of "
+                f"{LOOP_MAX_GOVERNED_CALLS}. Narrow the input, or lower max_iterations.",
+                loop.node_id,
+            )
+        if llm_in_body and max_iterations > LOOP_MAX_ITERATIONS_WITH_LLM:
+            blocker(
+                "loop_llm_budget",
+                f"node {loop.node_id!r}: an AI step inside the body caps max_iterations at "
+                f"{LOOP_MAX_ITERATIONS_WITH_LLM} (asked for {max_iterations}). Every row is a separate "
+                "inference on one shared model server with only a few concurrent slots, so this is minutes "
+                "of work per run. Prefer ONE AI step over the loop's collected results instead of one per row.",
+                loop.node_id,
+            )
+
+    # loop_item / loop_index only mean something inside a loop body. Anywhere else
+    # they resolve to nothing and the argument is silently dropped, which is the
+    # exact class of failure this validator exists to stop at author time.
+    for n in nodes:
+        if n.node_id in body_owner:
+            continue
+        for arg, binding in (n.input_bindings or {}).items():
+            if isinstance(binding, dict) and binding.get("source") in ("loop_item", "loop_index"):
+                blocker(
+                    "loop_item_outside_body",
+                    f"node {n.node_id!r}: {arg!r} uses a {binding.get('source')!r} binding but this node is "
+                    "not inside any loop's body",
+                    n.node_id,
+                )
+
     # llm_transform input_text may only bind to a tool_call/llm_transform node's output
     # (never approval_gate) -- trigger/literal sources are always fine.
-    by_id = {n.node_id: n for n in nodes}
     for n in nodes:
         if n.kind != "llm_transform":
             continue

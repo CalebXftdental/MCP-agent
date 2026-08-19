@@ -44,7 +44,18 @@ _LLM_TRANSFORM_ALLOWED_SOURCE_KINDS = {"tool_call", "llm_transform"}
 # output resolves to nothing with no indication why. That failure mode is exactly
 # the kind of thing that must never reach a saved graph -- hence the check in
 # validate_graph below, at BUILD time, where a clear blocker can still stop it.
-VALID_NODE_KINDS = {"trigger", "tool_call", "approval_gate", "llm_transform", "filter", "loop"}
+VALID_NODE_KINDS = {"trigger", "tool_call", "approval_gate", "llm_transform", "filter", "loop", "join"}
+
+# ── join node ──────────────────────────────────────────────────────────────────
+#
+# Merges two already-fetched arrays by a shared key (e.g. a filter's `matched`
+# customers enriched with a bulk lookup tool's rows) -- a generic, reusable
+# alternative to a `loop` calling a per-record tool once per row, for exactly the
+# case where the second dataset can already be fetched in ONE bulk call (a
+# `where: {"key": {"in": [...]}}`-style query) rather than one call per row.
+# No body/subgraph concept like `loop` -- it's a single self-contained node, same
+# shape as `filter`, just with two inputs instead of one.
+JOIN_ON_MISSING_VALUES = {"keep", "drop"}
 
 # ── loop node (see loopnodedesign.md) ─────────────────────────────────────────
 #
@@ -622,6 +633,51 @@ def validate_graph(nodes: list[GraphNode] | list[dict], edges: list[GraphEdge] |
         bad_ops = sorted({op for op in _filter_condition_ops((n.config or {}).get("conditions") or {}) if op not in FILTER_OPS})
         if bad_ops:
             blocker("filter_unknown_op", f"node {n.node_id!r}: unknown filter condition op(s) {bad_ops}", n.node_id)
+
+    # join: `left`/`right` may only reference an existing node (same
+    # dangling-reference shape as filter's `input` above); left_key/right_key are
+    # required non-empty field names; fields (if given) must be "*" or a list of
+    # bare strings / {"from","as"} objects; on_missing (if given) must be a value
+    # the interpreter actually recognizes.
+    for n in nodes:
+        if n.kind != "join":
+            continue
+        for side in ("left", "right"):
+            binding = (n.input_bindings or {}).get(side)
+            if isinstance(binding, dict) and binding.get("source") == "node":
+                if by_id.get(binding.get("node_id")) is None:
+                    blocker(
+                        "join_dangling_reference",
+                        f"node {n.node_id!r}: {side!r} is bound to an unknown node {binding.get('node_id')!r}",
+                        n.node_id,
+                    )
+        config = n.config or {}
+        if not str(config.get("left_key") or "").strip():
+            blocker("join_missing_key", f"node {n.node_id!r}: left_key is required and must be a non-empty field name", n.node_id)
+        if not str(config.get("right_key") or "").strip():
+            blocker("join_missing_key", f"node {n.node_id!r}: right_key is required and must be a non-empty field name", n.node_id)
+        on_missing = config.get("on_missing")
+        if on_missing is not None and on_missing not in JOIN_ON_MISSING_VALUES:
+            blocker(
+                "join_invalid_config",
+                f"node {n.node_id!r}: on_missing must be one of {sorted(JOIN_ON_MISSING_VALUES)}, got {on_missing!r}",
+                n.node_id,
+            )
+        fields = config.get("fields")
+        if fields is not None and fields != "*":
+            if not isinstance(fields, list):
+                blocker("join_invalid_config", f"node {n.node_id!r}: fields must be \"*\" or a list", n.node_id)
+            else:
+                for entry in fields:
+                    if isinstance(entry, dict):
+                        if not str(entry.get("from") or "").strip():
+                            blocker("join_invalid_config", f"node {n.node_id!r}: a fields entry object needs a non-empty 'from' name", n.node_id)
+                    elif not isinstance(entry, str) or not entry.strip():
+                        blocker(
+                            "join_invalid_config",
+                            f"node {n.node_id!r}: each fields entry must be a non-empty string or a {{'from','as'}} object",
+                            n.node_id,
+                        )
 
     return checks
 

@@ -41,6 +41,8 @@ ability to pick the right tool.
 | Read/write separation | same namespace vs. split | **Split at the tool-namespace (and likely backend) level** — `minierp_*` (read) vs `minierp_write_*` — so risk tier and approval requirements stay visually obvious as the surface grows, instead of retrofitting the split after writes exist. |
 | Tool-count scaling | keep static exclude-lists vs. dynamic retrieval | **Move to embed+rerank tool retrieval** (top-K relevant tools per turn) once more backends land. `orchestrator.WORKFLOW_ONLY_TOOLS` is a hand-maintained static list — fine at ~50 tools, won't hold at 100+. |
 | Embed/rerank model choice | Cohere Embed/Rerank vs open-weight | **Open-weight, self-hosted** — Cohere's Embed/Rerank are API-only, not open-weight (confirmed; see §6). Use **Qwen3-Embedding + Qwen3-Reranker** (Apache-2.0) or **BGE-M3 + bge-reranker-v2** for both tool-retrieval and `mcp-knowledge` search. |
+| Math/aggregation tool treatment | gate behind a manifest/backend tag vs. keep ungated, cross-cutting | **Keep ungated** (no manifest entry) — `compute_stats`/`calculate`/`percent_change`/`group_stats` (`gateway/app.py`, added 2026-08-18) operate only on numbers the caller already has from an earlier governed call, so there's nothing to redact/audit; same treatment as `submit_workflow_request`/`propose_graph`. They're cross-cutting, used across every domain, so any future domain-narrowing cascade (§10.1) must exempt them rather than bucket them under one backend. |
+| Tool-count-scaling trigger point | "~50 tools, model copes" (§2's original estimate) vs. re-verified | **Revise down.** External benchmark data (BFCL, reviewed 2026-08-18) shows accuracy degrading meaningfully starting around ~20 tools in a candidate set, not ~50 — see §10.1. Doesn't change the §10 embed+rerank plan itself, just moves up when it's actually worth building. |
 | Local LLM + RL | fine-tune with agentic RL now vs. later | **Not yet.** Ladder: tool retrieval → structured/JSON-schema tool calls → SFT on our own audit-log traces → RL only much later, only for a specific hard skill (e.g. disambiguating among many similar write tools), not as a general chatbot upgrade. See §7. |
 | Model routing by risk | one model everywhere vs. split by lane | **Keep the split `orchestrator.py` already supports** (local OpenAI-compatible / Azure OpenAI / Anthropic via env vars) — reserve the hosted/stronger model for the workflow-copilot lane (especially once ERP writes exist), local model for the lower-stakes home-chatbot lane. |
 | Web search | build it vs. skip | **Build `mcp-websearch`** (§6) — real, currently-missing capability (tool catalog is almost entirely ERP-shaped today). Treat returned page content as untrusted/adversarial by default, same defense class as uploaded documents. |
@@ -361,6 +363,105 @@ or in-house applications" (exactly our ERP case), North's own answer is "bring y
 MCP server." Even a company selling a general enterprise-agent platform assumes ERP
 integration is BYO-MCP — which is exactly this repo's architecture.
 
+### 10.1 Refinement (2026-08-18): where the industry actually landed, and where the real failures are
+
+External research (out of scope when §10 was first written) confirms the embed+rerank
+direction above, but sharpens two things worth acting on.
+
+**This is now a converged industry pattern, not a bespoke idea.** OpenAI shipped "Tool
+Search" (GPT-5.4+): a lightweight index the model queries, loading a tool's full schema
+into context only once it decides to use it (47% token reduction at equal accuracy, per
+OpenAI's own reporting). Anthropic shipped the same idea independently as "Tool Search
+Tool" (public beta, Nov 2025): a BM25 index over tool names/docstrings, 85% token
+reduction with the full tool library still reachable. The MCP spec's own best-practices
+docs name this "progressive discovery," plus a gateway/catalog pattern for multi-server
+setups (one server per domain, a metadata registry, centralized policy at the gateway) —
+which is already this repo's shape (`mcp-minierp`/`mcp-knowledge`/`mcp-office`/... behind
+one gateway, `policy/manifest.py` as the registry). Cohere's own public tool-use docs, by
+contrast, don't address catalog-size scaling at all — they focus on schema-quality
+guidance (`strict_tools` mode, descriptive schemas), which turns out to matter more than
+§10 credited (next point).
+
+**BFCL (Berkeley Function-Calling Leaderboard) shows something more specific than "pick
+fewer tools":** accuracy drops from ~95-96% at 1 tool to ~65-78% at 20+ tools, but
+**60-75% of failures at scale are parameter-mismatch on the CORRECTLY selected tool, not
+wrong-tool-selection.** Narrowing the candidate set (this section's whole plan) addresses
+the smaller share of the problem. Schema/description precision on whichever tool actually
+gets picked — the discipline already applied to `compute_stats`/`group_stats`/
+`percent_change`'s docstrings (explicit input shape, explicit "use this instead of X"
+framing, explicit edge-case behavior) — carries at least as much weight as the retrieval
+layer itself. Don't treat shipping tool retrieval as "solved" for reliability; keep
+tightening tool descriptions as new tools land, especially ones with multi-field inputs.
+
+**A two-level cascade, built to reuse what already exists, staged in when actually
+needed:**
+- **Level 1 — domain narrowing**, reusing `ToolPolicy.backend` (already exists for
+  governance) as the grouping key — no new taxonomy needed. Narrow to the 1-2 backends a
+  question plausibly touches before Level 2 ever sees full schemas.
+- **Level 2 — the embed+rerank plan above**, operating within the Level-1-narrowed set
+  rather than the full per-grant catalog.
+- **Exemption: cross-cutting utility tools never get Level-1-narrowed.**
+  `compute_stats`/`calculate`/`percent_change`/`group_stats` (and anything else in the
+  "Data Aggregation" family, §10.2) have no `backend` tag and are relevant regardless of
+  domain — a Level-1 pass keyed on `backend` would incorrectly drop them for any question
+  not already classified into their (nonexistent) domain. They must always survive to
+  Level 2 regardless of which domain(s) Level 1 selects.
+- **Don't build Level 1 before the numbers justify it.** Per the revised trigger point
+  above (~20, not ~50), check the actual current per-grant tool count before adding a
+  domain-classification pass — Level 2 alone may already be sufficient if a typical grant
+  is still comfortably under that range.
+
+### 10.2 The "Data Aggregation" tool category
+
+A fourth tool family, alongside the backend-specific ones (miniERP/knowledge/office/...):
+narrow, ungated, cross-cutting math/utility tools that operate only on data the caller
+already has from an earlier governed call — never a new data-access path, never gated,
+because there's nothing backend-specific or sensitive about arithmetic itself. Exists
+because a small self-hosted model (Qwen, quantized) is not reliable at exact arithmetic
+across many values, at grouped aggregation, or at period-over-period math — the same
+"discover, don't guess" principle `WORKFLOW_COPILOT_SYSTEM_PROMPT` already applies to
+data, applied here to computation.
+
+**Built (2026-08-18, `gateway/app.py`, tested in `_smoke/test_math_tools.py` and
+`_smoke/test_tool_call_resilience.py`):**
+- `compute_stats(values)` — flat sum/mean/min/max/median/stdev/variance.
+- `calculate(expression)` — safe scalar arithmetic via an `ast`-restricted evaluator
+  (never `eval()`); exponent- and length-capped against pathological input.
+- `percent_change(from_value, to_value)` — period-over-period change, fixed formula so
+  base/sign can't get flipped.
+- `group_stats(rows)` — per-group count/sum/mean/min/max over `{"group","value"}` rows
+  already in hand; explicitly NOT for company-wide/unbounded data (see its own
+  docstring) — that's a job for a purpose-built bulk aggregation tool (e.g. a planned
+  `get_financial_summary` over `Account`/`GLHistory`, designed but not yet built — see §13).
+- Same pass also hardened `orchestrator.execute_tool` to catch any tool-call exception
+  (bad args past FastMCP's own pydantic validation, a backend failure) and return a clean
+  `{"source":"governance","status":"error",...}` result instead of crashing the whole
+  chat turn — a gap these new tools' own tests surfaced, but one that applied to every
+  existing tool too.
+
+**Candidates for this category, not yet built — each should clear the same bar (a
+demonstrated small-model arithmetic-reliability gap, not just "involves a number")
+before being added, since the cascade above solves discovery cost, not whether a tool is
+worth building in the first place:**
+- **`date_diff`/`days_between(date_a, date_b)`** — probably the next one worth building.
+  This domain is full of due-date/aging math (`get_ap_invoices_due_soon`,
+  `get_ar_invoices_past_due`, PO expected dates) and date arithmetic (leap years,
+  variable month lengths, off-by-one) is a distinct, well-known small-model weak spot —
+  same justification class as the tools already built.
+- **Multi-period compound growth rate** (geometric mean across >2 periods) — a plausible
+  extension of `percent_change` for "average quarterly growth this year"-style asks. The
+  formula is easy to get wrong by hand (same failure class), but defer until a real
+  question needs it.
+- **`top_n`/rank over an already-in-hand list** — defer; most ranking needs today are
+  already served by tools that return pre-sorted results server-side
+  (`get_top_customers_by_spend`). Revisit only if a real question needs to re-rank across
+  multiple prior calls' combined results.
+- **Weighted average** — defer until a real question needs paired values+weights; no
+  demonstrated need yet.
+- **Explicitly NOT this category: currency conversion.** Needs an exchange-rate data
+  source, not pure math — that would be a finance-domain *data* tool (its own manifest
+  entry/backend tag), not a math/utility tool, if it's ever needed at all.
+
 ---
 
 ## 11. Local LLM strategy for home-chatbot + workflow-copilot
@@ -389,6 +490,46 @@ endpoint / Azure OpenAI / Anthropic, selected by env var) rather than collapsing
 model — route the workflow-copilot lane (especially anything touching write tools) to
 the strongest available model, and reserve the local model for the home-chatbot lane
 where mistakes are cheap.
+
+### 11.1 Refinement (2026-08-18): does SFT go stale as the toolkit keeps growing?
+
+Not "useless," but not free of a real risk either — worth being precise about which.
+
+**A newly added tool isn't broken by not being in the training set.** The model always
+reads the full tool schema fresh at inference time regardless of training — that's how
+tool-calling works. SFT sharpens a *transferable* skill (disambiguating similar tools,
+filling arguments correctly, following our conventions like "call `find_customer`
+first"), not a fixed lookup table. A tool added after the last training run works at the
+same baseline every tool works at today, pre-any-fine-tuning — not "useless," just not
+specially reinforced yet.
+
+**The real risk is narrower: a new tool that SUPERSEDES an old workaround the model was
+already reinforced on.** Concrete case: if we'd fine-tuned before `get_financial_summary`
+existed, any real traces of "answer a company-wide financial question" would show
+whatever workaround the model used instead (looping single-account tools, or failing) —
+training on that concentrates the model's distribution toward the old pattern, and it
+could come out *worse* at picking the new, correct tool than an untrained base model
+would be. This is the case that actually justifies re-training sooner, not tool additions
+in general.
+
+**Policy: retrain asymmetrically, not on every addition.**
+- Genuinely new, non-overlapping capability — no urgency; works at baseline until the
+  next scheduled retrain naturally picks up traces of it.
+- A tool that replaces an existing workaround the model has already been reinforced on —
+  retrain sooner; leaving the old reinforcement in place actively works against adopting
+  the better tool.
+- Otherwise, batch it (a cadence, or "N new tools shipped"), not continuously — LoRA/QLoRA
+  keeps this viable since adapters are cheap to retrain/version/roll back compared to
+  full fine-tuning.
+- Maintain a standing eval set (fixed questions with expected tool calls, including ones
+  exercising newer tools), run before/after every retrain — same regression-testing
+  discipline `_smoke/` already applies to code, applied to model behavior.
+
+**Architectural takeaway: let retrieval (§10.1), not fine-tuning, be the layer that keeps
+pace with catalog growth.** Re-embedding a new tool's description is cheap and immediate;
+re-training is expensive and periodic. Don't rely on SFT to track every addition in real
+time — that's what the always-current retrieval layer is for. Fine-tuning is a slower
+sharpening pass on top, not the mechanism responsible for freshness.
 
 ---
 
@@ -426,3 +567,10 @@ where mistakes are cheap.
   Microsoft Graph/365** (§9). Auth model and mailbox-identity gap resolved in §9.1-9.3;
   remaining open item is purely operational: who in IT registers the Entra ID app
   and owns the Application Access Policy / enrolled-mailbox security group (§9.2)?
+- `get_financial_summary` (§10.2) — designed (query `Account` where `type` is a
+  revenue/expense type + `active`, then `GLHistory` for those account ids + the target
+  period, sum by type in Python — two bounded queries, no per-account looping) but not
+  yet built. One real unknown before writing it: the actual string values this
+  deployment's `Account.type` uses ("Income"/"Expense" is the standard Acumatica
+  convention, not yet confirmed against live data) — probe live before hardcoding a
+  filter, same discipline as this doc's other "confirmed by probing" claims.

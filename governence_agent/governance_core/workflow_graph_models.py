@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 @dataclass(frozen=True)
 class GraphNode:
     node_id: str
-    kind: str                                          # "trigger" | "tool_call" | "approval_gate" | "llm_transform" | "filter" | "loop"
+    kind: str                                          # "trigger" | "tool_call" | "approval_gate" | "llm_transform" | "filter" | "loop" | "join"
     title: str = ""
     tool: str = ""                                      # canonical tool name; required iff kind == "tool_call"
     config: dict = field(default_factory=dict)          # literal arg values / node-kind-specific settings
@@ -62,6 +62,28 @@ class GraphNode:
     # The loop's own `input` binding is the list to iterate. Body nodes reference
     # the current row with {"source": "loop_item", "path": ...} and its position
     # with {"source": "loop_index"} -- legal ONLY inside a body.
+    # Config keys for kind == "join" (validated in workflow_graph_store, executed
+    # in workflow_graph_interpreter's _execute_join_node): merges two already-
+    # fetched arrays by a shared key -- e.g. a filter's `matched` customers (left)
+    # enriched with a bulk lookup tool's rows (right) -- replacing what would
+    # otherwise need a `loop` calling a per-record tool.
+    #   left_key/right_key (str)  -- required; the field name to match rows on,
+    #                                on the left and right array respectively.
+    #   fields               -- which right-row fields to bring onto each merged
+    #                            row: "*" (everything except right_key), a list of
+    #                            bare field-name strings (kept under the same
+    #                            name), or a list mixing those with {"from","as"}
+    #                            objects (renamed -- needed when left and right
+    #                            happen to share a field name that means something
+    #                            different on each side).
+    #   on_missing ("keep"|  -- a left row with no right-side match: "keep" (the
+    #               "drop")     default) keeps it in `merged` unenriched, "drop"
+    #                            excludes it. Either way it's always reported in
+    #                            the `unmatched` output array -- never silently
+    #                            invisible.
+    #   table_name (str)    -- same convention as a filter node's table_name.
+    # The join's own `left`/`right` bindings are the two arrays to merge -- no
+    # loop_item/loop_index concept here, this node has no per-row body.
     input_bindings: dict = field(default_factory=dict)  # {arg_name: {"source": "node"|"trigger"|"literal"|"loop_item"|"loop_index", ...}}
     position: dict = field(default_factory=dict)        # UI-only {x, y}; ignored by the interpreter
 

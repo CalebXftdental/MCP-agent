@@ -508,6 +508,96 @@ async def _execute_filter_node(run: WorkflowRun, node: GraphNode) -> tuple[Workf
     return run, {"failed": False}
 
 
+def _join_bring_over_fields(fields_config):
+    """Normalize a join node's `fields` config into a list of (from, as) pairs, or
+    the literal "*" sentinel meaning "every right-row field except the join key."
+    Accepts a bare field-name string or a {"from","as"} object per entry -- the
+    same "flexible input, one field" shape _evaluate_condition_tree's `value`
+    already uses (a plain literal OR a binding-shaped object)."""
+    if fields_config == "*":
+        return "*"
+    pairs: list[tuple[str, str]] = []
+    for entry in fields_config or []:
+        if isinstance(entry, dict):
+            src = str(entry.get("from") or "")
+            pairs.append((src, str(entry.get("as") or src)))
+        else:
+            name = str(entry)
+            pairs.append((name, name))
+    return pairs
+
+
+async def _execute_join_node(run: WorkflowRun, node: GraphNode) -> tuple[WorkflowRun, dict]:
+    """Merge two already-fetched arrays by a shared key -- e.g. a filter's
+    `matched` customers (left) enriched with a bulk lookup tool's rows (right) --
+    without a per-row loop calling a tool once per record. A generic, reusable
+    node: it has no idea what "customer" or "email" mean, it only ever operates
+    on whatever field names left_key/right_key/fields name in config.
+
+    Non-list left/right input fails loudly rather than silently coercing to []
+    (deliberately NOT the filter node's "coerce to []" behaviour, for the same
+    reason `_execute_loop_node` doesn't either: a merge that silently produces
+    nothing is indistinguishable from a mis-wired graph)."""
+    config = node.config or {}
+    bindings = node.input_bindings or {}
+    left = _resolve_binding(bindings.get("left"), run)
+    right = _resolve_binding(bindings.get("right"), run)
+    run = workflows.add_step(run, WorkflowStep(step_id=node.node_id, type="join", status="running", tool="", title=node.title or "Join"))
+
+    for side_name, side_value in (("left", left), ("right", right)):
+        if not isinstance(side_value, list):
+            message = (f"join {side_name!r} input did not resolve to a list (got {type(side_value).__name__}) -- "
+                       "wire it to a list-valued output such as a filter's `matched` or a bulk tool's rows")
+            run = workflows.fail_step(run, node.node_id, message)
+            return run, {"failed": True}
+
+    left_key = str(config.get("left_key") or "")
+    right_key = str(config.get("right_key") or "")
+    on_missing = str(config.get("on_missing") or "keep")
+    bring_over = _join_bring_over_fields(config.get("fields"))
+
+    # First match wins on a duplicate right-side key -- a defense-in-depth
+    # fallback (validate_graph doesn't check the DATA for uniqueness, only the
+    # config shape), not something a well-formed bulk lookup should ever produce.
+    right_by_key: dict = {}
+    for r in right:
+        if isinstance(r, dict) and right_key in r:
+            right_by_key.setdefault(r[right_key], r)
+
+    merged: list = []
+    unmatched: list = []
+    for row in left:
+        if not isinstance(row, dict):
+            continue
+        match = right_by_key.get(row.get(left_key))
+        if match is None:
+            unmatched.append(row)
+            if on_missing != "drop":
+                merged.append(dict(row))
+            continue
+        out_row = dict(row)
+        if bring_over == "*":
+            for k, v in match.items():
+                if k != right_key:
+                    out_row[k] = v
+        else:
+            for src, alias in bring_over:
+                out_row[alias] = match.get(src)
+        merged.append(out_row)
+
+    table_name = str(config.get("table_name") or node.title or "Merged rows")
+    outputs = {
+        "merged": merged,
+        "unmatched": unmatched,
+        "matchedCount": len(left) - len(unmatched),
+        "unmatchedCount": len(unmatched),
+        "totalCount": len(left),
+        "mergedTable": [{"name": table_name, "rows": merged}],
+    }
+    run = workflows.complete_step(run, node.node_id, outputs)
+    return run, {"failed": False}
+
+
 # How many rows of a list-valued output survive per-iteration compaction. A body
 # tool_call's raw output can be a whole row set, and a 25-iteration loop would
 # otherwise multiply that into the run record -- which run_dict ships to the UI
@@ -789,6 +879,10 @@ async def _interpret(run: WorkflowRun, graph: WorkflowGraphDefinition, body: dic
                         return workflows.run_dict(run)
                 elif node.kind == "filter":
                     run, outcome = await _execute_filter_node(run, node)
+                    if outcome.get("failed"):
+                        return workflows.run_dict(run)
+                elif node.kind == "join":
+                    run, outcome = await _execute_join_node(run, node)
                     if outcome.get("failed"):
                         return workflows.run_dict(run)
                 elif node.kind == "loop":

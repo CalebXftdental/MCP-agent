@@ -24,9 +24,13 @@ Run:
 """
 from __future__ import annotations
 
+import ast
 import asyncio
 import json
+import math
+import operator
 import os
+import statistics
 import sys
 import time
 import uuid
@@ -1073,6 +1077,214 @@ async def propose_graph(
     return json.dumps({
         "source": "workflow_graph", "status": "success", "graphId": new_graph.graph_id,
         "displayName": new_graph.display_name, "graphStatus": new_graph.status, "edited": False,
+    })
+
+
+# ── Math / utility tools ───────────────────────────────────────────────────────
+# Meta tools, not governed business data -- same reasoning as submit_workflow_request/
+# propose_graph above: no manifest entry (so no ToolPolicy.backend to gate on),
+# available on BOTH Home chat and the "My Workflow" copilot. They operate only on
+# numbers the caller already has (from an earlier governed tool call), so there is
+# nothing here to redact or audit. Exist because a small local model is not
+# reliable at exact arithmetic across many values or period-over-period math --
+# see orchestrator.py's WORKFLOW_COPILOT_SYSTEM_PROMPT rule 4, same principle.
+#
+# A small family of narrow tools, not one with an operation switch: picking the
+# right tool by name from a list is an easier, more reliable call for a
+# tool-calling model than picking the right subset of a shared parameter set
+# once it's chosen a mode -- every governed tool in this file already follows
+# that one-job-per-tool shape. A grouped result (group_stats) is a genuinely
+# different response SHAPE than a flat one (compute_stats), not just a
+# different scope of the same shape (the way page/page_size are) -- that's
+# the test for "new tool" vs. "new field on an existing tool" applied here.
+
+_BINOPS = {
+    ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+    ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv, ast.Mod: operator.mod,
+}
+_UNARYOPS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
+_MAX_EXPRESSION_LEN = 200
+_MAX_EXPONENT = 12
+
+
+def _safe_eval(node):
+    """Evaluate an already-parsed arithmetic AST node. Only numeric literals,
+    +-*/// % **, unary +/-, and parentheses (implicit in AST structure) are
+    reachable -- no Name/Call/Attribute/Subscript node is ever handled, so
+    there is no path to a variable, a function, or any other lookup. Never use
+    eval()/exec() for this: this walks a restricted grammar instead of running
+    arbitrary Python."""
+    if isinstance(node, ast.Expression):
+        return _safe_eval(node.body)
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, bool) or not isinstance(node.value, (int, float)):
+            raise ValueError(f"unsupported literal {node.value!r}")
+        return node.value
+    if isinstance(node, ast.UnaryOp) and type(node.op) in _UNARYOPS:
+        return _UNARYOPS[type(node.op)](_safe_eval(node.operand))
+    if isinstance(node, ast.BinOp):
+        if type(node.op) is ast.Pow:
+            base, exp = _safe_eval(node.left), _safe_eval(node.right)
+            if abs(exp) > _MAX_EXPONENT:
+                raise ValueError(f"exponent magnitude over the limit ({_MAX_EXPONENT})")
+            return base ** exp
+        if type(node.op) in _BINOPS:
+            return _BINOPS[type(node.op)](_safe_eval(node.left), _safe_eval(node.right))
+    raise ValueError(f"unsupported expression near {ast.dump(node)}")
+
+
+@mcp.tool(name="calculate")
+async def calculate(session_id: SessionId, expression: str) -> str:
+    """Evaluate ONE numeric arithmetic expression exactly, e.g.
+    "(45231.12 - 38004.50) / 38004.50" for a margin or growth ratio. Supports
+    + - * / // % ** and parentheses over numeric literals only -- no
+    variables, function calls, or names of any kind. Use this instead of
+    computing a ratio, percentage, or multi-step formula by hand; small
+    models are not reliable at exact arithmetic."""
+    expr = (expression or "").strip()
+    if not expr:
+        return json.dumps({"source": "compute", "status": "empty_input", "message": "expression is empty."})
+    if len(expr) > _MAX_EXPRESSION_LEN:
+        return json.dumps({"source": "compute", "status": "error", "errorCode": "expression_too_long",
+                           "message": f"expression is over the {_MAX_EXPRESSION_LEN}-character limit."})
+    try:
+        value = _safe_eval(ast.parse(expr, mode="eval"))
+    except ZeroDivisionError:
+        return json.dumps({"source": "compute", "status": "error", "errorCode": "division_by_zero",
+                           "message": f"Division by zero in {expr!r}."})
+    except (SyntaxError, ValueError, TypeError) as exc:
+        return json.dumps({"source": "compute", "status": "error", "errorCode": "invalid_expression",
+                           "message": f"Could not evaluate {expr!r} ({exc}). Only numbers, "
+                                      "+ - * / // % ** and parentheses are allowed."})
+    if isinstance(value, complex) or not isinstance(value, (int, float)):
+        return json.dumps({"source": "compute", "status": "error", "errorCode": "non_real_result",
+                           "message": f"{expr!r} did not produce a real number."})
+    return json.dumps({"source": "compute", "status": "ok", "expression": expr, "result": value})
+
+
+@mcp.tool(name="compute_stats")
+async def compute_stats(session_id: SessionId, values: list) -> str:
+    """Compute descriptive statistics over a list of numbers you already have
+    (e.g. every row's amount from a paginated tool's results): count, sum,
+    mean, min, max, range, median, sample/population standard deviation, and
+    sample/population variance -- all in one call. Use this instead of adding
+    up or averaging a list of numbers yourself; small models are not reliable
+    at exact arithmetic across many values."""
+    if not values:
+        return json.dumps({"source": "compute", "status": "empty_input", "message": "values is empty -- nothing to compute."})
+    nums, bad = [], []
+    for v in values:
+        try:
+            if isinstance(v, bool):
+                raise TypeError
+            f = float(v)
+            if not math.isfinite(f):  # "inf"/"nan" parse fine but would silently poison every stat below
+                raise ValueError
+            nums.append(f)
+        except (TypeError, ValueError):
+            bad.append(v)
+    if bad:
+        # Reported, never silently coerced to 0 -- coercing a bad value would
+        # quietly corrupt the exact answer this tool exists to guarantee.
+        return json.dumps({
+            "source": "compute", "status": "invalid_input",
+            "message": f"{len(bad)} of {len(values)} values were not numbers -- fix or remove them and retry.",
+            "invalidValues": [repr(b) for b in bad[:20]], "truncated": len(bad) > 20,
+        })
+    n = len(nums)
+    total = sum(nums)
+    return json.dumps({
+        "source": "compute", "status": "ok", "count": n,
+        "sum": total, "mean": total / n,
+        "min": min(nums), "max": max(nums), "range": max(nums) - min(nums),
+        "median": statistics.median(nums),
+        "sampleStdev": statistics.stdev(nums) if n > 1 else None,
+        "populationStdev": statistics.pstdev(nums),
+        "sampleVariance": statistics.variance(nums) if n > 1 else None,
+        "populationVariance": statistics.pvariance(nums),
+    })
+
+
+@mcp.tool(name="percent_change")
+async def percent_change(session_id: SessionId, from_value: float | int | str, to_value: float | int | str) -> str:
+    """Compute the change from one number to another -- e.g. last quarter's
+    revenue vs. this quarter's -- as both an absolute and a percentage
+    change. Use this instead of computing period-over-period growth by hand:
+    which value is the base and the sign of a decline are easy to get
+    backwards."""
+    # from_value/to_value take float|int|str (not a bare float) so a genuinely
+    # non-numeric value fails HERE with a clean status, not as an uncaught
+    # pydantic ValidationError from FastMCP's own pre-validation -- confirmed
+    # by _smoke/test_math_tools.py that a bare `float` annotation lets that
+    # propagate as an unhandled ToolError, which orchestrator.execute_tool has
+    # no try/except around (same root cause compute_stats' list case hit).
+    try:
+        from_value, to_value = float(from_value), float(to_value)
+    except (TypeError, ValueError):
+        return json.dumps({"source": "compute", "status": "invalid_input",
+                           "message": f"fromValue={from_value!r} / toValue={to_value!r} -- both must be numbers."})
+    if not (math.isfinite(from_value) and math.isfinite(to_value)):
+        return json.dumps({"source": "compute", "status": "invalid_input",
+                           "message": "fromValue/toValue must be finite numbers (not inf/nan)."})
+    absolute = to_value - from_value
+    if from_value == 0:
+        return json.dumps({
+            "source": "compute", "status": "ok", "fromValue": from_value, "toValue": to_value,
+            "absoluteChange": absolute, "percentChange": None,
+            "message": "fromValue is 0 -- percentChange is undefined (would divide by zero); absoluteChange is still valid.",
+        })
+    return json.dumps({
+        "source": "compute", "status": "ok", "fromValue": from_value, "toValue": to_value,
+        "absoluteChange": absolute, "percentChange": (absolute / abs(from_value)) * 100.0,
+    })
+
+
+@mcp.tool(name="group_stats")
+async def group_stats(session_id: SessionId, rows: list) -> str:
+    """Per-group count/sum/mean/min/max over rows you already have from an
+    earlier tool call -- e.g. one customer's orders grouped by status, or a
+    handful of subtotals grouped by category. Each row must be
+    {"group": <label>, "value": <number>}. Use this instead of bucketing and
+    adding these up yourself.
+
+    NOT for company-wide/unbounded data: if the source itself is too large
+    for one paginated tool call, that's a case for a purpose-built bulk
+    aggregation tool, not for handing hundreds of rows to this one."""
+    if not rows:
+        return json.dumps({"source": "compute", "status": "empty_input", "message": "rows is empty -- nothing to compute."})
+    buckets: dict = {}
+    bad = []
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict) or "group" not in row or "value" not in row:
+            bad.append({"index": i, "row": row, "reason": 'each row must be {"group": <label>, "value": <number>}'})
+            continue
+        val = row["value"]
+        try:
+            if isinstance(val, bool):
+                raise TypeError
+            v = float(val)
+            if not math.isfinite(v):
+                raise ValueError
+        except (TypeError, ValueError):
+            bad.append({"index": i, "row": row, "reason": "value is not a finite number"})
+            continue
+        buckets.setdefault(str(row["group"]), []).append(v)
+    if bad:
+        # Reported, never silently dropped -- a silently skipped bad row would
+        # quietly change the grand total this tool exists to get exactly right.
+        return json.dumps({
+            "source": "compute", "status": "invalid_input",
+            "message": f"{len(bad)} of {len(rows)} rows were malformed -- fix or remove them and retry.",
+            "invalidRows": bad[:20], "truncated": len(bad) > 20,
+        })
+    groups = {
+        g: {"count": len(vs), "sum": sum(vs), "mean": sum(vs) / len(vs), "min": min(vs), "max": max(vs)}
+        for g, vs in buckets.items()
+    }
+    return json.dumps({
+        "source": "compute", "status": "ok", "groups": groups,
+        "groupCount": len(groups), "rowCount": len(rows),
+        "grandTotal": sum(v for vs in buckets.values() for v in vs),
     })
 
 

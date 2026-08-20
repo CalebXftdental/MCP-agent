@@ -16,6 +16,31 @@
                 "panel": "dedicated"
             },
             "problemMatcher": []
+        },
+        {
+            "label": "check-tool-registration",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "${workspaceFolder}/governence_agent/check-tool-registration.ps1"
+            ],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "predeploy",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "build-frontend",
+                "check-tool-registration"
+            ],
+            "problemMatcher": []
         }
     ]
 }

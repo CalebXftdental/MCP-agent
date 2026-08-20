@@ -176,6 +176,23 @@ is visible per-item, not just as one opaque "loop failed").
   admin-triggered. Unblocks the manual (non-copilot) canvas UI's field dropdowns
   and stops the copilot re-sampling from scratch every new conversation.
 
+  **Update (2026-08-19): partially narrowed, not built.** All 17
+  `mcp-minierp` finance-domain tools (`get_vendor_details` through
+  `get_item_movement_history`, `sqlagent/finance/schemas.py`) now declare a
+  real, named-field `outputSchema` via typed Pydantic return models instead of
+  a bare `-> str`/`json.dumps(...)`, verified live against
+  `test_finance_bulk_tools.py`/`test_ap_digest_graph.py`/
+  `test_ar_aging_digest_graph.py`/`test_paginate_noop_live.py`/
+  `test_tool_registration_consistency.py`. This gives the workflow-graph
+  binding UI and any MCP client a structural field list for these 17 tools
+  without sampling — `tool_catalog.py` (still unbuilt) only needs to cover
+  real-value/enum vocabulary for them now, not field shape. The other
+  `mcp-minierp` domains (orders/accounts/shipments/analytics/composites,
+  ~16 more tools) and every other backend (`mcp-office`/`mcp-email`/
+  `mcp-calendar`/`mcp-knowledge`/`mcp-code`) are still on the old
+  `-> str` convention and still need `tool_catalog.py`'s full field-shape
+  discovery, not just enum discovery.
+
 ---
 
 ## 4. Personal knowledge base (`digest_persoanl_kb.md`) — verified current, not stale

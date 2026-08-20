@@ -44,7 +44,7 @@ ability to pick the right tool.
 | Math/aggregation tool treatment | gate behind a manifest/backend tag vs. keep ungated, cross-cutting | **Keep ungated** (no manifest entry) — `compute_stats`/`calculate`/`percent_change`/`group_stats` (`gateway/app.py`, added 2026-08-18) operate only on numbers the caller already has from an earlier governed call, so there's nothing to redact/audit; same treatment as `submit_workflow_request`/`propose_graph`. They're cross-cutting, used across every domain, so any future domain-narrowing cascade (§10.1) must exempt them rather than bucket them under one backend. |
 | Tool-count-scaling trigger point | "~50 tools, model copes" (§2's original estimate) vs. re-verified | **Revise down.** External benchmark data (BFCL, reviewed 2026-08-18) shows accuracy degrading meaningfully starting around ~20 tools in a candidate set, not ~50 — see §10.1. Doesn't change the §10 embed+rerank plan itself, just moves up when it's actually worth building. |
 | Local LLM + RL | fine-tune with agentic RL now vs. later | **Not yet.** Ladder: tool retrieval → structured/JSON-schema tool calls → SFT on our own audit-log traces → RL only much later, only for a specific hard skill (e.g. disambiguating among many similar write tools), not as a general chatbot upgrade. See §7. |
-| Model routing by risk | one model everywhere vs. split by lane | **Keep the split `orchestrator.py` already supports** (local OpenAI-compatible / Azure OpenAI / Anthropic via env vars) — reserve the hosted/stronger model for the workflow-copilot lane (especially once ERP writes exist), local model for the lower-stakes home-chatbot lane. |
+| Model routing by risk | one model everywhere vs. split by lane | **Keep the split `orchestrator.py` already supports** (local OpenAI-compatible / Azure OpenAI / Anthropic via env vars) — reserve the hosted/stronger model for the workflow-copilot lane (especially once ERP writes exist), local model for the lower-stakes home-chatbot lane. **Refined 2026-08-19 (§11.2): the risk split that actually matters day-to-day is bulk/multi-turn vs. single-record, not just "workflow-copilot vs. home-chat"** — real benchmark showed the local model is competitive on single-record lookups but measurably degrades or hard-fails on bulk/paginated queries, regardless of which chat surface asks. |
 | Web search | build it vs. skip | **Build `mcp-websearch`** (§6) — real, currently-missing capability (tool catalog is almost entirely ERP-shaped today). Treat returned page content as untrusted/adversarial by default, same defense class as uploaded documents. |
 | ClickUp integration | adopt ClickUp's official MCP server vs. build our own | **Build `mcp-clickup`** (§7) — same reasoning as HubSpot: the official server is per-user-OAuth, doesn't fit our per-consumer service-identity model, so wrap the REST API narrowly ourselves. |
 | `mcp-code`/opencode scope | keep read-only planning vs. embed opencode's real run mode | **Keep read-only planning as the default; embedding opencode's server+SDK for real execution is a deliberate, separate scope expansion** (§8), not a side effect of "we found an embeddable SDK." Real run mode means real read/write/bash on a directory — gate it at least as hard as `mcp-acumatica` writes. |
@@ -530,6 +530,73 @@ pace with catalog growth.** Re-embedding a new tool's description is cheap and i
 re-training is expensive and periodic. Don't rely on SFT to track every addition in real
 time — that's what the always-current retrieval layer is for. Fine-tuning is a slower
 sharpening pass on top, not the mechanism responsible for freshness.
+
+### 11.2 Refinement (2026-08-19): real head-to-head benchmark, local Qwen3.6-27B vs. Claude Sonnet
+
+Ran the actual production copilot loop (`orchestrator.run_chat`, real system prompt, real
+tool specs, real governed pipeline) against both backends for 7 finance-domain use cases,
+through the real ERP mirror — not a synthetic eval. Ground truth (expected tool + args)
+computed independently via direct governed calls before either model ran. Full method,
+transcripts, and per-turn timing: `governence_agent/_smoke/.tmp/copilot-compare/` (this
+run's artifacts; regenerate via the harness used this session if the directory has since
+been cleaned).
+
+**Tool selection: both models are good, 13/14 exact matches.** Both correctly mapped
+free-text ("next 60 days") to the right non-default argument (`days_ahead=60`), both
+correctly called zero tools for a conceptual question, both correctly reported "not found"
+for a fake vendor code rather than fabricating a profile. Tool selection is not the local
+model's weak point.
+
+**The real gap is bulk/multi-turn flows, not tool selection — and it's not just "slower,"
+it's a genuine reliability cliff at the local model's small context window (40,960
+tokens):**
+- **Hard failure on a bulk list.** Asking for AP invoices due in the next 60 days (a
+  real, unremarkable ask — 1,210 real rows) made the *local* model's own tool call
+  succeed, then its next completion call **hard-error**: `input (160,588 tokens) is
+  longer than the model's context length (40,960)`. The user gets no answer at all.
+  Claude Sonnet took the identical 1,210-row payload and answered fine (in ~22s).
+- **Silent garbage output, not a crash.** On a payment-history question, the local model
+  paged through results 3 times, then tried to self-initiate a `group_stats` call the
+  user never asked for, ran out of its 6-turn/1024-token budget mid-generation, and
+  returned a **truncated, unparsed `<tool_call>` tag as its literal final answer** — a
+  broken response that looks like a leaked internal artifact, not an error a caller can
+  detect programmatically (`status` still comes back as a normal completed turn).
+- **Latency cliff on multi-turn chains.** A two-tool "profile + full invoice list" ask
+  took the local model 5 turns / 91 seconds (one single turn alone took 48s) vs. Sonnet's
+  4 turns / 33 seconds for the identical task — and the extra turn was, again, an
+  unrequested `compute_stats` call the local model reached for on its own.
+- **Single-record lookups: no meaningful gap.** For simple one-tool questions (vendor
+  profile, one invoice's detail, not-found handling), wall-clock time was within ~1-2
+  seconds either direction and both models produced clean, correct answers. This is
+  where the local-model / hosted-model home-chat split from §11's original guidance
+  already holds up fine.
+
+**Root cause, not just symptom:** as accumulated tool-result context grows across turns,
+the local 27B model's per-turn latency degrades non-linearly (not linearly with token
+count) and it becomes *more* likely to self-initiate an unrequested aggregation call
+(`compute_stats`/`group_stats`) — the always-available cross-cutting math tools from
+§10.2 — rather than just answering from the data already in hand. Claude Sonnet showed
+no equivalent tendency in this run.
+
+**Implication for the routing decision above:** the risk split that actually predicts
+local-model trouble is **bulk/paginated/multi-turn vs. single-record**, not simply "which
+chat surface." A home-chat question that happens to hit a bulk digest-style tool
+(`get_ap_invoices_due_soon`, `get_ar_invoices_past_due`, and future
+`get_shipment_exceptions`/`get_financial_summary`) carries the same risk profile as a
+workflow-copilot turn, regardless of which lane's system prompt is in effect. Before
+trusting the local model with any bulk-shaped flow in production:
+- Cap default `page_size` more conservatively for the local lane specifically (the
+  gateway wrapper's own default of 250 is what produced the 160K-token blowout — a
+  smaller default, or a hard row-count-to-token-estimate check before returning a bulk
+  result, would catch this before it ever reaches the model).
+- Consider excluding the math/utility tools (§10.2) from the local model's tool set for
+  bulk-shaped questions specifically, or strengthen the system prompt's "use the data you
+  already have, don't re-derive it" instruction for that lane — the unrequested
+  `compute_stats`/`group_stats` calls were the direct cause of both the worst-latency
+  case (UC4) and the garbled-answer case (UC5).
+- This is exactly the class of gap the still-open per-run tool-call budget (§5 of
+  `finalize_stage_1.md`) and stricter pagination discipline would catch structurally,
+  rather than relying on the model to self-limit.
 
 ---
 

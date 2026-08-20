@@ -37,13 +37,32 @@ different domain module without also moving the admin-profile binding.
 
 from __future__ import annotations
 
-import json
 import re
 from datetime import datetime, timedelta
 from typing import Any
 
 from minierp_core import find_with_offset_pagination as _find_with_offset_pagination
 from minierp_core import paginate_all as _paginate_all
+
+from sqlagent.finance.schemas import (
+    ApInvoiceDetailsResult,
+    ApInvoicesDueSoonResult,
+    ApPaymentHistoryResult,
+    ArInvoicesPastDueResult,
+    ArPaymentHistoryResult,
+    BillLineItemsResult,
+    CustomerInvoiceHistoryResult,
+    GlAccountTransactionsResult,
+    GlPeriodSummaryResult,
+    InvoiceDetailsResult,
+    InvoiceLineItemsResult,
+    ItemMovementHistoryResult,
+    PoLineItemsResult,
+    PoOrderStatusResult,
+    SalesPriceResult,
+    VendorApInvoicesResult,
+    VendorDetailsResult,
+)
 
 # Finance uses the higher-privilege "administrator" miniERP account (AR/AP/GL/PO/
 # Vendor). Bind every query in this domain to the "admin" credential profile
@@ -309,10 +328,6 @@ def _identifier_candidates(value: str | None) -> list[str]:
     return candidates
 
 
-def _json_tool_result(**payload: Any) -> str:
-    return json.dumps({"source": "miniERP-finance", **payload}, ensure_ascii=True)
-
-
 def _format_date(date_str: str, *, end_of_day: bool = False) -> str:
     if "T" in date_str:
         return date_str
@@ -344,11 +359,11 @@ async def _resolve_baccount_id(acct_cd: str) -> int | None:
 # ── Vendor ────────────────────────────────────────────────────────────────────
 
 
-async def get_vendor_details(vendor_code: str) -> str:
+async def get_vendor_details(vendor_code: str) -> VendorDetailsResult:
     baccount_id = await _resolve_baccount_id(vendor_code)
     if baccount_id is None:
-        return _json_tool_result(
-            status="not_found", intent="vendor_details",
+        return VendorDetailsResult(
+            status="not_found",
             message=f"No vendor account found for {vendor_code}.",
             vendorCode=vendor_code,
         )
@@ -365,15 +380,15 @@ async def get_vendor_details(vendor_code: str) -> str:
     result = await find_with_offset_pagination(MINIERP_ENTITIES["vendor"], options)
     items = result.get("items") or []
     if not items:
-        return _json_tool_result(
-            status="not_found", intent="vendor_details",
+        return VendorDetailsResult(
+            status="not_found",
             message=f"No vendor profile found for {vendor_code}.",
             vendorCode=vendor_code,
         )
 
     item = items[0]
-    return _json_tool_result(
-        status="success", intent="vendor_details",
+    return VendorDetailsResult(
+        status="success",
         vendorCode=vendor_code,
         vendorClassId=item.get(MINIERP_FIELDS["vendor_class_id"]),
         termsId=item.get(MINIERP_FIELDS["vendor_terms_id"]),
@@ -386,11 +401,11 @@ async def get_vendor_details(vendor_code: str) -> str:
 
 async def get_vendor_ap_invoices(
     vendor_code: str, page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE
-) -> str:
+) -> VendorApInvoicesResult:
     baccount_id = await _resolve_baccount_id(vendor_code)
     if baccount_id is None:
-        return _json_tool_result(
-            status="not_found", intent="vendor_ap_invoices",
+        return VendorApInvoicesResult(
+            status="not_found",
             message=f"No vendor account found for {vendor_code}.",
             vendorCode=vendor_code, records=[],
         )
@@ -407,8 +422,8 @@ async def get_vendor_ap_invoices(
     result = await find_with_offset_pagination(MINIERP_ENTITIES["ap_invoice"], options)
     items = result.get("items") or []
     if not items:
-        return _json_tool_result(
-            status="not_found", intent="vendor_ap_invoices",
+        return VendorApInvoicesResult(
+            status="not_found",
             message=f"No AP invoices found for vendor {vendor_code}.",
             vendorCode=vendor_code, records=[],
         )
@@ -432,8 +447,8 @@ async def get_vendor_ap_invoices(
         "returned": len(records),
         "hasMore": bool(result.get("hasMore")),
     }
-    return _json_tool_result(
-        status="success", intent="vendor_ap_invoices",
+    return VendorApInvoicesResult(
+        status="success",
         vendorCode=vendor_code, records=records, pagination=pagination,
     )
 
@@ -441,7 +456,7 @@ async def get_vendor_ap_invoices(
 # ── APInvoice (header lookup by ref number -- not vendor-ownership-gated) ───────
 
 
-async def get_ap_invoice_details(invoice_number: str, company_id: int | None = None) -> str:
+async def get_ap_invoice_details(invoice_number: str, company_id: int | None = None) -> ApInvoiceDetailsResult:
     """Header-level AP invoice lookup by refNbr.
 
     Not gated to a specific vendor's identity by design -- callers must already
@@ -470,8 +485,8 @@ async def get_ap_invoice_details(invoice_number: str, company_id: int | None = N
             items = result.get("items") or []
             if items:
                 it = items[0]
-                return _json_tool_result(
-                    status="success", intent="ap_invoice_details",
+                return ApInvoiceDetailsResult(
+                    status="success",
                     invoiceNumber=it.get(f["ap_ref_nbr"]),
                     docType=it.get(f["ap_doc_type"]),
                     invoiceDate=it.get(f["ap_invoice_date"]),
@@ -484,8 +499,8 @@ async def get_ap_invoice_details(invoice_number: str, company_id: int | None = N
                     vendorBAccountId=it.get(f["ap_vendor_id"]),
                     company=company_candidate,
                 )
-    return _json_tool_result(
-        status="not_found", intent="ap_invoice_details",
+    return ApInvoiceDetailsResult(
+        status="not_found",
         message=f"AP invoice {invoice_number} not found.",
         invoiceNumber=invoice_number,
     )
@@ -499,7 +514,7 @@ async def get_ap_invoice_details(invoice_number: str, company_id: int | None = N
 # "what's my balance" -- the tool itself has no notion of departments.
 
 
-async def get_invoice_details(invoice_number: str, company_id: int | None = None) -> str:
+async def get_invoice_details(invoice_number: str, company_id: int | None = None) -> InvoiceDetailsResult:
     """Header-level AR invoice lookup by refNbr.
 
     Not gated to a specific customer's identity by design -- ARInvoice has no
@@ -527,8 +542,8 @@ async def get_invoice_details(invoice_number: str, company_id: int | None = None
             items = result.get("items") or []
             if items:
                 it = items[0]
-                return _json_tool_result(
-                    status="success", intent="invoice_details",
+                return InvoiceDetailsResult(
+                    status="success",
                     invoiceNumber=it.get(f["ar_ref_nbr"]),
                     docType=it.get(f["ar_doc_type"]),
                     invoiceDate=it.get(f["ar_invoice_date"]),
@@ -542,8 +557,8 @@ async def get_invoice_details(invoice_number: str, company_id: int | None = None
                     paymentMethodId=it.get(f["ar_payment_method_id"]),
                     company=company_candidate,
                 )
-    return _json_tool_result(
-        status="not_found", intent="invoice_details",
+    return InvoiceDetailsResult(
+        status="not_found",
         message=f"Invoice {invoice_number} not found.",
         invoiceNumber=invoice_number,
     )
@@ -552,7 +567,7 @@ async def get_invoice_details(invoice_number: str, company_id: int | None = None
 # ── POOrder (header lookup by order number) ─────────────────────────────────────
 
 
-async def get_po_order_status(po_number: str, company_id: int | None = None) -> str:
+async def get_po_order_status(po_number: str, company_id: int | None = None) -> PoOrderStatusResult:
     f = MINIERP_FIELDS
     for candidate in _identifier_candidates(po_number):
         for company_candidate in _company_ids(company_id):
@@ -572,8 +587,8 @@ async def get_po_order_status(po_number: str, company_id: int | None = None) -> 
             items = result.get("items") or []
             if items:
                 it = items[0]
-                return _json_tool_result(
-                    status="success", intent="po_order_status",
+                return PoOrderStatusResult(
+                    status="success",
                     orderNumber=it.get(f["po_order_nbr"]),
                     orderStatus=it.get(f["po_status"]),
                     orderDate=it.get(f["po_order_date"]),
@@ -584,8 +599,8 @@ async def get_po_order_status(po_number: str, company_id: int | None = None) -> 
                     onHold=bool(it.get(f["po_hold"])),
                     company=company_candidate,
                 )
-    return _json_tool_result(
-        status="not_found", intent="po_order_status",
+    return PoOrderStatusResult(
+        status="not_found",
         message=f"PO {po_number} not found.",
         orderNumber=po_number,
     )
@@ -625,13 +640,13 @@ async def get_gl_account_transactions(
     company_id: int | None = None,
     page: int = 1,
     page_size: int = _DEFAULT_LIST_PAGE_SIZE,
-) -> str:
+) -> GlAccountTransactionsResult:
     f = MINIERP_FIELDS
     account_id, matched_company = await _resolve_account_id(account_cd, company_id)
 
     if account_id is None:
-        return _json_tool_result(
-            status="not_found", intent="gl_account_transactions",
+        return GlAccountTransactionsResult(
+            status="not_found",
             message=f"GL account {account_cd} not found.",
             accountCd=account_cd, records=[],
         )
@@ -663,8 +678,8 @@ async def get_gl_account_transactions(
     result = await find_with_offset_pagination(MINIERP_ENTITIES["gl_tran"], options)
     items = result.get("items") or []
     if not items:
-        return _json_tool_result(
-            status="not_found", intent="gl_account_transactions",
+        return GlAccountTransactionsResult(
+            status="not_found",
             message=f"No transactions found for {account_cd} in the given range.",
             accountCd=account_cd, records=[],
         )
@@ -688,8 +703,8 @@ async def get_gl_account_transactions(
         "returned": len(records),
         "hasMore": bool(result.get("hasMore")),
     }
-    return _json_tool_result(
-        status="success", intent="gl_account_transactions",
+    return GlAccountTransactionsResult(
+        status="success",
         accountCd=account_cd,
         company=matched_company,
         filters={"startDate": start_date, "endDate": end_date},
@@ -714,7 +729,7 @@ async def get_sales_price(
     company_id: int | None = None,
     page: int = 1,
     page_size: int = _DEFAULT_LIST_PAGE_SIZE,
-) -> str:
+) -> SalesPriceResult:
     """List sales price records for one inventory item.
 
     Unlike the header lookups above, ARSalesPrice legitimately returns more
@@ -769,12 +784,12 @@ async def get_sales_price(
             "returned": len(records),
             "hasMore": bool(result.get("hasMore")),
         }
-        return _json_tool_result(
-            status="success", intent="sales_price",
+        return SalesPriceResult(
+            status="success",
             inventoryId=inventory_id, records=records, pagination=pagination,
         )
-    return _json_tool_result(
-        status="not_found", intent="sales_price",
+    return SalesPriceResult(
+        status="not_found",
         message=f"No sales price records found for inventory item {inventory_id}.",
         inventoryId=inventory_id, records=[],
     )
@@ -791,7 +806,7 @@ async def get_sales_price(
 async def get_ap_invoices_due_soon(
     days_ahead: int = 14, company_id: int | None = None,
     page: int = 1, page_size: int = _AGGREGATE_PAGE_SIZE,
-) -> str:
+) -> ApInvoicesDueSoonResult:
     """AP invoices due within the next N days, across EVERY vendor -- an
     AP-aging / due-soon signal for a "My Workflow" filter node to act on.
 
@@ -824,8 +839,7 @@ async def get_ap_invoices_due_soon(
     }
     items, truncated = await _paginate(MINIERP_ENTITIES["ap_invoice"], options)
     if not items:
-        return _json_tool_result(status="not_found", intent="ap_invoices_due_soon",
-                                 invoices=[], count=0, truncated=False)
+        return ApInvoicesDueSoonResult(status="not_found", invoices=[], count=0, truncated=False)
 
     vendor_ids = sorted({it.get(f["ap_vendor_id"]) for it in items if it.get(f["ap_vendor_id"]) is not None})
     vmap: dict = {}
@@ -859,15 +873,14 @@ async def get_ap_invoices_due_soon(
         }
         for it in items
     ]
-    return _json_tool_result(
-        status="ok", intent="ap_invoices_due_soon",
-        invoices=invoices, count=len(invoices), truncated=truncated,
+    return ApInvoicesDueSoonResult(
+        status="ok", invoices=invoices, count=len(invoices), truncated=truncated,
     )
 
 
 async def get_ar_invoices_past_due(
     min_invoice_age_days: int = 30, company_id: int | None = None, page: int = 1,
-) -> str:
+) -> ArInvoicesPastDueResult:
     """AR invoices older than N days that may still be outstanding, across
     every customer -- an AR-aging / collections signal for a filter node to
     act on.
@@ -909,8 +922,7 @@ async def get_ar_invoices_past_due(
     }
     items, truncated = await _paginate(MINIERP_ENTITIES["ar_invoice"], options)
     if not items:
-        return _json_tool_result(status="not_found", intent="ar_invoices_past_due",
-                                 invoices=[], count=0, truncated=False)
+        return ArInvoicesPastDueResult(status="not_found", invoices=[], count=0, truncated=False)
 
     invoices = [
         {
@@ -926,9 +938,8 @@ async def get_ar_invoices_past_due(
         }
         for it in items
     ]
-    return _json_tool_result(
-        status="ok", intent="ar_invoices_past_due",
-        invoices=invoices, count=len(invoices), truncated=truncated,
+    return ArInvoicesPastDueResult(
+        status="ok", invoices=invoices, count=len(invoices), truncated=truncated,
     )
 
 
@@ -939,7 +950,7 @@ async def get_ar_invoices_past_due(
 async def get_po_line_items(
     po_number: str, company_id: int | None = None,
     page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE,
-) -> str:
+) -> PoLineItemsResult:
     """List line items (product, quantities, cost) for one purchase order by PO number."""
     f = MINIERP_FIELDS
     for candidate in _identifier_candidates(po_number):
@@ -987,13 +998,13 @@ async def get_po_line_items(
                     "returned": len(records),
                     "hasMore": bool(result.get("hasMore")),
                 }
-                return _json_tool_result(
-                    status="success", intent="po_line_items",
+                return PoLineItemsResult(
+                    status="success",
                     orderNumber=po_number, company=company_candidate,
                     records=records, pagination=pagination,
                 )
-    return _json_tool_result(
-        status="not_found", intent="po_line_items",
+    return PoLineItemsResult(
+        status="not_found",
         message=f"No line items found for PO {po_number}.",
         orderNumber=po_number, records=[],
     )
@@ -1005,13 +1016,13 @@ async def get_po_line_items(
 
 async def get_ar_payment_history(
     customer_id: str, page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE,
-) -> str:
+) -> ArPaymentHistoryResult:
     """List AR payment applications for a customer: which invoice was paid or
     credited by which payment/credit-memo document, when, and for how much."""
     baccount_id = await _resolve_baccount_id(customer_id)
     if baccount_id is None:
-        return _json_tool_result(
-            status="not_found", intent="ar_payment_history",
+        return ArPaymentHistoryResult(
+            status="not_found",
             message=f"No customer account found for {customer_id}.",
             customerId=customer_id, records=[],
         )
@@ -1030,8 +1041,8 @@ async def get_ar_payment_history(
     result = await find_with_offset_pagination(MINIERP_ENTITIES["ar_adjust"], options)
     items = result.get("items") or []
     if not items:
-        return _json_tool_result(
-            status="not_found", intent="ar_payment_history",
+        return ArPaymentHistoryResult(
+            status="not_found",
             message=f"No payment history found for customer {customer_id}.",
             customerId=customer_id, records=[],
         )
@@ -1056,21 +1067,21 @@ async def get_ar_payment_history(
         "returned": len(records),
         "hasMore": bool(result.get("hasMore")),
     }
-    return _json_tool_result(
-        status="success", intent="ar_payment_history",
+    return ArPaymentHistoryResult(
+        status="success",
         customerId=customer_id, records=records, pagination=pagination,
     )
 
 
 async def get_ap_payment_history(
     vendor_code: str, page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE,
-) -> str:
+) -> ApPaymentHistoryResult:
     """List AP payment applications for a vendor: which bill was paid by which
     payment document, when, and for how much."""
     baccount_id = await _resolve_baccount_id(vendor_code)
     if baccount_id is None:
-        return _json_tool_result(
-            status="not_found", intent="ap_payment_history",
+        return ApPaymentHistoryResult(
+            status="not_found",
             message=f"No vendor account found for {vendor_code}.",
             vendorCode=vendor_code, records=[],
         )
@@ -1090,8 +1101,8 @@ async def get_ap_payment_history(
     result = await find_with_offset_pagination(MINIERP_ENTITIES["ap_adjust"], options)
     items = result.get("items") or []
     if not items:
-        return _json_tool_result(
-            status="not_found", intent="ap_payment_history",
+        return ApPaymentHistoryResult(
+            status="not_found",
             message=f"No payment history found for vendor {vendor_code}.",
             vendorCode=vendor_code, records=[],
         )
@@ -1117,8 +1128,8 @@ async def get_ap_payment_history(
         "returned": len(records),
         "hasMore": bool(result.get("hasMore")),
     }
-    return _json_tool_result(
-        status="success", intent="ap_payment_history",
+    return ApPaymentHistoryResult(
+        status="success",
         vendorCode=vendor_code, records=records, pagination=pagination,
     )
 
@@ -1129,15 +1140,15 @@ async def get_ap_payment_history(
 async def get_gl_period_summary(
     account_cd: str, fin_period_id: str = "", company_id: int | None = None,
     page: int = 1, page_size: int = 12,
-) -> str:
+) -> GlPeriodSummaryResult:
     """Period-level GL balances (beginning balance, period debit/credit, YTD
     balance) for one account -- a direct rollup from GLHistory, not a
     client-side aggregation over get_gl_account_transactions' raw GLTran rows.
     fin_period_id, if given, is Acumatica's "YYYYMM" format (e.g. "202401")."""
     account_id, matched_company = await _resolve_account_id(account_cd, company_id)
     if account_id is None:
-        return _json_tool_result(
-            status="not_found", intent="gl_period_summary",
+        return GlPeriodSummaryResult(
+            status="not_found",
             message=f"GL account {account_cd} not found.",
             accountCd=account_cd, records=[],
         )
@@ -1161,8 +1172,8 @@ async def get_gl_period_summary(
     result = await find_with_offset_pagination(MINIERP_ENTITIES["gl_history"], options)
     items = result.get("items") or []
     if not items:
-        return _json_tool_result(
-            status="not_found", intent="gl_period_summary",
+        return GlPeriodSummaryResult(
+            status="not_found",
             message=f"No period history found for {account_cd}.",
             accountCd=account_cd, records=[],
         )
@@ -1185,8 +1196,8 @@ async def get_gl_period_summary(
         "returned": len(records),
         "hasMore": bool(result.get("hasMore")),
     }
-    return _json_tool_result(
-        status="success", intent="gl_period_summary",
+    return GlPeriodSummaryResult(
+        status="success",
         accountCd=account_cd, company=matched_company,
         records=records, pagination=pagination,
     )
@@ -1199,7 +1210,7 @@ async def get_gl_period_summary(
 async def get_invoice_line_items(
     invoice_number: str, company_id: int | None = None,
     page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE,
-) -> str:
+) -> InvoiceLineItemsResult:
     """List billed line items (product, qty, price, sales rep) for one AR
     invoice by invoice/reference number -- line-level detail get_invoice_details
     doesn't carry."""
@@ -1243,13 +1254,13 @@ async def get_invoice_line_items(
                     "returned": len(records),
                     "hasMore": bool(result.get("hasMore")),
                 }
-                return _json_tool_result(
-                    status="success", intent="invoice_line_items",
+                return InvoiceLineItemsResult(
+                    status="success",
                     invoiceNumber=invoice_number, company=company_candidate,
                     records=records, pagination=pagination,
                 )
-    return _json_tool_result(
-        status="not_found", intent="invoice_line_items",
+    return InvoiceLineItemsResult(
+        status="not_found",
         message=f"No line items found for invoice {invoice_number}.",
         invoiceNumber=invoice_number, records=[],
     )
@@ -1258,7 +1269,7 @@ async def get_invoice_line_items(
 async def get_bill_line_items(
     invoice_number: str, company_id: int | None = None,
     page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE,
-) -> str:
+) -> BillLineItemsResult:
     """List billed line items (product, qty, cost, linked PO) for one AP bill
     by invoice/reference number -- mirrors get_invoice_line_items for AP."""
     f = MINIERP_FIELDS
@@ -1301,13 +1312,13 @@ async def get_bill_line_items(
                     "returned": len(records),
                     "hasMore": bool(result.get("hasMore")),
                 }
-                return _json_tool_result(
-                    status="success", intent="bill_line_items",
+                return BillLineItemsResult(
+                    status="success",
                     invoiceNumber=invoice_number, company=company_candidate,
                     records=records, pagination=pagination,
                 )
-    return _json_tool_result(
-        status="not_found", intent="bill_line_items",
+    return BillLineItemsResult(
+        status="not_found",
         message=f"No line items found for bill {invoice_number}.",
         invoiceNumber=invoice_number, records=[],
     )
@@ -1319,13 +1330,13 @@ async def get_bill_line_items(
 
 async def get_customer_invoice_history(
     customer_id: str, page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE,
-) -> str:
+) -> CustomerInvoiceHistoryResult:
     """List a customer's AR invoices via SOInvoice -- the one AR-adjacent table
     confirmed to carry a real customerId link (ARInvoice itself has none)."""
     baccount_id = await _resolve_baccount_id(customer_id)
     if baccount_id is None:
-        return _json_tool_result(
-            status="not_found", intent="customer_invoice_history",
+        return CustomerInvoiceHistoryResult(
+            status="not_found",
             message=f"No customer account found for {customer_id}.",
             customerId=customer_id, records=[],
         )
@@ -1345,8 +1356,8 @@ async def get_customer_invoice_history(
     result = await find_with_offset_pagination(MINIERP_ENTITIES["so_invoice"], options)
     items = result.get("items") or []
     if not items:
-        return _json_tool_result(
-            status="not_found", intent="customer_invoice_history",
+        return CustomerInvoiceHistoryResult(
+            status="not_found",
             message=f"No invoice history found for customer {customer_id}.",
             customerId=customer_id, records=[],
         )
@@ -1366,8 +1377,8 @@ async def get_customer_invoice_history(
         "returned": len(records),
         "hasMore": bool(result.get("hasMore")),
     }
-    return _json_tool_result(
-        status="success", intent="customer_invoice_history",
+    return CustomerInvoiceHistoryResult(
+        status="success",
         customerId=customer_id, records=records, pagination=pagination,
     )
 
@@ -1378,7 +1389,7 @@ async def get_customer_invoice_history(
 async def get_item_movement_history(
     inventory_id: str, start_date: str = "", end_date: str = "",
     company_id: int | None = None, page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE,
-) -> str:
+) -> ItemMovementHistoryResult:
     """Inventory transaction history (receipts/issues/transfers) for one item,
     including lot/serial number and expiration date where the item is tracked
     that way.
@@ -1393,8 +1404,8 @@ async def get_item_movement_history(
     """
     inv = (inventory_id or "").strip()
     if not inv:
-        return _json_tool_result(
-            status="missing_identifier", intent="item_movement_history",
+        return ItemMovementHistoryResult(
+            status="missing_identifier",
             message="An inventory_id is required.", missingFields=["inventory_id"],
             records=[],
         )
@@ -1426,8 +1437,8 @@ async def get_item_movement_history(
     result = await find_with_offset_pagination(MINIERP_ENTITIES["in_tran"], options)
     items = result.get("items") or []
     if not items:
-        return _json_tool_result(
-            status="not_found", intent="item_movement_history",
+        return ItemMovementHistoryResult(
+            status="not_found",
             message=f"No movement history found for item {inventory_id}.",
             inventoryId=inv, records=[],
         )
@@ -1453,8 +1464,8 @@ async def get_item_movement_history(
         "returned": len(records),
         "hasMore": bool(result.get("hasMore")),
     }
-    return _json_tool_result(
-        status="success", intent="item_movement_history",
+    return ItemMovementHistoryResult(
+        status="success",
         inventoryId=inv, records=records, pagination=pagination,
         note="Transaction history, not live lot/serial status -- INLotSerStatus is not reachable under this credential.",
     )

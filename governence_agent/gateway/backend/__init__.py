@@ -28,6 +28,7 @@ from . import (
     chat,
     code_plans,
     knowledge,
+    nav_help,
     pages,
     sends,
     session,
@@ -139,6 +140,9 @@ def register(app) -> None:
     api("/dashboard/chat-history/{sid}", chat._chat_transcript)
     api("/dashboard/chat-history/{sid}/resume", chat._chat_resume, methods=["POST"])
     api("/dashboard/feedback", chat._chat_feedback, methods=["POST"])
+
+    # ── Navigation-help chatbot (separate from the governed assistant above) ──
+    api("/nav-help", nav_help._nav_help, methods=["POST"], legacy=False)
 
     # ── Admin: audit, policy, principals ──────────────────────────────────────
     api("/admin/calls", admin_security._admin_calls)

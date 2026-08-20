@@ -15,7 +15,7 @@ import os
 import re
 import time
 import uuid
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import store_concurrency
@@ -46,15 +46,9 @@ _LLM_TRANSFORM_ALLOWED_SOURCE_KINDS = {"tool_call", "llm_transform"}
 # validate_graph below, at BUILD time, where a clear blocker can still stop it.
 VALID_NODE_KINDS = {"trigger", "tool_call", "approval_gate", "llm_transform", "filter", "loop", "join"}
 
-# ── join node ──────────────────────────────────────────────────────────────────
-#
-# Merges two already-fetched arrays by a shared key (e.g. a filter's `matched`
-# customers enriched with a bulk lookup tool's rows) -- a generic, reusable
-# alternative to a `loop` calling a per-record tool once per row, for exactly the
-# case where the second dataset can already be fetched in ONE bulk call (a
-# `where: {"key": {"in": [...]}}`-style query) rather than one call per row.
-# No body/subgraph concept like `loop` -- it's a single self-contained node, same
-# shape as `filter`, just with two inputs instead of one.
+# join node's shape/guidance now lives in NODE_KIND_SCHEMAS below (single source
+# of truth for the copilot prompt too); this constant is the one piece its
+# validate_graph check still needs directly.
 JOIN_ON_MISSING_VALUES = {"keep", "drop"}
 
 # ── loop node (see loopnodedesign.md) ─────────────────────────────────────────
@@ -99,6 +93,211 @@ FILTER_OPS = {
     # precomputed field needed.
     "older_than_days", "newer_than_days",
 }
+
+# ── node kind schema registry ───────────────────────────────────────────────────
+#
+# Single source of truth for a "generic behavior" node kind's shape (filter/loop/
+# join -- NOT trigger/tool_call/approval_gate/llm_transform, which are structurally
+# special: trigger declares the workflow's OWN input contract, tool_call's schema
+# is entirely dynamic per-tool, so neither fits a static per-kind field list the
+# way these three do). Built 2026-08-19 after `loop` was found to have shipped
+# fully working -- validate_graph rules, interpreter execution, a passing smoke
+# suite -- with ZERO prompt documentation: the workflow copilot had no way to ever
+# discover or use it, and two stale prompt references still claimed "no for-each
+# node exists yet" after it had. That's the exact failure mode this registry
+# exists to close off: a node kind's field NAMES/shapes now live in ONE place,
+# and gateway/orchestrator.py's render_node_kind_prompt generates the copilot's
+# prompt text from it -- so a config field validate_graph enforces can't silently
+# go undocumented, or vice versa. What ISN'T generated: the "why"/anti-pattern
+# reasoning (`guidance` below) -- that's still hand-authored prose, co-located
+# with the schema it describes but not mechanically derivable from field names
+# and types.
+#
+# validate_graph's actual per-kind checks stay hand-written Python, deliberately
+# NOT generated from this registry -- the real semantic rules (FILTER_OPS
+# membership, loop's dominance/region rules) don't reduce to a generic "type"
+# without building a validation mini-language of their own, which would be over-
+# engineering for three node kinds.
+
+
+@dataclass(frozen=True)
+class NodeKindField:
+    name: str
+    kind: str             # "binding" (an input_bindings key) | "config" (a config key)
+    required: bool
+    type_desc: str        # short, human-readable -- not a JSON-schema type, just prose
+    description: str
+    default: str = ""     # human-readable default; "" means no default (required, or "none")
+
+
+@dataclass(frozen=True)
+class NodeKindSchema:
+    kind: str
+    summary: str                      # one-line opener for the prompt section
+    fields: tuple                     # tuple[NodeKindField, ...]
+    outputs: dict                     # {output_key: one-line description}
+    guidance: str                     # hand-authored "why / when to use / anti-patterns" prose
+
+
+def _f(name, kind, required, type_desc, description, default="") -> NodeKindField:
+    return NodeKindField(name=name, kind=kind, required=required, type_desc=type_desc, description=description, default=default)
+
+
+NODE_KIND_SCHEMAS: dict[str, NodeKindSchema] = {
+    "filter": NodeKindSchema(
+        kind="filter",
+        summary="Split an array into matched/unmatched rows by a reliable, exactly-repeated condition.",
+        fields=(
+            _f("input", "binding", True, "array-valued binding",
+               "the rows to filter, e.g. from an earlier tool_call node's list-valued output"),
+            _f("conditions", "config", False,
+               "{'all'|'any': [{'field','op','value'}, ...]}",
+               "the condition tree; op is one of eq|ne|gt|gte|lt|lte|contains|in|not_in|"
+               "older_than_days|newer_than_days -- the last two compare a date-string field "
+               "against \"now minus N days\"",
+               default="{'all': []} -- matches every row (the UI's default for an unconfigured "
+                       "step, not an accidental match-nothing trap)"),
+            _f("match_limit", "config", False, "number | a binding (e.g. to a trigger input)",
+               "cap on how many MATCHED rows to keep -- a different question than a bulk tool's "
+               "own page_size, which controls how many RAW rows are fetched before filtering runs"),
+            _f("table_name", "config", False, "string", "label for matchedTable/unmatchedTable",
+               default="the node's own title"),
+        ),
+        outputs={
+            "matched": "rows that passed the condition (sliced to match_limit if set)",
+            "unmatched": "rows that failed -- the true complement, never affected by match_limit",
+            "matchedCount": "len(matched) after any match_limit slicing",
+            "totalMatchCount": "the TRUE match count before slicing -- 'found your 25' vs. 'only 12 exist'",
+            "totalCount": "len(input)",
+            "matchLimitReached": "whether match_limit was actually reached, or fewer real matches existed",
+            "matchedTable": "[{'name': table_name, 'rows': matched}] -- pre-wrapped for a report tool's `tables` arg",
+            "unmatchedTable": "same wrapping, over `unmatched`",
+        },
+        guidance=(
+            "A tunable-looking value (a day count, a dollar threshold) should default to a trigger "
+            "binding with a labelled input rather than a baked literal, so the user can change it "
+            "per run without editing the graph; a settled structural fact (a status code check) can "
+            "stay a literal. Bind a downstream report tool's `tables` arg directly to matchedTable/"
+            "unmatchedTable, never to the bare matched/unmatched array -- those tools expect the "
+            "wrapped shape, not a raw list."
+        ),
+    ),
+    "loop": NodeKindSchema(
+        kind="loop",
+        summary="Run a fixed span of nodes once per row of an array, when no bulk tool covers the full ask in one call.",
+        fields=(
+            _f("input", "binding", True, "array-valued binding", "the rows to iterate; each becomes one iteration's loop_item"),
+            _f("body", "config", True, "list[node_id]",
+               "which nodes this loop OWNS and runs once per row -- they stay real nodes with real "
+               "edges, the loop just owns them; body node kind must be tool_call or llm_transform "
+               "only (no nested loop/filter/approval_gate, no send/export-risk tool_call)"),
+            _f("result_node", "config", False, "a node_id inside body",
+               "which body node's output becomes each iteration's results[i]",
+               default="the body's topological last node"),
+            _f("max_iterations", "config", False, "integer", "hard cap on rows processed",
+               default=f"{LOOP_DEFAULT_MAX_ITERATIONS} (ceiling {LOOP_MAX_ITERATIONS_CEILING}; "
+                       f"{LOOP_MAX_ITERATIONS_WITH_LLM} if the body contains an llm_transform)"),
+            _f("max_duration_sec", "config", False, "number", "wall-clock cap, checked between iterations",
+               default=str(LOOP_DEFAULT_MAX_DURATION_SEC)),
+            _f("on_error", "config", False, "'fail'|'continue'",
+               "stop at the first failed row, or record it and carry on", default="fail"),
+            _f("max_failures", "config", False, "integer", "only with on_error='continue' -- stop once exceeded", default="0 (unlimited)"),
+        ),
+        outputs={
+            "iterations": "how many rows were actually processed (may be less than input length if capped)",
+            "succeeded": "count of rows that completed without error",
+            "failed": "count of rows that errored (only >0 possible with on_error='continue')",
+            "itemCount": "the FULL input length, even if iterations was capped -- so truncation stays visible",
+            "truncated": "whether a cap/cancel/failure-limit stopped the walk before the full input was processed",
+            "truncatedReason": "'max_iterations'|'max_duration'|'cancelled'|'max_failures'|None",
+            "results": "one entry per completed iteration, from result_node's output",
+            "artifactIds": "every artifact id created across every iteration",
+            "errors": "[{'index','message'}, ...] for any failed row",
+        },
+        guidance=(
+            "Body nodes reference the current row with {'source': 'loop_item', 'path': ...} (a "
+            "pathless loop_item binds the WHOLE row for a scalar array) and its position with "
+            "{'source': 'loop_index'} -- legal ONLY inside this loop's own body. A body node reading "
+            "ANOTHER body node's output resolves to THIS iteration's copy of it, not a stale shared "
+            "value -- what makes a two-node body (e.g. draft an email, then send it) work per-row. "
+            "USE THIS ONLY WHEN NO BULK TOOL COVERS THE FULL ASK IN ONE CALL: every iteration is a "
+            "real governed tool call (or a real inference if the body has an llm_transform, which "
+            "caps iterations at just 5 for exactly that cost reason) -- before proposing a loop, scan "
+            "your available tools for one that's already cross-customer/cross-vendor/company-wide "
+            "and covers the SAME full ask in one call. When you need a related field from a "
+            "different table for rows you already have, and that table supports a bulk "
+            "`{in: [...]}`-style lookup by the same key, prefer ONE bulk tool_call plus a `join` "
+            "node over looping a per-record lookup."
+        ),
+    ),
+    "join": NodeKindSchema(
+        kind="join",
+        summary="Merge two already-fetched arrays by a shared key -- without a per-row loop calling a tool once per record.",
+        fields=(
+            _f("left", "binding", True, "array-valued binding", "e.g. a filter's matched customers, or any bulk tool's rows"),
+            _f("right", "binding", True, "array-valued binding", "e.g. a separate bulk lookup tool's rows"),
+            _f("left_key", "config", True, "string (field name)", "the field on each LEFT row to match on"),
+            _f("right_key", "config", True, "string (field name)", "the field on each RIGHT row to match on"),
+            _f("fields", "config", True,
+               "'*' | ['fieldName', ...] | [{'from': 'rightField', 'as': 'outputField'}, ...]",
+               "which right-row field(s) land on each merged row: '*' brings over everything except "
+               "the join key, a plain name keeps it as-is, {'from','as'} renames one -- REQUIRED, "
+               "not optional, so a join can never silently run with nothing actually merged"),
+            _f("on_missing", "config", False, "'keep'|'drop'",
+               "a left row with no right-side match: keep it in `merged` unenriched, or drop it -- "
+               "either way it's ALWAYS reported in `unmatched`, never silently invisible",
+               default="keep"),
+            _f("table_name", "config", False, "string", "label for mergedTable", default="the node's own title"),
+        ),
+        outputs={
+            "merged": "every left row (or only matched ones, if on_missing='drop'), enriched per `fields`",
+            "unmatched": "left rows with no right-side match -- ALWAYS populated regardless of on_missing",
+            "matchedCount": "how many left rows found a right-side match",
+            "unmatchedCount": "how many did not",
+            "totalCount": "len(left)",
+            "mergedTable": "[{'name': table_name, 'rows': merged}] -- pre-wrapped for a report tool's `tables` arg",
+        },
+        guidance=(
+            "Use renaming ({'from','as'}) whenever left and right might share a field name that "
+            "means something different on each side (e.g. both having their own unrelated "
+            "'status') -- without it, '*' or a same-named plain field silently overwrites one value "
+            "with the other. THE POINT OF THIS NODE: whenever a required field lives on a DIFFERENT "
+            "table than rows you already have, and that other table supports a bulk "
+            "`{in: [...]}`-style lookup by the same key (check the tool's own description -- most "
+            "cross-record tools do), fetch it in ONE bulk tool_call bound to the FULL list of keys "
+            "you already have, then a join node to merge -- never propose a loop node for this; a "
+            "per-record lookup when a bulk one exists is exactly the anti-pattern the loop guidance "
+            "above already warns against, just one hop removed (fetching a RELATED field instead of "
+            "the primary data)."
+        ),
+    ),
+}
+
+
+def _field_shape(f: NodeKindField) -> str:
+    if f.required:
+        return f"'{f.name}': {f.type_desc}"
+    suffix = f" (optional, default {f.default})" if f.default else " (optional)"
+    return f"'{f.name}': {f.type_desc}{suffix}"
+
+
+def render_node_kind_prompt(kind: str) -> str:
+    """Render one registry entry into the copilot system prompt's established
+    prose shape -- structural facts (shape/fields/outputs) generated from
+    NODE_KIND_SCHEMAS so they can never drift from what validate_graph/the
+    interpreter actually enforce; `schema.guidance` stays hand-authored (the
+    "why"/anti-patterns aren't derivable from field names and types alone)."""
+    schema = NODE_KIND_SCHEMAS[kind]
+    bindings = [f for f in schema.fields if f.kind == "binding"]
+    config = [f for f in schema.fields if f.kind == "config"]
+    bindings_str = ", ".join(_field_shape(f) for f in bindings)
+    config_str = ", ".join(_field_shape(f) for f in config)
+    outputs_str = ", ".join(f"`{k}`" for k in schema.outputs)
+    return (
+        f"{schema.summary} Shape: kind='{kind}', input_bindings={{{bindings_str}}}, "
+        f"config={{{config_str}}}. Output: {outputs_str}. {schema.guidance}"
+    )
+
 
 # Best-effort, cosmetic-only tool -> output-type map for template-dict projection
 # (gateway/workflows.py's outputTypes field). Not authoritative for anything.
@@ -636,9 +835,12 @@ def validate_graph(nodes: list[GraphNode] | list[dict], edges: list[GraphEdge] |
 
     # join: `left`/`right` may only reference an existing node (same
     # dangling-reference shape as filter's `input` above); left_key/right_key are
-    # required non-empty field names; fields (if given) must be "*" or a list of
-    # bare strings / {"from","as"} objects; on_missing (if given) must be a value
-    # the interpreter actually recognizes.
+    # required non-empty field names; fields is REQUIRED (either "*" or a non-empty
+    # list of bare strings / {"from","as"} objects) -- omitting it entirely would
+    # otherwise silently run the join with NOTHING actually merged onto matched
+    # rows (matchedCount looks right, the enrichment the author wanted just never
+    # happens, with no error anywhere); on_missing (if given) must be a value the
+    # interpreter actually recognizes.
     for n in nodes:
         if n.kind != "join":
             continue
@@ -664,9 +866,14 @@ def validate_graph(nodes: list[GraphNode] | list[dict], edges: list[GraphEdge] |
                 n.node_id,
             )
         fields = config.get("fields")
-        if fields is not None and fields != "*":
-            if not isinstance(fields, list):
-                blocker("join_invalid_config", f"node {n.node_id!r}: fields must be \"*\" or a list", n.node_id)
+        if fields != "*":
+            if not isinstance(fields, list) or not fields:
+                blocker(
+                    "join_missing_fields",
+                    f"node {n.node_id!r}: fields is required and must be \"*\" or a non-empty list "
+                    "-- omitting it would silently merge nothing onto matched rows",
+                    n.node_id,
+                )
             else:
                 for entry in fields:
                     if isinstance(entry, dict):

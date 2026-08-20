@@ -282,8 +282,8 @@ async def minierp_analytics_get_customer_order_recency(
     """Cross-customer order recency by territory: order count, last-order date, and a
     best-effort phone number per customer (a win-back / reorder-due signal), for
     customers matching country/state/city (cross-customer analytics; requires the
-    analytics entitlement). phone is not a verified primary contact -- see the
-    underlying tool's own docstring."""
+    analytics entitlement). phone is a best-effort contact number (lowest-id
+    contact on file with one), not a verified primary contact."""
     return await _govern("get_customer_order_recency", session_id, "", {
         "country": country, "state": state, "city": city, "page": page, "page_size": page_size,
     })
@@ -505,7 +505,9 @@ async def calendar_list_upcoming_meetings(session_id: SessionId, within_days: in
 
 @mcp.tool(name="knowledge_search_knowledge")
 async def knowledge_search_knowledge(session_id: SessionId, query: str, limit: int = 5, document_id: str = "") -> str:
-    """Search indexed local knowledge chunks visible to this consumer."""
+    """Search indexed knowledge chunks visible to this consumer (direct Azure AI
+    Search, then an HTTP proxy, then a local fallback store -- first configured
+    tier wins; not local-only)."""
     return await _govern("search_knowledge", session_id, "", {
         "owner": ctx.consumer_ctx.get() or "unknown",
         "query": query,
@@ -516,7 +518,8 @@ async def knowledge_search_knowledge(session_id: SessionId, query: str, limit: i
 
 @mcp.tool(name="knowledge_answer_from_knowledge")
 async def knowledge_answer_from_knowledge(session_id: SessionId, query: str, limit: int = 5, document_id: str = "") -> str:
-    """Return a citation-backed extractive answer from indexed local documents."""
+    """Return a citation-backed extractive answer from indexed documents (same
+    direct/proxy/local precedence as knowledge_search_knowledge; not local-only)."""
     return await _govern("answer_from_knowledge", session_id, "", {
         "owner": ctx.consumer_ctx.get() or "unknown",
         "query": query,
@@ -1286,6 +1289,62 @@ async def group_stats(session_id: SessionId, rows: list) -> str:
         "groupCount": len(groups), "rowCount": len(rows),
         "grandTotal": sum(v for vs in buckets.values() for v in vs),
     })
+
+
+# ── Startup self-check: gateway tools <-> manifest.py must agree ──────────────
+# A CODE-LEVEL gate, not a test someone has to remember to run: this executes on
+# every import of this module (dev, prod, and _smoke/test_tool_registration_
+# consistency.py itself), so a drifted registration fails the moment the
+# gateway tries to start, not "whenever someone next runs the smoke suite."
+#
+# Only covers this process's own two legs (gateway tools <-> manifest
+# entries) -- it cannot also confirm the physical backend actually implements
+# the canonical tool without a live network call to that backend, which would
+# make gateway startup depend on backend liveness/ordering. That third leg
+# (backend <-> manifest) stays a smoke-test/CI concern:
+# _smoke/test_tool_registration_consistency.py.
+#
+# Any gateway tool not backed by a manifest.py ToolPolicy must be listed here,
+# as a deliberate, visible decision -- never a silent exemption.
+_UNGOVERNED_GATEWAY_TOOLS = {
+    # Workflow-authoring meta tools -- scratchpad reads/writes and draft-graph
+    # proposals, not data lookups; see each one's own docstring above.
+    "submit_workflow_request", "update_workflow_plan", "list_my_workflows",
+    "get_my_workflow", "propose_graph",
+    # "Data Aggregation" utility tools (STAGE2_PLAN.md SS10.2): pure local
+    # computation over values/rows the caller already has, no backend call, no
+    # _govern(...), nothing to redact or authorize.
+    "calculate", "compute_stats", "percent_change", "group_stats",
+}
+
+
+def _check_tool_registration() -> None:
+    registered = {t.name: (t.description or "") for t in mcp._tool_manager.list_tools()}
+    errors: list[str] = []
+    for canonical in manifest.TOOL_POLICIES:
+        expected_name = manifest.namespaced(canonical)
+        if expected_name not in registered:
+            errors.append(
+                f"manifest tool {canonical!r} has no gateway wrapper ({expected_name}) "
+                "-- no LLM caller (Home chat, workflow copilot, or any MCP client) can reach it"
+            )
+    for name in registered:
+        if name in _UNGOVERNED_GATEWAY_TOOLS:
+            continue
+        if manifest.canonical(name) is None:
+            errors.append(
+                f"gateway tool {name!r} has no policy/manifest.py ToolPolicy and isn't in "
+                "_UNGOVERNED_GATEWAY_TOOLS -- add a ToolPolicy, or add it to that set if it's "
+                "deliberately ungoverned (pure compute / workflow-authoring meta tool)"
+            )
+    if errors:
+        raise RuntimeError(
+            "gateway/app.py tool registration is out of sync with policy/manifest.py:\n  "
+            + "\n  ".join(errors)
+        )
+
+
+_check_tool_registration()
 
 
 app = mcp.streamable_http_app()

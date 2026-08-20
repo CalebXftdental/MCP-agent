@@ -112,7 +112,7 @@ with TestClient(gateway_app.app, base_url="http://testserver") as client:
             # non-list input -- must fail loudly, not silently coerce to []
             {"nodeId": "n_bad_left", "kind": "join", "title": "bad_left",
              "inputBindings": {"left": {"source": "trigger", "path": "notAList"}, "right": {"source": "trigger", "path": "right"}},
-             "config": {"left_key": "customerId", "right_key": "customerId"}},
+             "config": {"left_key": "customerId", "right_key": "customerId", "fields": ["email"]}},
         ],
         "edges": [
             {"edgeId": f"e_{n}", "sourceNodeId": "trigger", "targetNodeId": n}
@@ -126,7 +126,12 @@ with TestClient(gateway_app.app, base_url="http://testserver") as client:
 
     run = client.post(f"/workflows/{gid}/run", json={"left": LEFT, "right": RIGHT, "notAList": "not-a-list"})
     run_body = run.json()
-    # n_bad_left fails, which fails the whole run -- expected, checked below via that step's own error.
+    # n_bad_left is deliberately wired to a non-list input -- it fails, which fails
+    # the whole run, so _workflow_run_start reports 409 (an "error" result), not
+    # 201 -- confirmed against backend/workflow_api.py's _workflow_run_start. The
+    # completed steps that ran BEFORE the failure are still present in the body.
+    check("run reports 409 (one node deliberately fails, per _workflow_run_start's error-result contract)",
+          run.status_code == 409, run_body)
     steps_by_id = {s.get("stepId"): s for s in run_body.get("steps", [])}
 
     basic = steps_by_id.get("n_basic", {}).get("outputs", {})
@@ -197,6 +202,31 @@ with TestClient(gateway_app.app, base_url="http://testserver") as client:
     })
     check("a fields entry missing 'from' is rejected at create time", bad_fields.status_code == 400 and "non-empty 'from' name" in bad_fields.text, bad_fields.text)
 
+    missing_fields = client.post("/workflow-graphs", json={
+        "displayName": "Join Missing Fields",
+        "nodes": [
+            {"nodeId": "trigger", "kind": "trigger"},
+            {"nodeId": "n1", "kind": "join",
+             "inputBindings": {"left": {"source": "trigger", "path": "left"}, "right": {"source": "trigger", "path": "right"}},
+             "config": {"left_key": "id", "right_key": "id"}},
+        ],
+        "edges": [{"edgeId": "e1", "sourceNodeId": "trigger", "targetNodeId": "n1"}],
+    })
+    check("omitting fields entirely is rejected at create time (would silently merge nothing)",
+          missing_fields.status_code == 400 and "fields is required" in missing_fields.text, missing_fields.text)
+
+    empty_fields = client.post("/workflow-graphs", json={
+        "displayName": "Join Empty Fields List",
+        "nodes": [
+            {"nodeId": "trigger", "kind": "trigger"},
+            {"nodeId": "n1", "kind": "join",
+             "inputBindings": {"left": {"source": "trigger", "path": "left"}, "right": {"source": "trigger", "path": "right"}},
+             "config": {"left_key": "id", "right_key": "id", "fields": []}},
+        ],
+        "edges": [{"edgeId": "e1", "sourceNodeId": "trigger", "targetNodeId": "n1"}],
+    })
+    check("an empty fields list is rejected the same way as omitting it", empty_fields.status_code == 400 and "fields is required" in empty_fields.text, empty_fields.text)
+
     dangling = client.post("/workflow-graphs", json={
         "displayName": "Join Dangling Input",
         "nodes": [
@@ -209,6 +239,25 @@ with TestClient(gateway_app.app, base_url="http://testserver") as client:
         "edges": [{"edgeId": "e1", "sourceNodeId": "trigger", "targetNodeId": "n1"}],
     })
     check("dangling join input reference is rejected at create time", dangling.status_code == 400 and "unknown node" in dangling.text, dangling.text)
+
+    # ── registry/prompt consistency (2026-08-19 refactor) ──────────────────────
+    import workflow_graph_store as wgs  # noqa: E402
+    import orchestrator  # noqa: E402
+
+    check("join is derivable from the schema registry, not just a hand-maintained VALID_NODE_KINDS entry",
+          "join" in wgs.NODE_KIND_SCHEMAS and "join" in wgs.VALID_NODE_KINDS)
+    rendered = wgs.render_node_kind_prompt("join")
+    join_field_names = {f.name for f in wgs.NODE_KIND_SCHEMAS["join"].fields}
+    check("every join schema field name appears in its generated prompt text",
+          all(f"'{name}'" in rendered for name in join_field_names), (join_field_names, rendered))
+    check("every join output key appears in its generated prompt text",
+          all(f"`{k}`" in rendered for k in wgs.NODE_KIND_SCHEMAS["join"].outputs), rendered)
+    check("the copilot's actual system prompt embeds the generated join section (not a stale hand-written copy)",
+          rendered in orchestrator.WORKFLOW_COPILOT_SYSTEM_PROMPT, "join section missing or diverged from the registry")
+    check("the loop node -- shipped with zero prompt docs before this refactor -- now has a generated section too",
+          wgs.render_node_kind_prompt("loop") in orchestrator.WORKFLOW_COPILOT_SYSTEM_PROMPT)
+    check("the stale 'no for-each node exists yet' claim is gone now that loop is documented",
+          "no for-each" not in orchestrator.WORKFLOW_COPILOT_SYSTEM_PROMPT)
 
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

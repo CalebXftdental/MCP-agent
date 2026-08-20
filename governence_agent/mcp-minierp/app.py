@@ -55,6 +55,25 @@ from sqlagent.accounts.index import (
     _gql_contacts as gql_contacts,
     _gql_customer_profile as gql_customer_profile,
 )
+from sqlagent.finance.schemas import (
+    ApInvoiceDetailsResult,
+    ApInvoicesDueSoonResult,
+    ApPaymentHistoryResult,
+    ArInvoicesPastDueResult,
+    ArPaymentHistoryResult,
+    BillLineItemsResult,
+    CustomerInvoiceHistoryResult,
+    GlAccountTransactionsResult,
+    GlPeriodSummaryResult,
+    InvoiceDetailsResult,
+    InvoiceLineItemsResult,
+    ItemMovementHistoryResult,
+    PoLineItemsResult,
+    PoOrderStatusResult,
+    SalesPriceResult,
+    VendorApInvoicesResult,
+    VendorDetailsResult,
+)
 from sqlagent.finance.index import (
     get_ap_invoice_details as _fin_get_ap_invoice_details,
     get_ap_invoices_due_soon as _fin_get_ap_invoices_due_soon,
@@ -244,42 +263,54 @@ async def get_shipping_by_order(order_number: str, company_id: int | None = None
 # ── Finance domain ────────────────────────────────────────────────────────────
 
 @mcp.tool()
-async def get_vendor_details(vendor_code: str) -> str:
+async def get_vendor_details(vendor_code: str) -> VendorDetailsResult:
     """Get a vendor's profile: class, terms, currency, default payment method, 1099 flag."""
     if not vendor_code.strip():
-        return _missing("vendor_code", "vendor_details")
+        return VendorDetailsResult(
+            status="missing_identifier",
+            message="A vendor_code is required.",
+            missingFields=["vendor_code"],
+        )
     return await _fin_get_vendor_details(vendor_code.strip())
 
 
 @mcp.tool()
-async def get_vendor_ap_invoices(vendor_code: str, page: int = 1, page_size: int = 10) -> str:
+async def get_vendor_ap_invoices(vendor_code: str, page: int = 1, page_size: int = 10) -> VendorApInvoicesResult:
     """List AP invoices/bills for a vendor by vendor code."""
     if not vendor_code.strip():
-        return _missing("vendor_code", "vendor_ap_invoices")
+        return VendorApInvoicesResult(
+            status="missing_identifier", message="A vendor_code is required.", missingFields=["vendor_code"],
+        )
     return await _fin_get_vendor_ap_invoices(vendor_code.strip(), page=page, page_size=page_size)
 
 
 @mcp.tool()
-async def get_ap_invoice_details(invoice_number: str, company_id: int | None = None) -> str:
+async def get_ap_invoice_details(invoice_number: str, company_id: int | None = None) -> ApInvoiceDetailsResult:
     """Get header-level details (total, tax, due date, paid status) for one AP invoice by invoice/reference number."""
     if not invoice_number.strip():
-        return _missing("invoice_number", "ap_invoice_details")
+        return ApInvoiceDetailsResult(
+            status="missing_identifier", message="A invoice_number is required.", missingFields=["invoice_number"],
+        )
     return await _fin_get_ap_invoice_details(invoice_number.strip(), company_id)
 
 
 @mcp.tool()
-async def get_invoice_details(invoice_number: str, company_id: int | None = None) -> str:
+async def get_invoice_details(invoice_number: str, company_id: int | None = None) -> InvoiceDetailsResult:
     """Get header-level details (total, tax, unpaid balance, terms) for one AR invoice by invoice/reference number."""
     if not invoice_number.strip():
-        return _missing("invoice_number", "invoice_details")
+        return InvoiceDetailsResult(
+            status="missing_identifier", message="A invoice_number is required.", missingFields=["invoice_number"],
+        )
     return await _fin_get_invoice_details(invoice_number.strip(), company_id)
 
 
 @mcp.tool()
-async def get_po_order_status(po_number: str, company_id: int | None = None) -> str:
+async def get_po_order_status(po_number: str, company_id: int | None = None) -> PoOrderStatusResult:
     """Get header-level status (status, total, vendor, ship-via, hold) for one purchase order by PO number."""
     if not po_number.strip():
-        return _missing("po_number", "po_order_status")
+        return PoOrderStatusResult(
+            status="missing_identifier", message="A po_number is required.", missingFields=["po_number"],
+        )
     return await _fin_get_po_order_status(po_number.strip(), company_id)
 
 
@@ -291,10 +322,12 @@ async def get_gl_account_transactions(
     company_id: int | None = None,
     page: int = 1,
     page_size: int = 10,
-) -> str:
+) -> GlAccountTransactionsResult:
     """List GL transactions for one account code, optionally filtered by date range, with a net debit/credit movement for the returned page."""
     if not account_cd.strip():
-        return _missing("account_cd", "gl_account_transactions")
+        return GlAccountTransactionsResult(
+            status="missing_identifier", message="A account_cd is required.", missingFields=["account_cd"],
+        )
     return await _fin_get_gl_account_transactions(
         account_cd.strip(),
         start_date=start_date or None,
@@ -313,11 +346,13 @@ async def get_sales_price(
     company_id: int | None = None,
     page: int = 1,
     page_size: int = 10,
-) -> str:
+) -> SalesPriceResult:
     """List sales price records (price class, currency, UOM, break quantity) for
     one inventory item, optionally narrowed to a price class or customer."""
     if not inventory_id.strip():
-        return _missing("inventory_id", "sales_price")
+        return SalesPriceResult(
+            status="missing_identifier", message="A inventory_id is required.", missingFields=["inventory_id"],
+        )
     return await _fin_get_sales_price(
         inventory_id.strip(),
         cust_price_class_id=cust_price_class_id or None,
@@ -331,7 +366,7 @@ async def get_sales_price(
 @mcp.tool()
 async def get_ap_invoices_due_soon(
     days_ahead: int = 14, company_id: int | None = None, page: int = 1, page_size: int = 250,
-) -> str:
+) -> ApInvoicesDueSoonResult:
     """Cross-vendor: AP invoices due within the next N days, across every
     vendor (not one vendor at a time like get_vendor_ap_invoices) -- an
     AP-aging / due-soon signal for a workflow's filter step."""
@@ -341,7 +376,7 @@ async def get_ap_invoices_due_soon(
 @mcp.tool()
 async def get_ar_invoices_past_due(
     min_invoice_age_days: int = 30, company_id: int | None = None, page: int = 1,
-) -> str:
+) -> ArInvoicesPastDueResult:
     """Cross-customer: AR invoices older than N days that may still be
     outstanding, across every customer -- an AR-aging signal for a workflow's
     filter step. NOTE: ARInvoice has no due-date column or customer link in
@@ -353,26 +388,32 @@ async def get_ar_invoices_past_due(
 @mcp.tool()
 async def get_po_line_items(
     po_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10,
-) -> str:
+) -> PoLineItemsResult:
     """List the line items (product, quantities, unit/extended cost) inside one purchase order by PO number."""
     if not po_number.strip():
-        return _missing("po_number", "po_line_items")
+        return PoLineItemsResult(
+            status="missing_identifier", message="A po_number is required.", missingFields=["po_number"],
+        )
     return await _fin_get_po_line_items(po_number.strip(), company_id=company_id, page=page, page_size=page_size)
 
 
 @mcp.tool()
-async def get_ar_payment_history(customer_id: str, page: int = 1, page_size: int = 10) -> str:
+async def get_ar_payment_history(customer_id: str, page: int = 1, page_size: int = 10) -> ArPaymentHistoryResult:
     """List which invoices a customer's payments/credit memos were applied to, when, and for how much."""
     if not customer_id.strip():
-        return _MISSING_CUSTOMER
+        return ArPaymentHistoryResult(
+            status="missing_identifier", message="A customer_id is required for this lookup.", missingFields=["customerId"],
+        )
     return await _fin_get_ar_payment_history(customer_id.strip(), page=page, page_size=page_size)
 
 
 @mcp.tool()
-async def get_ap_payment_history(vendor_code: str, page: int = 1, page_size: int = 10) -> str:
+async def get_ap_payment_history(vendor_code: str, page: int = 1, page_size: int = 10) -> ApPaymentHistoryResult:
     """List which bills a vendor's payments were applied to, when, and for how much."""
     if not vendor_code.strip():
-        return _missing("vendor_code", "ap_payment_history")
+        return ApPaymentHistoryResult(
+            status="missing_identifier", message="A vendor_code is required.", missingFields=["vendor_code"],
+        )
     return await _fin_get_ap_payment_history(vendor_code.strip(), page=page, page_size=page_size)
 
 
@@ -380,36 +421,44 @@ async def get_ap_payment_history(vendor_code: str, page: int = 1, page_size: int
 async def get_gl_period_summary(
     account_cd: str, fin_period_id: str = "", company_id: int | None = None,
     page: int = 1, page_size: int = 12,
-) -> str:
+) -> GlPeriodSummaryResult:
     """Get period-level GL balances (beginning balance, period debit/credit, YTD balance) for one account, optionally narrowed to one fiscal period ("YYYYMM")."""
     if not account_cd.strip():
-        return _missing("account_cd", "gl_period_summary")
+        return GlPeriodSummaryResult(
+            status="missing_identifier", message="A account_cd is required.", missingFields=["account_cd"],
+        )
     return await _fin_get_gl_period_summary(
         account_cd.strip(), fin_period_id=fin_period_id or "", company_id=company_id, page=page, page_size=page_size,
     )
 
 
 @mcp.tool()
-async def get_invoice_line_items(invoice_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10) -> str:
+async def get_invoice_line_items(invoice_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10) -> InvoiceLineItemsResult:
     """List the billed line items (product, quantity, price, sales rep) inside one AR invoice by invoice/reference number."""
     if not invoice_number.strip():
-        return _missing("invoice_number", "invoice_line_items")
+        return InvoiceLineItemsResult(
+            status="missing_identifier", message="A invoice_number is required.", missingFields=["invoice_number"],
+        )
     return await _fin_get_invoice_line_items(invoice_number.strip(), company_id=company_id, page=page, page_size=page_size)
 
 
 @mcp.tool()
-async def get_bill_line_items(invoice_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10) -> str:
+async def get_bill_line_items(invoice_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10) -> BillLineItemsResult:
     """List the billed line items (product, quantity, cost, linked PO) inside one AP bill by invoice/reference number."""
     if not invoice_number.strip():
-        return _missing("invoice_number", "bill_line_items")
+        return BillLineItemsResult(
+            status="missing_identifier", message="A invoice_number is required.", missingFields=["invoice_number"],
+        )
     return await _fin_get_bill_line_items(invoice_number.strip(), company_id=company_id, page=page, page_size=page_size)
 
 
 @mcp.tool()
-async def get_customer_invoice_history(customer_id: str, page: int = 1, page_size: int = 10) -> str:
+async def get_customer_invoice_history(customer_id: str, page: int = 1, page_size: int = 10) -> CustomerInvoiceHistoryResult:
     """List a customer's AR invoices (reference number, order number, payment amount/method)."""
     if not customer_id.strip():
-        return _MISSING_CUSTOMER
+        return CustomerInvoiceHistoryResult(
+            status="missing_identifier", message="A customer_id is required for this lookup.", missingFields=["customerId"],
+        )
     return await _fin_get_customer_invoice_history(customer_id.strip(), page=page, page_size=page_size)
 
 
@@ -417,10 +466,12 @@ async def get_customer_invoice_history(customer_id: str, page: int = 1, page_siz
 async def get_item_movement_history(
     inventory_id: str, start_date: str = "", end_date: str = "",
     company_id: int | None = None, page: int = 1, page_size: int = 10,
-) -> str:
+) -> ItemMovementHistoryResult:
     """List inventory transaction history (receipts, issues, transfers) for one item, including lot/serial number and expiration date where tracked. This is transaction history, NOT live lot status or current stock-on-hand."""
     if not inventory_id.strip():
-        return _missing("inventory_id", "item_movement_history")
+        return ItemMovementHistoryResult(
+            status="missing_identifier", message="A inventory_id is required.", missingFields=["inventory_id"],
+        )
     return await _fin_get_item_movement_history(
         inventory_id.strip(), start_date=start_date, end_date=end_date,
         company_id=company_id, page=page, page_size=page_size,
@@ -516,8 +567,11 @@ async def get_top_customers_by_spend(start_date: str = "", end_date: str = "", l
 @mcp.tool()
 async def get_customer_order_recency(country: str = "", state: str = "", city: str = "",
                                      page: int = 1, page_size: int = 25) -> str:
-    """Cross-customer order recency by territory: order count and last-order date per
-    customer (a win-back / reorder-due signal), for customers matching country/state/city."""
+    """Cross-customer order recency by territory: order count, last-order date, and a
+    best-effort phone number per customer (a win-back / reorder-due signal), for
+    customers matching country/state/city. phone is a best-effort contact number
+    (lowest-id contact on file with one), not a verified primary contact -- see
+    sqlagent/analytics.py's get_customer_order_recency for why."""
     return await _an_customer_order_recency(country, state, city, page, page_size)
 
 

@@ -1837,3 +1837,28 @@ export interface WorkflowGraphCatalogTool {
 
 export const getWorkflowGraphCatalog = () =>
   api.get<{ tools: WorkflowGraphCatalogTool[] }>('/dashboard/workflow-graph-catalog')
+
+// ── Navigation-help chatbot ──────────────────────────────────────────────────
+// A separate, much narrower assistant from the one above (backend/nav_help.py):
+// no MCP tools, no knowledge base, no chat_log session — it only answers
+// "where do I find X" questions about this console's own pages, scoped to
+// whatever this session's role can see. No conversation_id: the caller sends
+// its own recent turns as `history` each request instead.
+
+export interface NavHelpTurn {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface NavHelpResult {
+  reply: string
+  /** A RouteKey the assistant is confident answers the question, or null.
+   *  Already re-checked against this session's role server-side, so it is
+   *  always safe to pass straight to `router.navigate`. */
+  navigate: string | null
+  /** False only when no chat model is configured server-side. */
+  configured?: boolean
+}
+
+export const sendNavHelp = (message: string, history: NavHelpTurn[]) =>
+  api.post<NavHelpResult>('/nav-help', { message, history })

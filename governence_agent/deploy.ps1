@@ -54,7 +54,21 @@ if (-not (Test-Path $distIndex)) {
     exit 1
 }
 
-# ── 2. Refuse to ship uncommitted source changes (build output/deps are exempt) ────
+# ── 2. MCP tool registration must be consistent (backend <-> manifest.py <->
+#      gateway wrapper) and the gateway's LLM-facing description must not have
+#      silently dropped a caveat manifest.py already carries. See
+#      _smoke/test_tool_registration_consistency.py's own docstring for why
+#      each check exists. Same gate the VS Code Azure extension's "Deploy to
+#      Web App" runs via appService.preDeployTask (.vscode/tasks.json) -- kept
+#      here too so `./deploy.ps1` alone is a complete, deterministic gate. ────
+Write-Host "`nChecking MCP tool registration..." -ForegroundColor Cyan
+& "$root/check-tool-registration.ps1"
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ABORT: tool registration/content-drift check failed -- see output above." -ForegroundColor Red
+    exit 1
+}
+
+# ── 3. Refuse to ship uncommitted source changes (build output/deps are exempt) ────
 Push-Location $root
 try {
     $dirty = git status --porcelain . |
@@ -77,7 +91,7 @@ if ($dirty) {
     Write-Host "Working tree clean at commit $sha"
 }
 
-# ── 3. Zip, respecting the same exclude list as .vscode/settings.json's
+# ── 4. Zip, respecting the same exclude list as .vscode/settings.json's
 #      appService.zipIgnorePattern (kept in sync manually -- see that file). ───────
 $excludeRegex = '(^|[\\/])(\.venv|__pycache__|_smoke|governance_service|node_modules|\.git|data)([\\/]|$)' +
                 '|gateway[\\/]frontend[\\/]src([\\/]|$)' +
@@ -108,12 +122,12 @@ Remove-Item $stagingDir -Recurse -Force
 $zipSizeMb = [Math]::Round((Get-Item $zipPath).Length / 1MB, 2)
 Write-Host "Zip built: $zipPath ($zipSizeMb MB)"
 
-# ── 4. Deploy via config-zip -- NOT `az webapp deploy`/OneDeploy (documented in
+# ── 5. Deploy via config-zip -- NOT `az webapp deploy`/OneDeploy (documented in
 #      DEPLOY.md to have silently skipped the build on this exact app before). ────
 Write-Host "`nDeploying via config-zip (watch for a real 'Building...' phase, not 0s)..." -ForegroundColor Cyan
 az webapp deployment source config-zip -g $ResourceGroup -n $AppName --src $zipPath
 
-# ── 5. Verify liveness -- NOT file inspection (proved unreliable for this app's
+# ── 6. Verify liveness -- NOT file inspection (proved unreliable for this app's
 #      build mode on 2026-08-10). Confirms the process restarted and is answering,
 #      not that any specific fix is behaviorally live -- follow up with a real
 #      question in the chat UI for that, the same way we just confirmed the

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent, ReactNode } from 'react'
 import { Avatar, Button, CollapseToggle, Tooltip } from './ui'
 import ConnectionStatus from './ConnectionStatus'
+import NavHelpBubble from './chat/NavHelpBubble'
 import { useCollapsed } from '../hooks/useCollapsed'
 import type { Session } from '../hooks/useSession'
 import type { Router } from '../hooks/useRoute'
@@ -137,6 +138,7 @@ function AppShell({ session, router, children }: AppShellProps) {
       </main>
 
       <ConnectionStatus corner="bottom-right" />
+      <NavHelpBubble router={router} />
     </div>
   )
 }

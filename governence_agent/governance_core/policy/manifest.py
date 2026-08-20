@@ -886,7 +886,7 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
         intent="search_knowledge",
         account_scoped=False,
         risk=READ_LOW,
-        description="Searches indexed local document chunks with citations.",
+        description="Searches indexed document chunks with citations (direct Azure AI Search, then an HTTP proxy, then a local fallback -- first configured tier wins).",
         fields={
             "query": INTERNAL,
             "results": INTERNAL,
@@ -903,7 +903,7 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
         intent="answer_from_knowledge",
         account_scoped=False,
         risk=READ_LOW,
-        description="Builds a citation-backed extractive answer from indexed local documents.",
+        description="Builds a citation-backed extractive answer from indexed documents (same direct/proxy/local precedence as search_knowledge).",
         fields={
             "query": INTERNAL,
             "answer": INTERNAL,

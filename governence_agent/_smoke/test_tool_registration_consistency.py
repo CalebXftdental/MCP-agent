@@ -95,6 +95,7 @@ KNOWN_GATEWAY_META_TOOLS = {
     "list_my_workflows",
     "get_my_workflow",
     "propose_graph",
+    "get_field_catalog",
 }
 
 # The "Data Aggregation" tool family (STAGE2_PLAN.md SS10.2): pure local

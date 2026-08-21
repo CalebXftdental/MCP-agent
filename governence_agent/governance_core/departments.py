@@ -34,13 +34,18 @@ class Department:
 # "personal_knowledge" (digest_persoanl_kb.md) is added to every department below
 # so every self-service-signed-up user gets their own private knowledge base by
 # default -- it holds only the user's own uploaded documents, so unlike every
-# other category here it carries no shared-data exposure to grant. Because
-# department categories resolve LIVE (see this module's docstring / resolve.py),
-# adding it here is retroactive: existing members pick it up on their very next
-# request, no backfill script needed. A consumer with no department at all
-# (env-seeded Stage-1 consumers, or an admin-created one with no department
-# picked) already resolves to allow-all-tools under resolve.py's legacy
-# fallback, so it's already covered without appearing in any tuple here.
+# other category here it carries no shared-data exposure to grant. Category
+# resolution at request time (gateway/govern.py's resolve_grant call) reads
+# get_department from the persisted PolicyStore (Cosmos/file), not this dict
+# directly -- so adding a category here is only retroactive for departments
+# already persisted because store/cosmos.py and store/file_store.py both run a
+# per-department backfill on every startup that merges any category id listed
+# here but missing from the persisted record (additive only, never drops one).
+# Without that backfill this line would be silently inert for any deployment
+# whose departments container/file predates it. A consumer with no department
+# at all (env-seeded Stage-1 consumers, or an admin-created one with no
+# department picked) already resolves to allow-all-tools under resolve.py's
+# legacy fallback, so it's already covered without appearing in any tuple here.
 DEPARTMENTS: dict[str, Department] = {
     "sales": Department("sales", "Sales", ("orders", "personal_knowledge")),
     "customer_service": Department("customer_service", "Customer Service", ("accounts", "orders", "personal_knowledge")),

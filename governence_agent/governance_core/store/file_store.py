@@ -122,13 +122,24 @@ class FilePolicyStore(PolicyStore):
         if self._path.exists():
             self._load()
             dirty = False
-            if not self._departments:
-                # Same backfill as CosmosPolicyStore -- departments.py was added
-                # after this file already existed, so the "fresh file" seed branch
-                # below never runs for it.
-                for dept in dept_seed.DEPARTMENTS.values():
+            # Per-department category backfill -- same reasoning as
+            # CosmosPolicyStore's (see its docstring comment): additive only,
+            # adds category ids the code lists that a persisted department is
+            # missing (e.g. "personal_knowledge" added to every department
+            # after some stores already existed), never drops one.
+            for dept in dept_seed.DEPARTMENTS.values():
+                existing = self._departments.get(dept.id)
+                if existing is None:
                     self._departments[dept.id] = dept
-                dirty = True
+                    dirty = True
+                else:
+                    missing = [c for c in dept.categories if c not in existing.categories]
+                    if missing:
+                        self._departments[dept.id] = Department(
+                            id=existing.id, display_name=existing.display_name,
+                            categories=tuple(existing.categories) + tuple(missing),
+                        )
+                        dirty = True
             # Per-category backfill (not gated on "categories empty"): new categories
             # (e.g. "office", added for artifact editing) get defined in code after
             # deployments already have a persisted store, so an all-or-nothing seed

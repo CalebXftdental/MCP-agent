@@ -193,6 +193,28 @@ is visible per-item, not just as one opaque "loop failed").
   `-> str` convention and still need `tool_catalog.py`'s full field-shape
   discovery, not just enum discovery.
 
+  **Update (2026-08-20): a lightweight `get_field_catalog` meta tool now
+  exists** (`gateway/app.py`), giving the "My Workflow" copilot a free,
+  static field-shape lookup for any tool whose backend declares a real
+  `outputSchema` — fetched over the existing MCP transport
+  (`mcp_clients.get_tool_schema`, metadata-only, no `_govern`/PDP needed) and
+  cached for the life of the gateway process. Motivated directly by
+  `STAGE2_PLAN.md` §11.2's real benchmark: the local model's worst failures
+  traced to making a big exploratory data call just to learn field names,
+  when that's now a static fact. Returns `status="unavailable"` (not a
+  fabricated schema) for the ~16 still-untyped `mcp-minierp` tools and every
+  other backend — confirmed FastMCP auto-wraps a bare `-> str` return in a
+  trivial `{"result": {"type": "string"}}` schema that looks present but
+  carries zero real field information, so `get_field_catalog` explicitly
+  detects and rejects that shape rather than reporting a fake `"result"`
+  field. `WORKFLOW_COPILOT_SYSTEM_PROMPT` rule 2 now points the copilot at
+  this tool first, falling back to a real (now build-mode-clamped, see §11.2)
+  sample call only for real values/verification. This is a genuine
+  complement to — not a replacement for — the still-unbuilt `tool_catalog.py`:
+  it covers static shape for typed tools only; enum/value vocabulary and
+  shape discovery for untyped tools remain open. Verified in
+  `_smoke/test_field_catalog.py`.
+
 ---
 
 ## 4. Personal knowledge base (`digest_persoanl_kb.md`) — verified current, not stale

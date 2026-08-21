@@ -598,6 +598,19 @@ trusting the local model with any bulk-shaped flow in production:
   `finalize_stage_1.md`) and stricter pagination discipline would catch structurally,
   rather than relying on the model to self-limit.
 
+**Resolved (2026-08-20), first two items:** a `get_field_catalog` meta tool
+(`gateway/app.py`) gives the copilot static field shape for free instead of an
+exploratory data call (see `finalize_stage_1.md` §3.3's update), and `_govern`
+(`gateway/govern.py`) now silently clamps `page_size` to a small sample
+(`GOVERNANCE_BUILD_MODE_MAX_PAGE_SIZE`, default 3) for any call whose
+`session_id` is prefixed `"workflow-chat"` — the copilot's own authoring
+conversation, never real workflow execution (`"workflow:"`) or Home chat
+(`"chat:"`). Together these directly target the two mechanisms behind
+yesterday's worst local-model failures (the 160K-token context-overflow crash
+and the 91-second/5-turn chain). Not yet done: excluding the math/utility
+tools from the authoring lane, and the per-run tool-call budget itself — both
+still open.
+
 ---
 
 ## 12. Rollout sequencing

@@ -105,12 +105,30 @@ class CosmosPolicyStore(PolicyStore):
         if not self._consumers and not self._categories:
             self._seed()
         else:
-            if not self._departments:
-                # departments (departments.py) was added after this store already had
-                # consumers/categories -- the "empty store" seed gate above never fires
-                # for an already-populated deployment, so back-fill just this piece.
-                for department in dept_seed.DEPARTMENTS.values():
+            # Per-department category backfill: a category added to an existing
+            # department's tuple in departments.py (e.g. "personal_knowledge",
+            # meant to reach every department by default) needs to reach
+            # departments already persisted before that change shipped --
+            # departments.py's own docstring claims this is "retroactive, no
+            # backfill needed" because grants resolve live, but the actual
+            # enforcement path (gateway/govern.py's resolve_grant call) reads
+            # get_department from THIS store's persisted/cached copy, not
+            # departments.py directly, so a category missing from an
+            # already-persisted department silently never reaches its members.
+            # Additive only, same as the per-category backfill below: only adds
+            # category ids the code lists that the persisted record doesn't
+            # have, never drops one, so an admin's own edit survives a restart.
+            for department in dept_seed.DEPARTMENTS.values():
+                existing = self._departments.get(department.id)
+                if existing is None:
                     self.upsert_department(department)
+                else:
+                    missing = [c for c in department.categories if c not in existing.categories]
+                    if missing:
+                        self.upsert_department(dept_seed.Department(
+                            id=existing.id, display_name=existing.display_name,
+                            categories=tuple(existing.categories) + tuple(missing),
+                        ))
             # Per-category backfill (not gated on "categories empty"): new categories
             # (e.g. "office", added for artifact editing) get defined in code after
             # deployments already have a populated store, so an all-or-nothing seed

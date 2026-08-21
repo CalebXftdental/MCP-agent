@@ -138,6 +138,37 @@ def _extract_text(result) -> str:
     return ""
 
 
+async def get_tool_schema(backend: str, tool: str) -> dict | None:
+    """Fetch `tool`'s outputSchema straight from `backend`'s own MCP server.
+
+    Metadata only -- not a governed data call, so this deliberately bypasses
+    _govern (same precedent as the gateway's list_my_workflows/get_my_workflow
+    meta tools, which never touch real customer data either). Returns None if
+    the backend doesn't declare an outputSchema for this tool, or the tool
+    isn't found -- most tools today, since only mcp-minierp's finance domain
+    has real outputSchema so far (see finalize_stage_1.md's rollout notes).
+    """
+    url = backend_url(backend)
+
+    async def _list() -> object:
+        async with streamablehttp_client(url) as (read_stream, write_stream, _get_session_id):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+                return await session.list_tools()
+
+    try:
+        result = await asyncio.wait_for(_list(), timeout=_timeout_sec())
+    except asyncio.TimeoutError as exc:
+        raise BackendError(f"{backend} list_tools timed out after {_timeout_sec()}s") from exc
+    except Exception as exc:  # noqa: BLE001 -- normalize every failure to fail-closed
+        raise BackendError(f"{backend} list_tools failed: {describe_error(exc)}") from exc
+
+    for t in getattr(result, "tools", None) or []:
+        if t.name == tool:
+            return getattr(t, "outputSchema", None)
+    return None
+
+
 async def call(backend: str, tool: str, args: dict) -> str:
     """Call `tool` on `backend` with `args`; return its raw text result."""
     url = backend_url(backend)

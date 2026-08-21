@@ -63,6 +63,7 @@ from policy.resolve import resolve as resolve_grant
 from store import get_store
 
 import backend
+import schema_catalog
 from backend.chat import _chat_sweep_loop
 from backend.workflow_graphs import _graph_edge_from_wire, _graph_node_from_wire
 from govern import _govern
@@ -885,6 +886,65 @@ async def update_workflow_plan(
     return json.dumps({"source": "workflow_plan", "status": "success", "plan": plan})
 
 
+def _flatten_output_schema(schema: dict) -> dict:
+    """Reduce a full JSON Schema (as FastMCP derives it from a Pydantic return
+    model) down to just the field names a workflow-graph binding needs:
+    top-level properties, plus -- for any property that's an array of
+    $ref'd objects -- that array's own item field names. Drops
+    types/defaults/titles; this is a field-name reference, not a schema
+    document."""
+    defs = schema.get("$defs") or {}
+    top_level = sorted((schema.get("properties") or {}).keys())
+    array_fields: dict[str, list[str]] = {}
+    for name, prop in (schema.get("properties") or {}).items():
+        items = prop.get("items") if isinstance(prop, dict) else None
+        ref = items.get("$ref") if isinstance(items, dict) else None
+        if not ref:
+            continue
+        def_schema = defs.get(ref.rsplit("/", 1)[-1]) or {}
+        array_fields[name] = sorted((def_schema.get("properties") or {}).keys())
+    return {"topLevelFields": top_level, "arrayFields": array_fields}
+
+
+@mcp.tool(name="get_field_catalog")
+async def get_field_catalog(session_id: SessionId, tool_name: str) -> str:
+    """Look up a tool's real output field names WITHOUT calling it -- call this
+    BEFORE making any exploratory data call, to learn field shape for free
+    instead of burning a real tool call (and its context/latency cost) just to
+    see what fields exist.
+
+    Only tools with a static schema come back status="success" (today: the
+    miniERP finance-domain tools -- get_vendor_details, get_ap_invoices_due_soon,
+    and the rest of that family). Everything else comes back
+    status="unavailable" -- for those, fall back to a real call with a small
+    page_size to sample real fields, the same way you always have.
+
+    This never tells you real VALUES (e.g. what a status code actually
+    contains, or whether a specific vendor/invoice exists) -- only field
+    names/shape. You still need one real, small sample call to confirm values
+    or that an identifier resolves to something real -- that's verification,
+    not exploration, and should stay small (a handful of rows)."""
+    name = (tool_name or "").strip()
+    canonical = manifest.canonical(name)
+    if canonical is None and manifest.get(name) is not None:
+        canonical = name
+    if canonical is None:
+        return json.dumps({"source": "field_catalog", "status": "error", "errorCode": "unknown_tool",
+                           "tool": tool_name, "message": f"{tool_name!r} is not a known tool name."})
+    policy = manifest.get(canonical)
+    schema = await schema_catalog.get_output_schema(policy.backend, canonical)
+    if not schema:
+        return json.dumps({
+            "source": "field_catalog", "status": "unavailable", "tool": tool_name,
+            "message": "No static schema available for this tool yet -- call it directly with a "
+                       "small page_size to sample real fields instead.",
+        })
+    return json.dumps({
+        "source": "field_catalog", "status": "success", "tool": tool_name,
+        **_flatten_output_schema(schema),
+    })
+
+
 @mcp.tool(name="list_my_workflows")
 async def list_my_workflows(session_id: SessionId) -> str:
     """List the calling user's own "My Workflow" graphs -- real graphIds,
@@ -1310,7 +1370,7 @@ _UNGOVERNED_GATEWAY_TOOLS = {
     # Workflow-authoring meta tools -- scratchpad reads/writes and draft-graph
     # proposals, not data lookups; see each one's own docstring above.
     "submit_workflow_request", "update_workflow_plan", "list_my_workflows",
-    "get_my_workflow", "propose_graph",
+    "get_my_workflow", "propose_graph", "get_field_catalog",
     # "Data Aggregation" utility tools (STAGE2_PLAN.md SS10.2): pure local
     # computation over values/rows the caller already has, no backend call, no
     # _govern(...), nothing to redact or authorize.

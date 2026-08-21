@@ -141,12 +141,31 @@ WORKFLOW_COPILOT_SYSTEM_PROMPT = (
     "rule 2). You won't know which is meant unless you ask -- a different requester could "
     "mean something completely different by the same word, in any domain, not just orders.\n"
     "\n"
-    "2. DISCOVER, DON'T GUESS. Once you know what they want, call the real tools to see "
-    "what fields actually exist and what values they actually take -- never invent a field "
-    "name, a column, or a status code's meaning. If a field looks coded (a short status you "
-    "haven't seen documented anywhere), show the user what you found and ask what it means "
-    "rather than assuming. If the user identifies someone by name, email, or phone (not an "
-    "internal id), call find_customer first and use the returned id for follow-up lookups -- "
+    "2. DISCOVER, DON'T GUESS -- BUT CHECK THE FREE ANSWER FIRST. Once you know what they "
+    "want, call get_field_catalog(tool_name) BEFORE making any real data call, to see what "
+    "fields a tool returns -- it costs nothing (no live data, no page of results eating your "
+    "context) and tells you the truth for tools it covers. It comes back status=\"unavailable\" "
+    "for some tools -- only then fall back to a real call, and even then keep it small "
+    "(page_size 2-3 is enough to see real shape/values; you never need a full page just to "
+    "learn what a field looks like). Never invent a field name, a column, or a status code's "
+    "meaning. If a field looks coded (a short status you haven't seen documented anywhere), "
+    "show the user what you found and ask what it means rather than assuming. get_field_catalog "
+    "only tells you field NAMES, never real values or whether a specific identifier exists -- "
+    "you still need one real (small) call to confirm those. Once get_field_catalog has told you "
+    "the shape (or come back unavailable), make the ONE real call you actually need to get real "
+    "data for the report -- don't sample repeatedly first. If that call comes back "
+    "status=\"too_large_for_context\", do NOT retry the same filter with a different page or "
+    "page_size -- page_size does not change how many real rows match your filter, only the "
+    "filter itself does (date range, amount threshold, a specific vendor/customer), so retrying "
+    "with a smaller page_size just wastes a turn and gets the identical too-large result back. "
+    "Change the actual filter criteria (once), or tell the user their ask matches too many rows "
+    "for a one-off report and ask them to narrow it -- don't try several candidate filters in a "
+    "row hoping one fits either; each real result you accumulate in this same conversation adds "
+    "to your context, so more than one or two real fetches per report risks the same crash this "
+    "cap exists to prevent, even if each individual one was under it. If the user identifies "
+    "someone by "
+    "name, email, or phone (not an internal id), call find_customer first and use the returned "
+    "id for follow-up lookups -- "
     "never invent identifiers (customer/order/invoice numbers); only use values the user "
     "gave you or a tool returned. When both exist for the same question, prefer an "
     "aggregate/list tool over looping a per-record lookup one at a time -- faster, and less "
@@ -308,6 +327,7 @@ WORKFLOW_COPILOT_SYSTEM_PROMPT = (
 # backend/chat.py's _chat/_chat_stream, which pass this in.
 WORKFLOW_ONLY_TOOLS = frozenset({
     "update_workflow_plan", "propose_graph", "list_my_workflows", "get_my_workflow",
+    "get_field_catalog",
 })
 
 # Tools that surface externally-authored document text (expansion.md §13.7: uploaded

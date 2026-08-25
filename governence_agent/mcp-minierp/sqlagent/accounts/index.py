@@ -11,7 +11,7 @@ import json
 import os
 from typing import Any
 
-from minierp_core import find_with_offset_pagination
+from minierp_core import fetch_page_or_all, find_with_offset_pagination
 
 # "CA" -> company 11 only, "US" -> company 2 only, None -> both.
 # MINIERP_REGION overrides the default below; set it to "ALL" (or "") to see
@@ -162,6 +162,7 @@ async def _gql_contacts(
     acct_cd: str | None,
     page: int = 1,
     page_size: int = _DEFAULT_LIST_PAGE_SIZE,
+    fetch_all: bool = False,
 ) -> str:
     baccount_ids = None
     baccounts: list[dict[str, Any]] = []
@@ -196,8 +197,9 @@ async def _gql_contacts(
     if baccount_ids:
         options["where"][MINIERP_FIELDS["contact_acct"]] = {"in": baccount_ids}
 
-    result = await find_with_offset_pagination(MINIERP_ENTITIES["contact"], options)
-    items = result.get("items") or []
+    items, pagination, truncated = await fetch_page_or_all(
+        MINIERP_ENTITIES["contact"], options, fetch_all=fetch_all, page=page, page_size=page_size,
+    )
     if not items and primary_contact_ids:
         fallback_options: dict[str, Any] = {
             "select": _select_all_for(
@@ -210,15 +212,13 @@ async def _gql_contacts(
             "page": _clamp_page(page),
             "pageSize": _clamp_page_size(page_size),
         }
-        fallback_result = await find_with_offset_pagination(MINIERP_ENTITIES["contact"], fallback_options)
-        items = fallback_result.get("items") or []
-        result = fallback_result
+        items, pagination, truncated = await fetch_page_or_all(
+            MINIERP_ENTITIES["contact"], fallback_options, fetch_all=fetch_all, page=page, page_size=page_size,
+        )
     if not items:
         return _json_tool_result(
             status="not_found", intent="account_contacts",
             message=f"No contacts found{' for ' + acct_cd if acct_cd else ''}.", customerId=acct_cd, records=[],
-            pagination={"page": result.get("page") or page, "pageSize": result.get("pageSize") or page_size,
-                        "returned": 0, "hasMore": bool(result.get("hasMore"))},
         )
 
     f_id = MINIERP_FIELDS["contact_id"]
@@ -239,14 +239,12 @@ async def _gql_contacts(
             "email": item.get(f_email),
             "phone": item.get(f_phone),
         })
-    pagination = {"page": result.get("page") or page, "pageSize": result.get("pageSize") or page_size,
-                  "returned": len(records), "hasMore": bool(result.get("hasMore"))}
     return _json_tool_result(
         status="success", intent="account_contacts",
         message=f"Showing {len(records)} contact{'s' if len(records) != 1 else ''}{' for ' + acct_cd if acct_cd else ''}.",
-        customerId=acct_cd, records=records, pagination=pagination,
+        customerId=acct_cd, records=records, pagination=pagination, truncated=truncated,
         nextAction=(f"More contacts are available. Ask whether to show page {pagination['page'] + 1}."
-                    if pagination["hasMore"] else None),
+                    if pagination is not None and pagination["hasMore"] else None),
     )
 
 
@@ -254,6 +252,7 @@ async def _gql_addresses(
     acct_cd: str | None,
     page: int = 1,
     page_size: int = _DEFAULT_LIST_PAGE_SIZE,
+    fetch_all: bool = False,
 ) -> str:
     baccount_ids = None
     if acct_cd:
@@ -276,14 +275,13 @@ async def _gql_addresses(
     if baccount_ids:
         options["where"][MINIERP_FIELDS["address_acct"]] = {"in": baccount_ids}
 
-    result = await find_with_offset_pagination(MINIERP_ENTITIES["address"], options)
-    items = result.get("items") or []
+    items, pagination, truncated = await fetch_page_or_all(
+        MINIERP_ENTITIES["address"], options, fetch_all=fetch_all, page=page, page_size=page_size,
+    )
     if not items:
         return _json_tool_result(
             status="not_found", intent="account_addresses",
             message=f"No addresses found{' for ' + acct_cd if acct_cd else ''}.", customerId=acct_cd, records=[],
-            pagination={"page": result.get("page") or page, "pageSize": result.get("pageSize") or page_size,
-                        "returned": 0, "hasMore": bool(result.get("hasMore"))},
         )
 
     f_id = MINIERP_FIELDS["address_id"]
@@ -299,14 +297,12 @@ async def _gql_addresses(
          "country": item.get(f_co)}
         for item in items
     ]
-    pagination = {"page": result.get("page") or page, "pageSize": result.get("pageSize") or page_size,
-                  "returned": len(records), "hasMore": bool(result.get("hasMore"))}
     return _json_tool_result(
         status="success", intent="account_addresses",
         message=f"Showing {len(records)} address{'es' if len(records) != 1 else ''}{' for ' + acct_cd if acct_cd else ''}.",
-        customerId=acct_cd, records=records, pagination=pagination,
+        customerId=acct_cd, records=records, pagination=pagination, truncated=truncated,
         nextAction=(f"More addresses are available. Ask whether to show page {pagination['page'] + 1}."
-                    if pagination["hasMore"] else None),
+                    if pagination is not None and pagination["hasMore"] else None),
     )
 
 

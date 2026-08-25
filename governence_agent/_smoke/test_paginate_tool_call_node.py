@@ -162,6 +162,65 @@ check(
 )
 
 
+async def _govern_self_truncated_no_hasmore(tool, session_id, customer_id, args):
+    # A self-exhausting aggregate tool (get_customer_order_summary and
+    # siblings): no hasMore key at all, but it already hit its OWN internal
+    # cap on this single call and honestly reports truncated=true --
+    # _exhaust_tool_call must not silently downgrade that to false just
+    # because it never contacted a "next page" (regression for the
+    # merged["truncated"] = False overwrite bug).
+    return {"status": "ok", "rows": [1, 2, 3], "truncated": True}
+
+
+result = asyncio.run(wgi._exhaust_tool_call(
+    "fake_tool", {"page": 1}, "sess", "", _govern_self_truncated_no_hasmore, identity_parse,
+    max_pages=20, max_duration_sec=90,
+))
+check(
+    "a self-exhausting tool's own truncated=true survives, not overwritten to false",
+    result.get("rows") == [1, 2, 3] and result.get("truncated") is True and result.get("pagesFetched") == 1, result,
+)
+
+
+async def _govern_three_pages_nested(tool, session_id, customer_id, args):
+    # The newer schemas.py-typed finance tools (get_vendor_ap_invoices,
+    # get_ap_invoices_due_soon, ...) nest hasMore under "pagination" instead
+    # of returning it at the top level -- _exhaust_tool_call must drive real
+    # exhaustion under this convention too, not just the flat one above.
+    pages = [
+        {"status": "ok", "invoices": ["a", "b"], "pagination": {"page": 1, "pageSize": 2, "returned": 2, "hasMore": True}},
+        {"status": "ok", "invoices": ["c", "d"], "pagination": {"page": 2, "pageSize": 2, "returned": 2, "hasMore": True}},
+        {"status": "ok", "invoices": ["e"], "pagination": {"page": 3, "pageSize": 2, "returned": 1, "hasMore": False}},
+    ]
+    return pages[args["page"] - 1]
+
+
+result = asyncio.run(wgi._exhaust_tool_call(
+    "fake_tool", {"page": 1}, "sess", "", _govern_three_pages_nested, identity_parse,
+    max_pages=20, max_duration_sec=90,
+))
+check("nested pagination.hasMore: full exhaustion merges all pages' rows in order",
+      result.get("invoices") == ["a", "b", "c", "d", "e"], result)
+check("nested pagination.hasMore: truncated is False", result.get("truncated") is False, result)
+check("nested pagination.hasMore: pagesFetched == 3", result.get("pagesFetched") == 3, result)
+check("nested pagination.hasMore: pagination.returned reflects the merged total, not the last page's",
+      (result.get("pagination") or {}).get("returned") == 5, result)
+
+
+async def _govern_one_page_nested(tool, session_id, customer_id, args):
+    return {"status": "ok", "invoices": ["a"], "pagination": {"page": 1, "pageSize": 250, "returned": 1, "hasMore": False}}
+
+
+result = asyncio.run(wgi._exhaust_tool_call(
+    "fake_tool", {"page": 1}, "sess", "", _govern_one_page_nested, identity_parse,
+    max_pages=20, max_duration_sec=90,
+))
+check(
+    "nested pagination.hasMore=False stops after exactly one page (a correct no-op, not a phantom loop)",
+    result.get("pagesFetched") == 1 and result.get("truncated") is False, result,
+)
+
+
 async def _govern_fails_first_page(tool, session_id, customer_id, args):
     return {"status": "error", "intent": "x", "errorCode": "ReadTimeout", "message": "boom"}
 

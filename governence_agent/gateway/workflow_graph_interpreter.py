@@ -184,6 +184,20 @@ _DEFAULT_MAX_PAGES = 20
 _DEFAULT_MAX_DURATION_SEC = 90.0
 
 
+def _page_has_more(result: dict) -> bool:
+    """A page's own hasMore signal, under either convention this codebase
+    uses: the flat `{"hasMore": ...}` shape older bulk/analytics tools return,
+    or the newer `{"pagination": {"hasMore": ...}}` shape schemas.py's typed
+    finance tools return (get_vendor_ap_invoices, get_ap_invoices_due_soon,
+    and the rest of that family) -- without this, `paginate: true` silently
+    stopped after one page on every tool using the newer shape, the same
+    no-op this flag is supposed to eliminate."""
+    if "hasMore" in result:
+        return bool(result.get("hasMore"))
+    pagination = result.get("pagination")
+    return bool(pagination.get("hasMore")) if isinstance(pagination, dict) else False
+
+
 async def _exhaust_tool_call(
     tool: str, args: dict, session_id: str, customer_id: str, govern, parse, *, max_pages: int, max_duration_sec: float,
 ) -> dict:
@@ -209,6 +223,12 @@ async def _exhaust_tool_call(
     here. Reports WHY it stopped (`truncatedReason`) rather than a bare bool:
     a scheduled run needs to tell "capped by design" apart from "a page
     errored partway through," never treat those the same as silent success.
+
+    On the natural-stop branch (no more real pages), `truncated` is only
+    DEFAULTED to False, never forced -- a tool with no hasMore signal at all
+    (the self-exhausting aggregate tools) may already report its OWN
+    `truncated: true` from hitting an internal cap on that single call; that
+    must survive, not get silently overwritten with a false "complete."
     """
     start = time.monotonic()
     page = int(args.get("page") or 1)
@@ -235,8 +255,8 @@ async def _exhaust_tool_call(
                 merged[key] = value  # latest page's scalars win (status/intent/hasMore/...)
         if not list_keys:
             return result  # this tool has no hasMore-shaped output at all -- one call is the whole answer
-        if not result.get("hasMore"):
-            merged["truncated"] = False
+        if not _page_has_more(result):
+            merged.setdefault("truncated", False)
             break
         if pages_fetched >= max_pages:
             merged["truncated"] = True
@@ -251,6 +271,9 @@ async def _exhaust_tool_call(
         # Only unambiguous when there's exactly one row-list field -- reflect
         # the merged row count, not whatever the last individual page reported.
         merged["count"] = len(merged[next(iter(list_keys))])
+        pagination = merged.get("pagination")
+        if isinstance(pagination, dict) and "returned" in pagination:
+            pagination["returned"] = merged["count"]
     merged["pagesFetched"] = pages_fetched
     return merged
 

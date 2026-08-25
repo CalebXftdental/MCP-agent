@@ -117,8 +117,9 @@ try:
         check("baseline run completes", run_baseline.status_code == 201 and baseline_body.get("status") == "completed", baseline_body)
         baseline_step = next((s for s in baseline_body.get("steps", []) if s.get("stepId") == "n_region"), {})
         baseline_outputs = baseline_step.get("outputs", {})
+        baseline_has_more = bool((baseline_outputs.get("pagination") or {}).get("hasMore"))
         print(f"  baseline (paginate off): {baseline_elapsed*1000:.1f}ms wall-clock, "
-              f"count={baseline_outputs.get('count')}, hasMore={baseline_outputs.get('hasMore')}")
+              f"count={baseline_outputs.get('count')}, hasMore={baseline_has_more}")
 
         # ── Paginated: same tool, same filter, paginate:true, max_pages=5. ──
         graph_paginated = client.post("/workflow-graphs", json={
@@ -151,7 +152,7 @@ try:
             (paginated_outputs.get("count"), baseline_outputs.get("count")),
         )
         check("paginated output carries pagesFetched", isinstance(paginated_outputs.get("pagesFetched"), int), paginated_outputs)
-        if baseline_outputs.get("hasMore"):
+        if baseline_has_more:
             check(
                 "when the baseline itself reports hasMore, paginate actually fetched more than 1 page",
                 (paginated_outputs.get("pagesFetched") or 0) > 1, paginated_outputs,

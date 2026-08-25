@@ -327,6 +327,43 @@ async def paginate_all(
     return rows, truncated
 
 
+async def fetch_page_or_all(
+    table: str,
+    options: dict[str, Any],
+    *,
+    fetch_all: bool,
+    page: int,
+    page_size: int,
+    profile: str | None = None,
+    agg_page_size: int = 250,
+    max_pages: int = 20,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None, bool | None]:
+    """One real page (fetch_all=False) or a fully accumulated result
+    (fetch_all=True) -- the single place that decides between
+    find_with_offset_pagination and paginate_all, so every list tool across
+    every domain module gets identical fetch_all semantics and an identical
+    pagination-dict shape instead of each hand-rolling its own branch (the
+    exact duplication that let three incompatible pagination conventions
+    grow up side by side across finance/orders/accounts/analytics).
+
+    Returns (items, pagination, truncated):
+      fetch_all=False -> (items, {"page", "pageSize", "returned", "hasMore"}, None)
+      fetch_all=True  -> (items, None, truncated)
+    """
+    if fetch_all:
+        items, truncated = await paginate_all(table, options, profile=profile, page_size=agg_page_size, max_pages=max_pages)
+        return items, None, truncated
+    result = await find_with_offset_pagination(table, {**options, "page": page, "pageSize": page_size}, profile=profile)
+    items = result.get("items") or []
+    pagination = {
+        "page": result.get("page") or page,
+        "pageSize": result.get("pageSize") or page_size,
+        "returned": len(items),
+        "hasMore": bool(result.get("hasMore")),
+    }
+    return items, pagination, None
+
+
 async def find_with_cursor_pagination(
     table: str,
     options: dict[str, Any] | None = None,

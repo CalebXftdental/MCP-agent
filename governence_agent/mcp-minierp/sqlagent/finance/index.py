@@ -41,8 +41,8 @@ import re
 from datetime import datetime, timedelta
 from typing import Any
 
+from minierp_core import fetch_page_or_all as _fetch_page_or_all
 from minierp_core import find_with_offset_pagination as _find_with_offset_pagination
-from minierp_core import paginate_all as _paginate_all
 
 from sqlagent.finance.schemas import (
     ApInvoiceDetailsResult,
@@ -72,8 +72,11 @@ async def find_with_offset_pagination(table, options=None):
     return await _find_with_offset_pagination(table, options, profile="admin")
 
 
-async def _paginate(table, options):
-    return await _paginate_all(table, options, profile="admin", page_size=_AGGREGATE_PAGE_SIZE, max_pages=_MAX_AGGREGATE_PAGES)
+async def fetch_page_or_all(table, options, *, fetch_all, page, page_size):
+    return await _fetch_page_or_all(
+        table, options, fetch_all=fetch_all, page=page, page_size=page_size,
+        profile="admin", agg_page_size=_AGGREGATE_PAGE_SIZE, max_pages=_MAX_AGGREGATE_PAGES,
+    )
 
 MINIERP_ENTITIES: dict[str, str] = {
     "baccount":  "baccount",
@@ -313,6 +316,18 @@ def _clamp_page_size(value: Any, default: int = _DEFAULT_LIST_PAGE_SIZE) -> int:
     return min(_MAX_LIST_PAGE_SIZE, max(1, page_size))
 
 
+def _clamp_bulk_page_size(value: Any, default: int = _AGGREGATE_PAGE_SIZE) -> int:
+    """Same shape as _clamp_page_size, but for the company-wide bulk tools
+    (get_ap_invoices_due_soon/get_ar_invoices_past_due), which reasonably want
+    a bigger single-page ceiling than a per-record list tool -- matches their
+    existing _AGGREGATE_PAGE_SIZE default rather than _MAX_LIST_PAGE_SIZE."""
+    try:
+        page_size = int(value)
+    except (TypeError, ValueError):
+        return default
+    return min(_AGGREGATE_PAGE_SIZE, max(1, page_size))
+
+
 def _normalize_identifier(value: str | None) -> str | None:
     normalized = re.sub(r"[\s-]+", "", str(value or "").strip()).upper()
     return normalized or None
@@ -400,8 +415,15 @@ async def get_vendor_details(vendor_code: str) -> VendorDetailsResult:
 
 
 async def get_vendor_ap_invoices(
-    vendor_code: str, page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE
+    vendor_code: str, page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE,
+    fetch_all: bool = False,
 ) -> VendorApInvoicesResult:
+    """fetch_all=True returns this vendor's complete AP invoice history in one
+    governed call (internally pages up to _MAX_AGGREGATE_PAGES real pages of
+    _AGGREGATE_PAGE_SIZE each) instead of the caller looping page=1,2,3...
+    itself -- prefer this over manual re-paging when the goal is "all of this
+    vendor's invoices," not one page. `truncated=true` means even that cap
+    wasn't enough; `page`/`page_size` are ignored when fetch_all is set."""
     baccount_id = await _resolve_baccount_id(vendor_code)
     if baccount_id is None:
         return VendorApInvoicesResult(
@@ -419,8 +441,9 @@ async def get_vendor_ap_invoices(
         "page": _clamp_page(page),
         "pageSize": _clamp_page_size(page_size),
     }
-    result = await find_with_offset_pagination(MINIERP_ENTITIES["ap_invoice"], options)
-    items = result.get("items") or []
+    items, pagination, truncated = await fetch_page_or_all(
+        MINIERP_ENTITIES["ap_invoice"], options, fetch_all=fetch_all, page=page, page_size=page_size,
+    )
     if not items:
         return VendorApInvoicesResult(
             status="not_found",
@@ -441,15 +464,9 @@ async def get_vendor_ap_invoices(
         }
         for it in items
     ]
-    pagination = {
-        "page": result.get("page") or page,
-        "pageSize": result.get("pageSize") or page_size,
-        "returned": len(records),
-        "hasMore": bool(result.get("hasMore")),
-    }
     return VendorApInvoicesResult(
         status="success",
-        vendorCode=vendor_code, records=records, pagination=pagination,
+        vendorCode=vendor_code, records=records, pagination=pagination, truncated=truncated,
     )
 
 
@@ -640,7 +657,11 @@ async def get_gl_account_transactions(
     company_id: int | None = None,
     page: int = 1,
     page_size: int = _DEFAULT_LIST_PAGE_SIZE,
+    fetch_all: bool = False,
 ) -> GlAccountTransactionsResult:
+    """fetch_all=True accumulates every real transaction in range (up to the
+    aggregate cap) in one governed call instead of paging manually; note that
+    netMovementThisPage then sums the FULL accumulated range, not one page."""
     f = MINIERP_FIELDS
     account_id, matched_company = await _resolve_account_id(account_cd, company_id)
 
@@ -675,8 +696,9 @@ async def get_gl_account_transactions(
         "page": _clamp_page(page),
         "pageSize": _clamp_page_size(page_size),
     }
-    result = await find_with_offset_pagination(MINIERP_ENTITIES["gl_tran"], options)
-    items = result.get("items") or []
+    items, pagination, truncated = await fetch_page_or_all(
+        MINIERP_ENTITIES["gl_tran"], options, fetch_all=fetch_all, page=page, page_size=page_size,
+    )
     if not items:
         return GlAccountTransactionsResult(
             status="not_found",
@@ -697,12 +719,18 @@ async def get_gl_account_transactions(
         for it in items
     ]
     net_movement = round(sum(r["debit"] - r["credit"] for r in records), 2)
-    pagination = {
-        "page": result.get("page") or page,
-        "pageSize": result.get("pageSize") or page_size,
-        "returned": len(records),
-        "hasMore": bool(result.get("hasMore")),
-    }
+    if pagination is not None:
+        note = (
+            "netMovementThisPage sums only the returned page; paginate through "
+            "hasMore for a full-range total."
+            if pagination["hasMore"] else None
+        )
+    else:
+        note = (
+            "netMovementThisPage sums every row fetch_all accumulated, not just one "
+            "page; truncated=true means even that wasn't the full range."
+            if truncated else None
+        )
     return GlAccountTransactionsResult(
         status="success",
         accountCd=account_cd,
@@ -711,11 +739,8 @@ async def get_gl_account_transactions(
         records=records,
         netMovementThisPage=net_movement,
         pagination=pagination,
-        note=(
-            "netMovementThisPage sums only the returned page; paginate through "
-            "hasMore for a full-range total."
-            if pagination["hasMore"] else None
-        ),
+        note=note,
+        truncated=truncated,
     )
 
 
@@ -729,6 +754,7 @@ async def get_sales_price(
     company_id: int | None = None,
     page: int = 1,
     page_size: int = _DEFAULT_LIST_PAGE_SIZE,
+    fetch_all: bool = False,
 ) -> SalesPriceResult:
     """List sales price records for one inventory item.
 
@@ -736,7 +762,8 @@ async def get_sales_price(
     than one row per item (one per price class / customer / break-quantity
     tier), so this is a paginated list, not a single-record fetch. Narrow with
     cust_price_class_id and/or customer_id when the caller knows which tier
-    they want."""
+    they want. fetch_all=True returns every matching price record in one
+    governed call instead of paging manually."""
     f = MINIERP_FIELDS
     for candidate in _identifier_candidates(inventory_id):
         where: dict[str, Any] = {f["sp_inventory_id"]: candidate}
@@ -758,8 +785,9 @@ async def get_sales_price(
             "page": _clamp_page(page),
             "pageSize": _clamp_page_size(page_size),
         }
-        result = await find_with_offset_pagination(MINIERP_ENTITIES["ar_sales_price"], options)
-        items = result.get("items") or []
+        items, pagination, truncated = await fetch_page_or_all(
+            MINIERP_ENTITIES["ar_sales_price"], options, fetch_all=fetch_all, page=page, page_size=page_size,
+        )
         if not items:
             continue
 
@@ -778,15 +806,9 @@ async def get_sales_price(
             }
             for it in items
         ]
-        pagination = {
-            "page": result.get("page") or page,
-            "pageSize": result.get("pageSize") or page_size,
-            "returned": len(records),
-            "hasMore": bool(result.get("hasMore")),
-        }
         return SalesPriceResult(
             status="success",
-            inventoryId=inventory_id, records=records, pagination=pagination,
+            inventoryId=inventory_id, records=records, pagination=pagination, truncated=truncated,
         )
     return SalesPriceResult(
         status="not_found",
@@ -819,6 +841,21 @@ async def get_ap_invoices_due_soon(
     Returns candidate rows only, `paid` included but NOT filtered out --
     deciding "unpaid AND due soon" is exactly what a filter node is for; this
     tool's job is fetching a bounded, real candidate set, not deciding.
+
+    ONE real page per call (honest page/pageSize/hasMore, same contract as
+    every other list tool in this file) -- NOT an auto-exhausting aggregate.
+    That was this tool's behavior until 2026-08-21 (silently fetching up to
+    5000 rows regardless of what was asked, with `page` meaning "start
+    scanning from real offset (page-1)*250" rather than "give me chunk N") --
+    confirmed by direct benchmark to be both a real correctness bug (page=1
+    and page=2 covered overlapping ranges) and the root cause of a local
+    copilot model's futile page-1,2,3... retry loop trying to reconstruct a
+    truncated result (STAGE2_PLAN.md SS11.2/11.3). To get the FULL dataset in
+    one governed call (a workflow-graph tool_call node, or any caller that
+    genuinely needs everything, not a copilot sample), set `paginate: true`
+    on the node -- the interpreter's existing generic exhaustion mechanism
+    (_exhaust_tool_call) now works correctly against this tool's real
+    `pagination.hasMore`, which it could not before this fix.
     """
     f = MINIERP_FIELDS
     now = datetime.utcnow()
@@ -836,10 +873,12 @@ async def get_ap_invoices_due_soon(
             f["company_id"]: {"in": _company_ids(company_id)},
         },
         "page": _clamp_page(page),
+        "pageSize": _clamp_bulk_page_size(page_size),
     }
-    items, truncated = await _paginate(MINIERP_ENTITIES["ap_invoice"], options)
+    result = await find_with_offset_pagination(MINIERP_ENTITIES["ap_invoice"], options)
+    items = result.get("items") or []
     if not items:
-        return ApInvoicesDueSoonResult(status="not_found", invoices=[], count=0, truncated=False)
+        return ApInvoicesDueSoonResult(status="not_found", invoices=[], pagination=None)
 
     vendor_ids = sorted({it.get(f["ap_vendor_id"]) for it in items if it.get(f["ap_vendor_id"]) is not None})
     vmap: dict = {}
@@ -873,13 +912,18 @@ async def get_ap_invoices_due_soon(
         }
         for it in items
     ]
-    return ApInvoicesDueSoonResult(
-        status="ok", invoices=invoices, count=len(invoices), truncated=truncated,
-    )
+    pagination = {
+        "page": result.get("page") or page,
+        "pageSize": result.get("pageSize") or page_size,
+        "returned": len(invoices),
+        "hasMore": bool(result.get("hasMore")),
+    }
+    return ApInvoicesDueSoonResult(status="ok", invoices=invoices, pagination=pagination)
 
 
 async def get_ar_invoices_past_due(
-    min_invoice_age_days: int = 30, company_id: int | None = None, page: int = 1,
+    min_invoice_age_days: int = 30, company_id: int | None = None,
+    page: int = 1, page_size: int = _AGGREGATE_PAGE_SIZE,
 ) -> ArInvoicesPastDueResult:
     """AR invoices older than N days that may still be outstanding, across
     every customer -- an AR-aging / collections signal for a filter node to
@@ -905,6 +949,12 @@ async def get_ar_invoices_past_due(
     one would be exactly the "confidently incorrect report" the governance
     design explicitly warns against. A true per-customer collections queue
     would need this table's schema (or a join table) to change first.
+
+    ONE real page per call, same contract as every other list tool in this
+    file -- NOT an auto-exhausting aggregate. See get_ap_invoices_due_soon's
+    docstring for why this changed 2026-08-21 and how to get the full
+    dataset in one governed call (`paginate: true` on a workflow-graph
+    tool_call node).
     """
     f = MINIERP_FIELDS
     cutoff = datetime.utcnow() - timedelta(days=max(0, int(min_invoice_age_days or 0)))
@@ -919,10 +969,12 @@ async def get_ar_invoices_past_due(
             f["company_id"]: {"in": _company_ids(company_id)},
         },
         "page": _clamp_page(page),
+        "pageSize": _clamp_bulk_page_size(page_size),
     }
-    items, truncated = await _paginate(MINIERP_ENTITIES["ar_invoice"], options)
+    result = await find_with_offset_pagination(MINIERP_ENTITIES["ar_invoice"], options)
+    items = result.get("items") or []
     if not items:
-        return ArInvoicesPastDueResult(status="not_found", invoices=[], count=0, truncated=False)
+        return ArInvoicesPastDueResult(status="not_found", invoices=[], pagination=None)
 
     invoices = [
         {
@@ -938,9 +990,13 @@ async def get_ar_invoices_past_due(
         }
         for it in items
     ]
-    return ArInvoicesPastDueResult(
-        status="ok", invoices=invoices, count=len(invoices), truncated=truncated,
-    )
+    pagination = {
+        "page": result.get("page") or page,
+        "pageSize": result.get("pageSize") or page_size,
+        "returned": len(invoices),
+        "hasMore": bool(result.get("hasMore")),
+    }
+    return ArInvoicesPastDueResult(status="ok", invoices=invoices, pagination=pagination)
 
 
 # ── POLine (line-item detail for a PO -- mirrors mcp-minierp's
@@ -949,9 +1005,11 @@ async def get_ar_invoices_past_due(
 
 async def get_po_line_items(
     po_number: str, company_id: int | None = None,
-    page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE,
+    page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE, fetch_all: bool = False,
 ) -> PoLineItemsResult:
-    """List line items (product, quantities, cost) for one purchase order by PO number."""
+    """List line items (product, quantities, cost) for one purchase order by
+    PO number. fetch_all=True returns every line item in one governed call
+    instead of paging manually."""
     f = MINIERP_FIELDS
     for candidate in _identifier_candidates(po_number):
         for company_candidate in _company_ids(company_id):
@@ -970,8 +1028,9 @@ async def get_po_line_items(
                 "page": _clamp_page(page),
                 "pageSize": _clamp_page_size(page_size),
             }
-            result = await find_with_offset_pagination(MINIERP_ENTITIES["po_line"], options)
-            items = result.get("items") or []
+            items, pagination, truncated = await fetch_page_or_all(
+                MINIERP_ENTITIES["po_line"], options, fetch_all=fetch_all, page=page, page_size=page_size,
+            )
             if items:
                 records = [
                     {
@@ -992,16 +1051,10 @@ async def get_po_line_items(
                     }
                     for it in items
                 ]
-                pagination = {
-                    "page": result.get("page") or page,
-                    "pageSize": result.get("pageSize") or page_size,
-                    "returned": len(records),
-                    "hasMore": bool(result.get("hasMore")),
-                }
                 return PoLineItemsResult(
                     status="success",
                     orderNumber=po_number, company=company_candidate,
-                    records=records, pagination=pagination,
+                    records=records, pagination=pagination, truncated=truncated,
                 )
     return PoLineItemsResult(
         status="not_found",
@@ -1016,9 +1069,12 @@ async def get_po_line_items(
 
 async def get_ar_payment_history(
     customer_id: str, page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE,
+    fetch_all: bool = False,
 ) -> ArPaymentHistoryResult:
     """List AR payment applications for a customer: which invoice was paid or
-    credited by which payment/credit-memo document, when, and for how much."""
+    credited by which payment/credit-memo document, when, and for how much.
+    fetch_all=True returns this customer's complete payment history in one
+    governed call instead of paging manually."""
     baccount_id = await _resolve_baccount_id(customer_id)
     if baccount_id is None:
         return ArPaymentHistoryResult(
@@ -1038,8 +1094,9 @@ async def get_ar_payment_history(
         "page": _clamp_page(page),
         "pageSize": _clamp_page_size(page_size),
     }
-    result = await find_with_offset_pagination(MINIERP_ENTITIES["ar_adjust"], options)
-    items = result.get("items") or []
+    items, pagination, truncated = await fetch_page_or_all(
+        MINIERP_ENTITIES["ar_adjust"], options, fetch_all=fetch_all, page=page, page_size=page_size,
+    )
     if not items:
         return ArPaymentHistoryResult(
             status="not_found",
@@ -1061,23 +1118,25 @@ async def get_ar_payment_history(
         }
         for it in items
     ]
-    pagination = {
-        "page": result.get("page") or page,
-        "pageSize": result.get("pageSize") or page_size,
-        "returned": len(records),
-        "hasMore": bool(result.get("hasMore")),
-    }
     return ArPaymentHistoryResult(
         status="success",
-        customerId=customer_id, records=records, pagination=pagination,
+        customerId=customer_id, records=records, pagination=pagination, truncated=truncated,
     )
 
 
 async def get_ap_payment_history(
     vendor_code: str, page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE,
+    fetch_all: bool = False,
 ) -> ApPaymentHistoryResult:
     """List AP payment applications for a vendor: which bill was paid by which
-    payment document, when, and for how much."""
+    payment document, when, and for how much.
+
+    fetch_all=True returns this vendor's complete payment history in one
+    governed call (internally pages up to _MAX_AGGREGATE_PAGES real pages of
+    _AGGREGATE_PAGE_SIZE each) instead of the caller looping page=1,2,3...
+    itself -- prefer this over manual re-paging when the goal is "all of this
+    vendor's payment history," not one page. `truncated=true` means even that
+    cap wasn't enough; `page`/`page_size` are ignored when fetch_all is set."""
     baccount_id = await _resolve_baccount_id(vendor_code)
     if baccount_id is None:
         return ApPaymentHistoryResult(
@@ -1098,8 +1157,9 @@ async def get_ap_payment_history(
         "page": _clamp_page(page),
         "pageSize": _clamp_page_size(page_size),
     }
-    result = await find_with_offset_pagination(MINIERP_ENTITIES["ap_adjust"], options)
-    items = result.get("items") or []
+    items, pagination, truncated = await fetch_page_or_all(
+        MINIERP_ENTITIES["ap_adjust"], options, fetch_all=fetch_all, page=page, page_size=page_size,
+    )
     if not items:
         return ApPaymentHistoryResult(
             status="not_found",
@@ -1122,15 +1182,9 @@ async def get_ap_payment_history(
         }
         for it in items
     ]
-    pagination = {
-        "page": result.get("page") or page,
-        "pageSize": result.get("pageSize") or page_size,
-        "returned": len(records),
-        "hasMore": bool(result.get("hasMore")),
-    }
     return ApPaymentHistoryResult(
         status="success",
-        vendorCode=vendor_code, records=records, pagination=pagination,
+        vendorCode=vendor_code, records=records, pagination=pagination, truncated=truncated,
     )
 
 
@@ -1139,12 +1193,14 @@ async def get_ap_payment_history(
 
 async def get_gl_period_summary(
     account_cd: str, fin_period_id: str = "", company_id: int | None = None,
-    page: int = 1, page_size: int = 12,
+    page: int = 1, page_size: int = 12, fetch_all: bool = False,
 ) -> GlPeriodSummaryResult:
     """Period-level GL balances (beginning balance, period debit/credit, YTD
     balance) for one account -- a direct rollup from GLHistory, not a
     client-side aggregation over get_gl_account_transactions' raw GLTran rows.
-    fin_period_id, if given, is Acumatica's "YYYYMM" format (e.g. "202401")."""
+    fin_period_id, if given, is Acumatica's "YYYYMM" format (e.g. "202401").
+    fetch_all=True returns every period on file in one governed call instead
+    of paging manually."""
     account_id, matched_company = await _resolve_account_id(account_cd, company_id)
     if account_id is None:
         return GlPeriodSummaryResult(
@@ -1169,8 +1225,9 @@ async def get_gl_period_summary(
         "page": _clamp_page(page),
         "pageSize": _clamp_page_size(page_size),
     }
-    result = await find_with_offset_pagination(MINIERP_ENTITIES["gl_history"], options)
-    items = result.get("items") or []
+    items, pagination, truncated = await fetch_page_or_all(
+        MINIERP_ENTITIES["gl_history"], options, fetch_all=fetch_all, page=page, page_size=page_size,
+    )
     if not items:
         return GlPeriodSummaryResult(
             status="not_found",
@@ -1190,16 +1247,10 @@ async def get_gl_period_summary(
         }
         for it in items
     ]
-    pagination = {
-        "page": result.get("page") or page,
-        "pageSize": result.get("pageSize") or page_size,
-        "returned": len(records),
-        "hasMore": bool(result.get("hasMore")),
-    }
     return GlPeriodSummaryResult(
         status="success",
         accountCd=account_cd, company=matched_company,
-        records=records, pagination=pagination,
+        records=records, pagination=pagination, truncated=truncated,
     )
 
 
@@ -1209,11 +1260,12 @@ async def get_gl_period_summary(
 
 async def get_invoice_line_items(
     invoice_number: str, company_id: int | None = None,
-    page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE,
+    page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE, fetch_all: bool = False,
 ) -> InvoiceLineItemsResult:
     """List billed line items (product, qty, price, sales rep) for one AR
     invoice by invoice/reference number -- line-level detail get_invoice_details
-    doesn't carry."""
+    doesn't carry. fetch_all=True returns every line item in one governed
+    call instead of paging manually."""
     f = MINIERP_FIELDS
     for candidate in _identifier_candidates(invoice_number):
         for company_candidate in _company_ids(company_id):
@@ -1231,8 +1283,9 @@ async def get_invoice_line_items(
                 "page": _clamp_page(page),
                 "pageSize": _clamp_page_size(page_size),
             }
-            result = await find_with_offset_pagination(MINIERP_ENTITIES["ar_tran"], options)
-            items = result.get("items") or []
+            items, pagination, truncated = await fetch_page_or_all(
+                MINIERP_ENTITIES["ar_tran"], options, fetch_all=fetch_all, page=page, page_size=page_size,
+            )
             if items:
                 records = [
                     {
@@ -1248,16 +1301,10 @@ async def get_invoice_line_items(
                     }
                     for it in items
                 ]
-                pagination = {
-                    "page": result.get("page") or page,
-                    "pageSize": result.get("pageSize") or page_size,
-                    "returned": len(records),
-                    "hasMore": bool(result.get("hasMore")),
-                }
                 return InvoiceLineItemsResult(
                     status="success",
                     invoiceNumber=invoice_number, company=company_candidate,
-                    records=records, pagination=pagination,
+                    records=records, pagination=pagination, truncated=truncated,
                 )
     return InvoiceLineItemsResult(
         status="not_found",
@@ -1268,10 +1315,12 @@ async def get_invoice_line_items(
 
 async def get_bill_line_items(
     invoice_number: str, company_id: int | None = None,
-    page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE,
+    page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE, fetch_all: bool = False,
 ) -> BillLineItemsResult:
     """List billed line items (product, qty, cost, linked PO) for one AP bill
-    by invoice/reference number -- mirrors get_invoice_line_items for AP."""
+    by invoice/reference number -- mirrors get_invoice_line_items for AP.
+    fetch_all=True returns every line item in one governed call instead of
+    paging manually."""
     f = MINIERP_FIELDS
     for candidate in _identifier_candidates(invoice_number):
         for company_candidate in _company_ids(company_id):
@@ -1289,8 +1338,9 @@ async def get_bill_line_items(
                 "page": _clamp_page(page),
                 "pageSize": _clamp_page_size(page_size),
             }
-            result = await find_with_offset_pagination(MINIERP_ENTITIES["ap_tran"], options)
-            items = result.get("items") or []
+            items, pagination, truncated = await fetch_page_or_all(
+                MINIERP_ENTITIES["ap_tran"], options, fetch_all=fetch_all, page=page, page_size=page_size,
+            )
             if items:
                 records = [
                     {
@@ -1306,16 +1356,10 @@ async def get_bill_line_items(
                     }
                     for it in items
                 ]
-                pagination = {
-                    "page": result.get("page") or page,
-                    "pageSize": result.get("pageSize") or page_size,
-                    "returned": len(records),
-                    "hasMore": bool(result.get("hasMore")),
-                }
                 return BillLineItemsResult(
                     status="success",
                     invoiceNumber=invoice_number, company=company_candidate,
-                    records=records, pagination=pagination,
+                    records=records, pagination=pagination, truncated=truncated,
                 )
     return BillLineItemsResult(
         status="not_found",
@@ -1330,9 +1374,12 @@ async def get_bill_line_items(
 
 async def get_customer_invoice_history(
     customer_id: str, page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE,
+    fetch_all: bool = False,
 ) -> CustomerInvoiceHistoryResult:
     """List a customer's AR invoices via SOInvoice -- the one AR-adjacent table
-    confirmed to carry a real customerId link (ARInvoice itself has none)."""
+    confirmed to carry a real customerId link (ARInvoice itself has none).
+    fetch_all=True returns this customer's complete invoice history in one
+    governed call instead of paging manually."""
     baccount_id = await _resolve_baccount_id(customer_id)
     if baccount_id is None:
         return CustomerInvoiceHistoryResult(
@@ -1353,8 +1400,9 @@ async def get_customer_invoice_history(
         "page": _clamp_page(page),
         "pageSize": _clamp_page_size(page_size),
     }
-    result = await find_with_offset_pagination(MINIERP_ENTITIES["so_invoice"], options)
-    items = result.get("items") or []
+    items, pagination, truncated = await fetch_page_or_all(
+        MINIERP_ENTITIES["so_invoice"], options, fetch_all=fetch_all, page=page, page_size=page_size,
+    )
     if not items:
         return CustomerInvoiceHistoryResult(
             status="not_found",
@@ -1371,15 +1419,9 @@ async def get_customer_invoice_history(
         }
         for it in items
     ]
-    pagination = {
-        "page": result.get("page") or page,
-        "pageSize": result.get("pageSize") or page_size,
-        "returned": len(records),
-        "hasMore": bool(result.get("hasMore")),
-    }
     return CustomerInvoiceHistoryResult(
         status="success",
-        customerId=customer_id, records=records, pagination=pagination,
+        customerId=customer_id, records=records, pagination=pagination, truncated=truncated,
     )
 
 
@@ -1389,10 +1431,12 @@ async def get_customer_invoice_history(
 async def get_item_movement_history(
     inventory_id: str, start_date: str = "", end_date: str = "",
     company_id: int | None = None, page: int = 1, page_size: int = _DEFAULT_LIST_PAGE_SIZE,
+    fetch_all: bool = False,
 ) -> ItemMovementHistoryResult:
     """Inventory transaction history (receipts/issues/transfers) for one item,
     including lot/serial number and expiration date where the item is tracked
-    that way.
+    that way. fetch_all=True returns every transaction in range in one
+    governed call instead of paging manually.
 
     NOT live lot status. INLotSerStatus (current qty/status per lot) is
     confirmed FORBIDDEN under this credential -- this reconstructs movement
@@ -1434,8 +1478,9 @@ async def get_item_movement_history(
         "page": _clamp_page(page),
         "pageSize": _clamp_page_size(page_size),
     }
-    result = await find_with_offset_pagination(MINIERP_ENTITIES["in_tran"], options)
-    items = result.get("items") or []
+    items, pagination, truncated = await fetch_page_or_all(
+        MINIERP_ENTITIES["in_tran"], options, fetch_all=fetch_all, page=page, page_size=page_size,
+    )
     if not items:
         return ItemMovementHistoryResult(
             status="not_found",
@@ -1458,14 +1503,9 @@ async def get_item_movement_history(
         }
         for it in items
     ]
-    pagination = {
-        "page": result.get("page") or page,
-        "pageSize": result.get("pageSize") or page_size,
-        "returned": len(records),
-        "hasMore": bool(result.get("hasMore")),
-    }
     return ItemMovementHistoryResult(
         status="success",
+        truncated=truncated,
         inventoryId=inv, records=records, pagination=pagination,
         note="Transaction history, not live lot/serial status -- INLotSerStatus is not reachable under this credential.",
     )

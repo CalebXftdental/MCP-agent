@@ -611,6 +611,103 @@ and the 91-second/5-turn chain). Not yet done: excluding the math/utility
 tools from the authoring lane, and the per-run tool-call budget itself — both
 still open.
 
+### 11.3 Refinement (2026-08-21): six-item follow-up from today's robustness sweep
+
+A 10-scenario robustness sweep (local Qwen3.6-27B, all non-crashing) against
+the field-catalog + build-mode-gating design above surfaced six concrete,
+evidence-backed follow-ups, implemented this pass:
+
+1. **`get_ap_invoices_due_soon`/`get_ar_invoices_past_due` pagination
+   redesign.** These two tools silently auto-exhausted to 5000 rows
+   regardless of what `page`/`page_size` was asked for (confirmed root cause
+   of §11.2's page-1,2,3... retry loop) — `page` meant "start scanning from
+   real offset," not "give me chunk N," so different pages actually
+   overlapped. Both tools are now honest single-real-page-per-call, matching
+   every other list tool in `sqlagent/finance/index.py`, with a real
+   `pagination: {page, pageSize, returned, hasMore}` block replacing the old
+   `{count, truncated}` shape.
+   **DELIBERATE BREAKING CHANGE, flagged prominently:** any already-published
+   production workflow graph calling either tool *without* `paginate: true`
+   on that node will now see only ONE page instead of the full dataset it
+   saw before. This repo cannot see or fix graphs already persisted in a
+   production store — **before deploying this change, audit any real
+   published graphs using these two tools and add `paginate: true` where a
+   full dataset is genuinely needed** (see `_smoke/test_ap_digest_graph.py`
+   and `_smoke/test_ar_aging_digest_graph.py` for the pattern).
+   As a direct consequence, a real pre-existing bug in
+   `gateway/workflow_graph_interpreter.py`'s `_exhaust_tool_call` was also
+   found and fixed: it only recognized a top-level `hasMore` key, so
+   `paginate: true` was *already* a silent no-op on every tool using the
+   newer nested `pagination.hasMore` shape (`get_vendor_ap_invoices` and
+   siblings), not just the two bulk tools above — `_exhaust_tool_call` now
+   checks both conventions.
+2. **`fetch_all` opt-in on `get_vendor_ap_invoices`/`get_ap_payment_history`.**
+   These already paginated correctly, but the *copilot model* was looping
+   `page=1,2,3...` itself across several LLM round trips (3-6 real pages,
+   ~70-100s observed) to assemble one complete answer. `fetch_all: bool`
+   does that paging server-side in one governed call.
+3. **`schema_catalog` cache warmed at gateway startup** (`gateway/app.py`'s
+   lifespan) — a conversation's first `get_field_catalog` call no longer
+   pays a live schema fetch.
+4. Enum/value discovery in `get_field_catalog` — deferred, narrower value
+   than first estimated.
+5. **Structural self-repair for a malformed/truncated tool-call turn**
+   (`orchestrator.run_chat`/`run_chat_stream`) — a response that looks like
+   an attempted-but-incomplete tool call now gets one corrective retry
+   instead of surfacing raw `<tool_call>`/`<function=` markup as the reply;
+   a second failure falls through to a clear, honest message.
+6. The sweep itself is now a permanent live smoke test,
+   `_smoke/test_workflow_authoring_robustness_live.py`.
+
+### 11.4 Refinement (2026-08-25): pagination harness cleanup, before scaling the toolkit
+
+A toolkit-expansion review (atomic/list/bulk tool census across every
+backend) found no proven demand yet for new bulk/exhaustive tools -- loop
+nodes, the fallback a missing bulk tool would force, have zero real usage
+anywhere in this codebase. But the review surfaced three real gaps in the
+pagination harness §11.3 built, worth fixing regardless of future tool
+count, plus a bonus find:
+
+1. **New shared helper `minierp_core.fetch_page_or_all`** (composes the
+   existing `find_with_offset_pagination`/`paginate_all` primitives) is now
+   the one place that decides "one real page" vs "fetch_all accumulation"
+   and builds the `{page, pageSize, returned, hasMore}` pagination dict --
+   replacing per-tool hand-rolled branches.
+2. **Fixed a real bug in `_exhaust_tool_call`** (`workflow_graph_interpreter.py`):
+   the natural-stop branch unconditionally set `merged["truncated"] = False`,
+   silently overwriting a self-exhausting tool's own honest `truncated: true`
+   whenever that tool had no `hasMore` key to loop on. Now uses
+   `setdefault`, so an already-truncated single-call result survives.
+3. **`fetch_all` rolled out from 2 tools to 17** -- every single-identifier
+   LIST tool across `finance/index.py`, `orders/index.py`, and
+   `accounts/index.py` now supports it, not just
+   `get_vendor_ap_invoices`/`get_ap_payment_history`.
+4. **DELIBERATE BREAKING CHANGE**: `get_orders_by_product`,
+   `get_customers_by_region`, and `get_customer_order_recency`
+   (`mcp-minierp/sqlagent/analytics.py`) migrated from a bare top-level
+   `hasMore` key to the nested `pagination: {page, pageSize, returned,
+   hasMore}` shape every other paginated tool in the codebase uses. Any
+   caller reading `hasMore` directly off these three tools' raw JSON (not
+   through a `filter`/`join` node, which read `records`/`customers`, not
+   pagination metadata) needs to read `pagination.hasMore` instead. Blast
+   radius confirmed small: grepped every `_smoke/*.py` graph and found only
+   one `paginate: true` usage across all three tools
+   (`test_paginate_node_live.py`, already updated). `count` was kept
+   top-level on all three (it reflects post-dedup/rollup row count, which
+   can legitimately differ from `pagination.returned`'s raw per-page count).
+5. Collapsed analytics.py's own third, independently hand-rolled page-loop
+   (a `_paginate(table, where, select, ...)` that reimplemented pagination
+   instead of calling `minierp_core.paginate_all`) into the shared
+   primitive -- same external behavior, one less parallel-maintenance
+   surface for exactly the kind of drift that caused item 3 above.
+
+Verified live against the real ERP: `test_paginate_node_live.py` (migrated
+`get_customers_by_region` genuinely multi-page-exhausts, 117 real customers
+across 5 pages), `test_winback_radar_graph.py` (migrated
+`get_customer_order_recency`, full graph run unaffected), `test_finance_bulk_tools.py`,
+plus a live spot-check of `fetch_all=true` on newly-covered
+`get_customer_orders`/`get_contacts`.
+
 ---
 
 ## 12. Rollout sequencing

@@ -111,14 +111,16 @@ async def minierp_orders_get_customer_orders(
     min_total: float | None = None,
     page: int = 1,
     page_size: int = 10,
+    fetch_all: bool = False,
 ) -> str:
     """List a customer's sales orders, optionally filtered by date range, status, or minimum total.
 
     customer_id is only needed the first time in a session; once supplied it is
-    remembered for this session_id and later calls may omit it."""
+    remembered for this session_id and later calls may omit it. fetch_all=true
+    returns every matching order in one call instead of paging manually."""
     return await _govern("get_customer_orders", session_id, customer_id, {
         "start_date": start_date, "end_date": end_date, "order_status": order_status,
-        "min_total": min_total, "page": page, "page_size": page_size,
+        "min_total": min_total, "page": page, "page_size": page_size, "fetch_all": fetch_all,
     })
 
 
@@ -143,10 +145,14 @@ async def minierp_orders_get_order_details(session_id: SessionId, order_number: 
 @mcp.tool(name="minierp_orders_get_product_details_in_order")
 async def minierp_orders_get_product_details_in_order(
     session_id: SessionId, order_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10,
+    fetch_all: bool = False,
 ) -> str:
-    """List the line items (products, quantities, prices) inside one sales order."""
+    """List the line items (products, quantities, prices) inside one sales
+    order. fetch_all=true returns every line item in one call instead of
+    paging manually."""
     return await _govern("get_product_details_in_order", session_id, "", {
         "order_number": order_number, "company_id": company_id, "page": page, "page_size": page_size,
+        "fetch_all": fetch_all,
     })
 
 
@@ -157,15 +163,28 @@ async def minierp_accounts_get_customer_profile(session_id: SessionId, customer_
 
 
 @mcp.tool(name="minierp_accounts_get_contacts")
-async def minierp_accounts_get_contacts(session_id: SessionId, customer_id: CustomerId = "", page: int = 1, page_size: int = 10) -> str:
-    """List contacts (name, role, phone, email) on a customer's account."""
-    return await _govern("get_contacts", session_id, customer_id, {"page": page, "page_size": page_size})
+async def minierp_accounts_get_contacts(
+    session_id: SessionId, customer_id: CustomerId = "", page: int = 1, page_size: int = 10,
+    fetch_all: bool = False,
+) -> str:
+    """List contacts (name, role, phone, email) on a customer's account.
+    fetch_all=true returns every contact in one call instead of paging
+    manually."""
+    return await _govern("get_contacts", session_id, customer_id, {
+        "page": page, "page_size": page_size, "fetch_all": fetch_all,
+    })
 
 
 @mcp.tool(name="minierp_accounts_get_addresses")
-async def minierp_accounts_get_addresses(session_id: SessionId, customer_id: CustomerId = "", page: int = 1, page_size: int = 10) -> str:
-    """List addresses on file for a customer's account."""
-    return await _govern("get_addresses", session_id, customer_id, {"page": page, "page_size": page_size})
+async def minierp_accounts_get_addresses(
+    session_id: SessionId, customer_id: CustomerId = "", page: int = 1, page_size: int = 10,
+    fetch_all: bool = False,
+) -> str:
+    """List addresses on file for a customer's account. fetch_all=true
+    returns every address in one call instead of paging manually."""
+    return await _govern("get_addresses", session_id, customer_id, {
+        "page": page, "page_size": page_size, "fetch_all": fetch_all,
+    })
 
 
 @mcp.tool(name="minierp_accounts_find_customer")
@@ -661,10 +680,13 @@ async def minierp_finance_get_vendor_details(session_id: SessionId, vendor_code:
 @mcp.tool(name="minierp_finance_get_vendor_ap_invoices")
 async def minierp_finance_get_vendor_ap_invoices(
     session_id: SessionId, vendor_code: str, page: int = 1, page_size: int = 10,
+    fetch_all: bool = False,
 ) -> str:
-    """List AP invoices/bills for a vendor by vendor code."""
+    """List AP invoices/bills for a vendor by vendor code. Prefer fetch_all=true
+    over manually paging page=1,2,3... when you need this vendor's complete
+    invoice history -- one governed call instead of several round trips."""
     return await _govern("get_vendor_ap_invoices", session_id, "", {
-        "vendor_code": vendor_code, "page": page, "page_size": page_size,
+        "vendor_code": vendor_code, "page": page, "page_size": page_size, "fetch_all": fetch_all,
     })
 
 
@@ -697,11 +719,15 @@ async def minierp_finance_get_gl_account_transactions(
     company_id: int | None = None,
     page: int = 1,
     page_size: int = 10,
+    fetch_all: bool = False,
 ) -> str:
-    """List GL transactions for one account code, optionally filtered by date range, with a net debit/credit movement for the returned page."""
+    """List GL transactions for one account code, optionally filtered by date
+    range, with a net debit/credit movement for the returned page.
+    fetch_all=true returns every matching transaction in one call instead of
+    paging manually."""
     return await _govern("get_gl_account_transactions", session_id, "", {
         "account_cd": account_cd, "start_date": start_date, "end_date": end_date,
-        "company_id": company_id, "page": page, "page_size": page_size,
+        "company_id": company_id, "page": page, "page_size": page_size, "fetch_all": fetch_all,
     })
 
 
@@ -714,12 +740,16 @@ async def minierp_finance_get_sales_price(
     company_id: int | None = None,
     page: int = 1,
     page_size: int = 10,
+    fetch_all: bool = False,
 ) -> str:
-    """List sales price records (price class, currency, UOM, break quantity) for one inventory item, optionally narrowed to a price class or customer."""
+    """List sales price records (price class, currency, UOM, break quantity)
+    for one inventory item, optionally narrowed to a price class or customer.
+    fetch_all=true returns every matching price record in one call instead
+    of paging manually."""
     return await _govern("get_sales_price", session_id, "", {
         "inventory_id": inventory_id, "cust_price_class_id": cust_price_class_id,
         "customer_id": customer_id, "company_id": company_id,
-        "page": page, "page_size": page_size,
+        "page": page, "page_size": page_size, "fetch_all": fetch_all,
     })
 
 
@@ -737,44 +767,58 @@ async def minierp_finance_get_ap_invoices_due_soon(
 
 @mcp.tool(name="minierp_finance_get_ar_invoices_past_due")
 async def minierp_finance_get_ar_invoices_past_due(
-    session_id: SessionId, min_invoice_age_days: int = 30, company_id: int | None = None, page: int = 1,
+    session_id: SessionId, min_invoice_age_days: int = 30, company_id: int | None = None,
+    page: int = 1, page_size: int = 250,
 ) -> str:
     """Cross-customer: AR invoices older than N days that may still be outstanding, across
     every customer -- an AR-aging signal for a workflow's filter step. NOTE: ARInvoice has no
     due-date column or customer link in this schema, so this ages by invoice date and cannot
-    be attributed to a specific customer."""
+    be attributed to a specific customer. ONE real page per call -- set paginate:true on this
+    node for the full dataset."""
     return await _govern("get_ar_invoices_past_due", session_id, "", {
-        "min_invoice_age_days": min_invoice_age_days, "company_id": company_id, "page": page,
+        "min_invoice_age_days": min_invoice_age_days, "company_id": company_id,
+        "page": page, "page_size": page_size,
     })
 
 
 @mcp.tool(name="minierp_finance_get_po_line_items")
 async def minierp_finance_get_po_line_items(
     session_id: SessionId, po_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10,
+    fetch_all: bool = False,
 ) -> str:
-    """List the line items (product, quantities, unit/extended cost) inside one purchase order by PO number."""
+    """List the line items (product, quantities, unit/extended cost) inside
+    one purchase order by PO number. fetch_all=true returns every line item
+    in one call instead of paging manually."""
     return await _govern("get_po_line_items", session_id, "", {
         "po_number": po_number, "company_id": company_id, "page": page, "page_size": page_size,
+        "fetch_all": fetch_all,
     })
 
 
 @mcp.tool(name="minierp_finance_get_ar_payment_history")
 async def minierp_finance_get_ar_payment_history(
     session_id: SessionId, customer_id: CustomerId = "", page: int = 1, page_size: int = 10,
+    fetch_all: bool = False,
 ) -> str:
-    """List which invoices a customer's payments/credit memos were applied to, when, and for how much."""
+    """List which invoices a customer's payments/credit memos were applied
+    to, when, and for how much. fetch_all=true returns this customer's
+    complete payment history in one call instead of paging manually."""
     return await _govern("get_ar_payment_history", session_id, customer_id, {
-        "page": page, "page_size": page_size,
+        "page": page, "page_size": page_size, "fetch_all": fetch_all,
     })
 
 
 @mcp.tool(name="minierp_finance_get_ap_payment_history")
 async def minierp_finance_get_ap_payment_history(
     session_id: SessionId, vendor_code: str, page: int = 1, page_size: int = 10,
+    fetch_all: bool = False,
 ) -> str:
-    """List which bills a vendor's payments were applied to, when, and for how much."""
+    """List which bills a vendor's payments were applied to, when, and for how
+    much. Prefer fetch_all=true over manually paging page=1,2,3... when you
+    need this vendor's complete payment history -- one governed call instead
+    of several round trips."""
     return await _govern("get_ap_payment_history", session_id, "", {
-        "vendor_code": vendor_code, "page": page, "page_size": page_size,
+        "vendor_code": vendor_code, "page": page, "page_size": page_size, "fetch_all": fetch_all,
     })
 
 
@@ -782,41 +826,56 @@ async def minierp_finance_get_ap_payment_history(
 async def minierp_finance_get_gl_period_summary(
     session_id: SessionId, account_cd: str, fin_period_id: str = "",
     company_id: int | None = None, page: int = 1, page_size: int = 12,
+    fetch_all: bool = False,
 ) -> str:
-    """Get period-level GL balances (beginning balance, period debit/credit, YTD balance) for one account, optionally narrowed to one fiscal period ("YYYYMM")."""
+    """Get period-level GL balances (beginning balance, period debit/credit,
+    YTD balance) for one account, optionally narrowed to one fiscal period
+    ("YYYYMM"). fetch_all=true returns every period on file in one call
+    instead of paging manually."""
     return await _govern("get_gl_period_summary", session_id, "", {
         "account_cd": account_cd, "fin_period_id": fin_period_id,
-        "company_id": company_id, "page": page, "page_size": page_size,
+        "company_id": company_id, "page": page, "page_size": page_size, "fetch_all": fetch_all,
     })
 
 
 @mcp.tool(name="minierp_finance_get_invoice_line_items")
 async def minierp_finance_get_invoice_line_items(
     session_id: SessionId, invoice_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10,
+    fetch_all: bool = False,
 ) -> str:
-    """List the billed line items (product, quantity, price, sales rep) inside one AR invoice by invoice/reference number."""
+    """List the billed line items (product, quantity, price, sales rep)
+    inside one AR invoice by invoice/reference number. fetch_all=true
+    returns every line item in one call instead of paging manually."""
     return await _govern("get_invoice_line_items", session_id, "", {
         "invoice_number": invoice_number, "company_id": company_id, "page": page, "page_size": page_size,
+        "fetch_all": fetch_all,
     })
 
 
 @mcp.tool(name="minierp_finance_get_bill_line_items")
 async def minierp_finance_get_bill_line_items(
     session_id: SessionId, invoice_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10,
+    fetch_all: bool = False,
 ) -> str:
-    """List the billed line items (product, quantity, cost, linked PO) inside one AP bill by invoice/reference number."""
+    """List the billed line items (product, quantity, cost, linked PO)
+    inside one AP bill by invoice/reference number. fetch_all=true returns
+    every line item in one call instead of paging manually."""
     return await _govern("get_bill_line_items", session_id, "", {
         "invoice_number": invoice_number, "company_id": company_id, "page": page, "page_size": page_size,
+        "fetch_all": fetch_all,
     })
 
 
 @mcp.tool(name="minierp_finance_get_customer_invoice_history")
 async def minierp_finance_get_customer_invoice_history(
     session_id: SessionId, customer_id: CustomerId = "", page: int = 1, page_size: int = 10,
+    fetch_all: bool = False,
 ) -> str:
-    """List a customer's AR invoices (reference number, order number, payment amount/method)."""
+    """List a customer's AR invoices (reference number, order number,
+    payment amount/method). fetch_all=true returns this customer's complete
+    invoice history in one call instead of paging manually."""
     return await _govern("get_customer_invoice_history", session_id, customer_id, {
-        "page": page, "page_size": page_size,
+        "page": page, "page_size": page_size, "fetch_all": fetch_all,
     })
 
 
@@ -824,11 +883,16 @@ async def minierp_finance_get_customer_invoice_history(
 async def minierp_finance_get_item_movement_history(
     session_id: SessionId, inventory_id: str, start_date: str = "", end_date: str = "",
     company_id: int | None = None, page: int = 1, page_size: int = 10,
+    fetch_all: bool = False,
 ) -> str:
-    """List inventory transaction history (receipts, issues, transfers) for one item, including lot/serial number and expiration date where tracked. This is transaction history, NOT live lot status or current stock-on-hand."""
+    """List inventory transaction history (receipts, issues, transfers) for
+    one item, including lot/serial number and expiration date where tracked.
+    This is transaction history, NOT live lot status or current
+    stock-on-hand. fetch_all=true returns every transaction in range in one
+    call instead of paging manually."""
     return await _govern("get_item_movement_history", session_id, "", {
         "inventory_id": inventory_id, "start_date": start_date, "end_date": end_date,
-        "company_id": company_id, "page": page, "page_size": page_size,
+        "company_id": company_id, "page": page, "page_size": page_size, "fetch_all": fetch_all,
     })
 
 
@@ -1417,16 +1481,34 @@ app = mcp.streamable_http_app()
 _mcp_lifespan = app.router.lifespan_context
 
 
+async def _warm_schema_catalog() -> None:
+    """Pre-populate schema_catalog's cache for every governed tool at boot,
+    so a conversation's first get_field_catalog call is an in-memory hit
+    instead of paying a live schema fetch on someone's first turn. Each
+    lookup is independent and swallowed on failure -- one slow/down backend
+    at boot must not block startup or crash the gateway."""
+    async def _warm_one(canonical: str) -> None:
+        policy = manifest.get(canonical)
+        try:
+            await schema_catalog.get_output_schema(policy.backend, canonical)
+        except Exception:
+            pass
+
+    await asyncio.gather(*(_warm_one(canonical) for canonical in manifest.TOOL_POLICIES))
+
+
 @asynccontextmanager
 async def _lifespan_with_sweeps(asgi_app):
     chat_task = asyncio.create_task(_chat_sweep_loop())
     scratchpad_task = asyncio.create_task(workflow_scratchpad.scratchpad_sweep_loop())
+    warm_task = asyncio.create_task(_warm_schema_catalog())
     try:
         async with _mcp_lifespan(asgi_app) as state:
             yield state
     finally:
         chat_task.cancel()
         scratchpad_task.cancel()
+        warm_task.cancel()
 
 
 app.router.lifespan_context = _lifespan_with_sweeps

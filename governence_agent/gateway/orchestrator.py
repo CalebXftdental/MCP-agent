@@ -169,7 +169,12 @@ WORKFLOW_COPILOT_SYSTEM_PROMPT = (
     "never invent identifiers (customer/order/invoice numbers); only use values the user "
     "gave you or a tool returned. When both exist for the same question, prefer an "
     "aggregate/list tool over looping a per-record lookup one at a time -- faster, and less "
-    "likely to silently miss records than you deciding how many loops is \"enough.\"\n"
+    "likely to silently miss records than you deciding how many loops is \"enough.\" Similarly, "
+    "any single-identifier list tool (one vendor's/customer's/account's own invoices, payment "
+    "history, GL transactions, line items, ...) accepts fetch_all=true -- when you need that "
+    "ONE identifier's COMPLETE history (not just a sample), call it ONCE with fetch_all=true "
+    "instead of paging page=1,2,3... yourself across several calls; fetch_all does that paging "
+    "for you server-side, in one governed call.\n"
     "\n"
     "3. BUILD FROM REAL DATA ONLY. Construct the report with office_create_excel_report "
     "(tabular data), office_create_pdf_packet (a short narrative plus tables), or "
@@ -528,6 +533,29 @@ def _strip_tool_calls(content: str) -> str:
     return _TOOLCALL_RE.sub("", content or "").strip()
 
 
+def _looks_like_incomplete_tool_call(content: str) -> bool:
+    """True if `content` has an opening <tool_call>/<function=...> tag that
+    never resolved into a complete block parse_text_tool_calls could extract
+    -- i.e. generation was cut off (or otherwise garbled) mid tool-call, not a
+    genuine plain-text final answer. Only called once parse_text_tool_calls has
+    already come back empty for this content, so a real complete tool call
+    never reaches here."""
+    if not content:
+        return False
+    if _TOOLCALL_TAG in content and not _TOOLCALL_RE.search(content):
+        return True
+    if "<function=" in content and not _FUNC_RE.search(content):
+        return True
+    return False
+
+
+_INCOMPLETE_TOOLCALL_NUDGE = (
+    "Your last response was cut off mid tool-call. Reply with either one "
+    "complete tool call or a plain final answer -- not a partial one."
+)
+_INCOMPLETE_TOOLCALL_GIVEUP_MSG = "I had trouble completing that -- try rephrasing your request."
+
+
 # ── LLM client (injectable; OpenAI-compatible, incl. self-hosted sglang) ──────
 
 def _use_local_llm() -> bool:
@@ -866,6 +894,38 @@ async def run_chat(mcp, message: str, session_id: str, record, *,
 
         # Text tool-calls (our Qwen/sglang endpoint).
         parsed = parse_text_tool_calls(content)
+
+        if not parsed and _looks_like_incomplete_tool_call(content):
+            # Not a real final answer -- generation was cut off mid tool-call.
+            # Retry this turn once with a corrective nudge rather than
+            # surfacing the garbled fragment as the reply.
+            messages.append({"role": "assistant", "content": content})
+            messages.append({"role": "user", "content": _INCOMPLETE_TOOLCALL_NUDGE})
+            msg = await llm_complete(messages, specs, lane=lane, user=user)
+            native = getattr(msg, "tool_calls", None) or []
+            content = getattr(msg, "content", "") or ""
+            parsed = [] if native else parse_text_tool_calls(content)
+            if not native and not parsed and _looks_like_incomplete_tool_call(content):
+                return {"reply": _INCOMPLETE_TOOLCALL_GIVEUP_MSG, "tool_calls": used, "configured": True}
+            if native:
+                messages.append({
+                    "role": "assistant", "content": content,
+                    "tool_calls": [
+                        {"id": tc.id, "type": "function",
+                         "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                        for tc in native
+                    ],
+                })
+                for tc in native:
+                    try:
+                        args = json.loads(tc.function.arguments or "{}")
+                    except (ValueError, TypeError):
+                        args = {}
+                    out = await execute_tool(mcp, tc.function.name, args, session_id)
+                    used.append({"tool": tc.function.name, "args": args, "result": out})
+                    messages.append({"role": "tool", "tool_call_id": tc.id, "content": _wrap_tool_result(tc.function.name, out)})
+                continue
+
         if parsed:
             messages.append({"role": "assistant", "content": content})
             responses = []
@@ -971,6 +1031,53 @@ def _safe_json(s):
         return {}
 
 
+async def _stream_one_attempt(llm_stream, messages, specs, lane, user):
+    """Run one streaming LLM call. Yields ("delta", text) for each chunk of
+    prose safe to show the client (same tag-holdback bookkeeping run_chat_stream
+    always used), then finishes with exactly one
+    ("done", content, native_calls, sent, emitted) tuple carrying the full
+    accumulated state. Factored out so the mid-tool-call repair retry can run
+    this exact same one-call logic a second time without duplicating it."""
+    content = ""
+    sent = 0            # how much of `content` has already been streamed to the client
+    hold = False         # True once a tool-call (native or text) is detected -> stop streaming
+    emitted = False
+    native: dict = {}   # index -> {id,name,args}
+    async for delta in llm_stream(messages, specs, lane=lane, user=user):
+        tcs = getattr(delta, "tool_calls", None)
+        if tcs:
+            hold = True
+            for tc in tcs:
+                slot = native.setdefault(getattr(tc, "index", 0) or 0, {"id": None, "name": "", "args": ""})
+                if getattr(tc, "id", None):
+                    slot["id"] = tc.id
+                fn = getattr(tc, "function", None)
+                if fn:
+                    slot["name"] += getattr(fn, "name", None) or ""
+                    slot["args"] += getattr(fn, "arguments", None) or ""
+        piece = getattr(delta, "content", None) or ""
+        if not piece:
+            continue
+        content += piece
+        if hold:
+            continue
+        tag_idx = content.find(_TOOLCALL_TAG)
+        if tag_idx != -1:
+            hold = True
+            safe_len = tag_idx
+        else:
+            safe_len = _safe_emit_len(content)
+        if safe_len > sent:
+            new_text = content[sent:safe_len]
+            if new_text.strip() or emitted:
+                yield ("delta", new_text)
+                emitted = True
+            sent = safe_len
+
+    native_calls = [v for v in native.values() if v["name"]]
+    yield ("done", content, native_calls, sent, emitted)
+
+
 async def run_chat_stream(mcp, message: str, session_id: str, record, *,
                           llm_complete: Callable | None = None, llm_stream: Callable | None = None,
                           history: list | None = None, system_prompt: str | None = None,
@@ -1010,43 +1117,34 @@ async def run_chat_stream(mcp, message: str, session_id: str, record, *,
     used: list[dict] = []
 
     for _ in range(max_turns if max_turns is not None else _MAX_TOOL_TURNS):
-        content = ""
-        sent = 0            # how much of `content` has already been streamed to the client
-        hold = False         # True once a tool-call (native or text) is detected -> stop streaming
-        emitted = False
-        native: dict = {}   # index -> {id,name,args}
-        async for delta in llm_stream(messages, specs, lane=lane, user=user):
-            tcs = getattr(delta, "tool_calls", None)
-            if tcs:
-                hold = True
-                for tc in tcs:
-                    slot = native.setdefault(getattr(tc, "index", 0) or 0, {"id": None, "name": "", "args": ""})
-                    if getattr(tc, "id", None):
-                        slot["id"] = tc.id
-                    fn = getattr(tc, "function", None)
-                    if fn:
-                        slot["name"] += getattr(fn, "name", None) or ""
-                        slot["args"] += getattr(fn, "arguments", None) or ""
-            piece = getattr(delta, "content", None) or ""
-            if not piece:
-                continue
-            content += piece
-            if hold:
-                continue
-            tag_idx = content.find(_TOOLCALL_TAG)
-            if tag_idx != -1:
-                hold = True
-                safe_len = tag_idx
+        content, native_calls, sent, emitted = "", [], 0, False
+        async for ev in _stream_one_attempt(llm_stream, messages, specs, lane, user):
+            if ev[0] == "delta":
+                yield {"type": "delta", "text": ev[1]}
             else:
-                safe_len = _safe_emit_len(content)
-            if safe_len > sent:
-                new_text = content[sent:safe_len]
-                if new_text.strip() or emitted:
-                    yield {"type": "delta", "text": new_text}
-                    emitted = True
-                sent = safe_len
+                _, content, native_calls, sent, emitted = ev
 
-        native_calls = [v for v in native.values() if v["name"]]
+        parsed = [] if native_calls else parse_text_tool_calls(content)
+
+        if not native_calls and not parsed and _looks_like_incomplete_tool_call(content):
+            # Not a real final answer -- generation was cut off mid tool-call.
+            # Retry this turn once with a corrective nudge rather than
+            # surfacing the garbled fragment as the reply.
+            messages.append({"role": "assistant", "content": content or ""})
+            messages.append({"role": "user", "content": _INCOMPLETE_TOOLCALL_NUDGE})
+            async for ev in _stream_one_attempt(llm_stream, messages, specs, lane, user):
+                if ev[0] == "delta":
+                    yield {"type": "delta", "text": ev[1]}
+                    emitted = True
+                else:
+                    _, content, native_calls, sent, retry_emitted = ev
+                    emitted = emitted or retry_emitted
+            parsed = [] if native_calls else parse_text_tool_calls(content)
+            if not native_calls and not parsed and _looks_like_incomplete_tool_call(content):
+                yield {"type": "replace" if emitted else "delta", "text": _INCOMPLETE_TOOLCALL_GIVEUP_MSG}
+                yield {"type": "done", "tool_calls": used, "configured": True}
+                return
+
         if native_calls:
             messages.append({"role": "assistant", "content": content or "",
                 "tool_calls": [{"id": v["id"] or f"call_{i}", "type": "function",
@@ -1062,7 +1160,6 @@ async def run_chat_stream(mcp, message: str, session_id: str, record, *,
             yield {"type": "tools", "tools": names}
             continue
 
-        parsed = parse_text_tool_calls(content)
         if parsed:
             messages.append({"role": "assistant", "content": content})
             responses, names = [], []

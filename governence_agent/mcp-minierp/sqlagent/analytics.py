@@ -14,7 +14,8 @@ policy/manifest.py so the gateway redacts it per grant.
 """
 from __future__ import annotations
 
-from minierp_core import find_with_offset_pagination
+from minierp_core import fetch_page_or_all, find_with_offset_pagination
+from minierp_core import paginate_all as _paginate_all
 from sqlagent.orders.index import _company_ids, _json_tool_result
 from sqlagent.accounts.index import _gql_baccount_ids_for_acct_cd
 
@@ -36,24 +37,18 @@ def _month(date_str) -> str | None:
 
 async def _paginate(table: str, where: dict, select: dict, *, order_by: dict | None = None,
                     page_size: int = _AGG_PAGE_SIZE, max_pages: int = _MAX_AGG_PAGES):
-    """Yield rows across pages up to max_pages. Returns (rows, truncated)."""
-    rows: list[dict] = []
-    page = 1
-    truncated = False
-    while True:
-        opts = {"select": select, "where": where, "page": page, "pageSize": page_size}
-        if order_by:
-            opts["orderBy"] = order_by
-        result = await find_with_offset_pagination(table, opts)
-        items = result.get("items") or []
-        rows.extend(items)
-        if not result.get("hasMore"):
-            break
-        page += 1
-        if page > max_pages:
-            truncated = True
-            break
-    return rows, truncated
+    """Yield rows across pages up to max_pages. Returns (rows, truncated) --
+    a thin where/select-first adapter over minierp_core.paginate_all (the
+    same shared primitive every other domain module uses for this), kept for
+    this module's existing call shape rather than options-first. This used to
+    hand-roll its own copy of the page loop -- a third independent
+    reimplementation alongside minierp_core.paginate_all and finance/index.py's
+    _paginate wrapper, exactly the kind of duplication that let inconsistent
+    pagination conventions grow up unnoticed."""
+    options: dict = {"select": select, "where": where}
+    if order_by:
+        options["orderBy"] = order_by
+    return await _paginate_all(table, options, page_size=page_size, max_pages=max_pages)
 
 
 # ── Aggregations ──────────────────────────────────────────────────────────────
@@ -141,18 +136,18 @@ async def get_orders_by_product(inventory_id: str, page: int = 1, page_size: int
     if not inv:
         return _json_tool_result(status="missing_identifier", intent="orders_by_product",
                                  message="An inventory_id is required.", missingFields=["inventory_id"])
-    result = await find_with_offset_pagination("soline", {
-        "select": {"orderNbr": True, "customerId": True, "shippedQty": True, "extPrice": True, "orderDate": True},
-        "where": {"inventoryId": inv, "companyId": {"in": _company_ids(None)}},
-        "page": max(1, page), "pageSize": min(200, max(1, page_size)),
-    })
-    items = result.get("items") or []
+    clamped_page, clamped_page_size = max(1, page), min(200, max(1, page_size))
+    items, pagination, _ = await fetch_page_or_all(
+        "soline",
+        {"select": {"orderNbr": True, "customerId": True, "shippedQty": True, "extPrice": True, "orderDate": True},
+         "where": {"inventoryId": inv, "companyId": {"in": _company_ids(None)}}},
+        fetch_all=False, page=clamped_page, page_size=clamped_page_size,
+    )
     rows = [{"orderNumber": r.get("orderNbr"), "customerId": r.get("customerId"),
              "quantity": r.get("shippedQty"), "lineTotal": r.get("extPrice"),
              "date": r.get("orderDate")} for r in items]
     return _json_tool_result(status="ok" if rows else "not_found", intent="orders_by_product",
-                             inventoryId=inv, rows=rows, count=len(rows),
-                             hasMore=bool(result.get("hasMore")))
+                             inventoryId=inv, rows=rows, count=len(rows), pagination=pagination)
 
 
 async def get_customers_by_region(country: str = "", state: str = "", city: str = "",
@@ -169,10 +164,12 @@ async def get_customers_by_region(country: str = "", state: str = "", city: str 
         return _json_tool_result(status="missing_identifier", intent="customers_by_region",
                                  message="Provide at least one of country, state, or city.",
                                  missingFields=["country", "state", "city"])
-    addr = await find_with_offset_pagination("address", {
-        "select": {"bAccountId": True, "city": True, "state": True, "countryId": True},
-        "where": where, "page": max(1, page), "pageSize": min(200, max(1, page_size))})
-    items = addr.get("items") or []
+    clamped_page, clamped_page_size = max(1, page), min(200, max(1, page_size))
+    items, pagination, _ = await fetch_page_or_all(
+        "address",
+        {"select": {"bAccountId": True, "city": True, "state": True, "countryId": True}, "where": where},
+        fetch_all=False, page=clamped_page, page_size=clamped_page_size,
+    )
     baccount_ids = sorted({r.get("bAccountId") for r in items if r.get("bAccountId")})
     bmap: dict = {}
     if baccount_ids:
@@ -193,7 +190,7 @@ async def get_customers_by_region(country: str = "", state: str = "", city: str 
                           "status": b.get("status"), "city": r.get("city"),
                           "state": r.get("state"), "country": r.get("countryId")})
     return _json_tool_result(status="ok" if customers else "not_found", intent="customers_by_region",
-                             customers=customers, count=len(customers), hasMore=bool(addr.get("hasMore")))
+                             customers=customers, count=len(customers), pagination=pagination)
 
 
 # ── Cross-customer analytics (GATED: analytics category only) ─────────────────
@@ -266,14 +263,16 @@ async def get_customer_order_recency(country: str = "", state: str = "", city: s
         return _json_tool_result(status="missing_identifier", intent="customer_order_recency",
                                  message="Provide at least one of country, state, or city.",
                                  missingFields=["country", "state", "city"])
-    addr = await find_with_offset_pagination("address", {
-        "select": {"bAccountId": True, "city": True, "state": True, "countryId": True},
-        "where": where, "page": max(1, page), "pageSize": min(200, max(1, page_size))})
-    items = addr.get("items") or []
+    clamped_page, clamped_page_size = max(1, page), min(200, max(1, page_size))
+    items, pagination, _ = await fetch_page_or_all(
+        "address",
+        {"select": {"bAccountId": True, "city": True, "state": True, "countryId": True}, "where": where},
+        fetch_all=False, page=clamped_page, page_size=clamped_page_size,
+    )
     baccount_ids = sorted({r.get("bAccountId") for r in items if r.get("bAccountId")})
     if not baccount_ids:
         return _json_tool_result(status="not_found", intent="customer_order_recency",
-                                 customers=[], count=0, hasMore=False)
+                                 customers=[], count=0, pagination=pagination)
 
     bres = await find_with_offset_pagination("baccount", {
         "select": {"bAccountId": True, "acctCd": True, "acctName": True, "status": True},
@@ -344,4 +343,4 @@ async def get_customer_order_recency(country: str = "", state: str = "", city: s
         })
     return _json_tool_result(status="ok" if customers else "not_found", intent="customer_order_recency",
                              customers=customers, count=len(customers),
-                             hasMore=bool(addr.get("hasMore")), truncated=truncated)
+                             pagination=pagination, truncated=truncated)

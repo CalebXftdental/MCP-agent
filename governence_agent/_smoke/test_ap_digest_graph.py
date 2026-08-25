@@ -157,7 +157,12 @@ try:
                 ]}},
                 {"nodeId": "n1", "kind": "tool_call", "tool": "get_ap_invoices_due_soon",
                  "title": "Look up AP invoices due soon",
-                 "inputBindings": {"days_ahead": {"source": "trigger", "path": "days_ahead"}}},
+                 "inputBindings": {"days_ahead": {"source": "trigger", "path": "days_ahead"}},
+                 # paginate:true -- this tool now returns ONE real page per call
+                 # (see finance/index.py's docstring), so a digest over the full
+                 # cross-vendor dataset needs the interpreter's generic
+                 # exhaustion mechanism, not just page 1.
+                 "config": {"paginate": True}},
                 # NOTE: this live ERP mirror's AP data has payDate set on every
                 # sampled invoice (confirmed by probe: 0/5000 unpaid company-wide) --
                 # filtering on paid==false would always return zero rows against

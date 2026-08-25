@@ -215,6 +215,23 @@ is visible per-item, not just as one opaque "loop failed").
   shape discovery for untyped tools remain open. Verified in
   `_smoke/test_field_catalog.py`.
 
+  **Update (2026-08-21):** the gateway now warms this cache for every
+  `manifest.TOOL_POLICIES` tool at startup (`gateway/app.py`'s lifespan), so
+  a conversation's first `get_field_catalog` call is a pure in-memory hit
+  instead of paying a live schema fetch. See `STAGE2_PLAN.md` §11.3 for this
+  and five related follow-ups from that day's robustness sweep — **including
+  a deliberate breaking change to `get_ap_invoices_due_soon`/
+  `get_ar_invoices_past_due`'s pagination that anyone deploying past this
+  point must read first.**
+
+  **Update (2026-08-25):** a follow-on pagination-harness cleanup (§11.4)
+  fixed a real truncation-signal bug in the workflow-graph interpreter,
+  rolled `fetch_all` out from 2 tools to 17, and — **another deliberate
+  breaking change** — migrated `get_orders_by_product`/
+  `get_customers_by_region`/`get_customer_order_recency` off a bare
+  top-level `hasMore` onto the same nested `pagination: {...}` shape
+  everything else uses. Read §11.4 before deploying past this point too.
+
 ---
 
 ## 4. Personal knowledge base (`digest_persoanl_kb.md`) — verified current, not stale

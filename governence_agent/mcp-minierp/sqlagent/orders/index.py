@@ -23,6 +23,7 @@ from typing import Any
 
 from minierp_core import (
     GraphQLQueryError,
+    fetch_page_or_all,
     find_with_offset_pagination,
 )
 
@@ -262,19 +263,28 @@ async def _resolve_order_lines_lookup(
     page: int,
     page_size: int,
     select_fields: tuple[str, ...],
-) -> tuple[dict[str, Any], list[dict[str, Any]], str | None, int | None]:
-    fallback = {"items": [], "page": _clamp_page(page), "pageSize": _clamp_page_size(page_size), "hasMore": False}
-    last_result = fallback
+    fetch_all: bool = False,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None, bool | None, str | None, int | None]:
+    """Returns (items, pagination, truncated, matched_order_number, matched_company).
+    pagination/truncated are both None when no candidate/company combo matched
+    anything at all (order_number doesn't exist under any tried spelling)."""
     for candidate in _identifier_candidates(order_number):
         for company_candidate in _company_lookup_candidates(company_id):
-            result = await _query_order_lines_once(
-                candidate, company_candidate, page=page, page_size=page_size, select_fields=select_fields,
+            options = {
+                "select": _select_all_for(*select_fields),
+                "where": {
+                    MINIERP_FIELDS["line_order_nbr"]: candidate,
+                    MINIERP_FIELDS["company_id"]: company_candidate,
+                },
+                "page": _clamp_page(page),
+                "pageSize": _clamp_page_size(page_size),
+            }
+            items, pagination, truncated = await fetch_page_or_all(
+                MINIERP_ENTITIES["sales_order_line"], options, fetch_all=fetch_all, page=page, page_size=page_size,
             )
-            items = result.get("items") or []
-            last_result = result
             if items:
-                return result, items, candidate, company_candidate
-    return last_result, [], None, None
+                return items, pagination, truncated, candidate, company_candidate
+    return [], None, None, None, None
 
 
 async def _pending_line_records_for_order(
@@ -317,6 +327,7 @@ async def _gql_orders_for_customer(
     min_total: float | None = None,
     page: int = 1,
     page_size: int = _DEFAULT_LIST_PAGE_SIZE,
+    fetch_all: bool = False,
 ) -> str:
     baccount_ids = await _gql_baccount_ids_for_acct_cd(acct_cd, company_ids)
     if not baccount_ids:
@@ -350,17 +361,16 @@ async def _gql_orders_for_customer(
         "page": _clamp_page(page),
         "pageSize": _clamp_page_size(page_size),
     }
-    result = await find_with_offset_pagination(MINIERP_ENTITIES["sales_order"], options)
-    items = result.get("items") or []
+    items, pagination, truncated = await fetch_page_or_all(
+        MINIERP_ENTITIES["sales_order"], options, fetch_all=fetch_all, page=page, page_size=page_size,
+    )
     if not items:
         return _json_tool_result(
             status="not_found", intent="customer_orders",
             message=f"No orders found for customer {acct_cd}.", customerId=acct_cd,
             filters={"startDate": start_date, "endDate": end_date,
                      "status": _display_order_status(order_status) if order_status else None, "minTotal": min_total},
-            records=[],
-            pagination={"page": result.get("page") or page, "pageSize": result.get("pageSize") or page_size,
-                        "returned": 0, "hasMore": bool(result.get("hasMore"))},
+            records=[], pagination=pagination, truncated=truncated,
         )
 
     f_num, f_st, f_tot, f_date = (
@@ -380,8 +390,6 @@ async def _gql_orders_for_customer(
          "statusCode": it.get(f_st), "total": float(it.get(f_tot) or 0), "date": it.get(f_date)}
         for it in items
     ]
-    pagination = {"page": result.get("page") or page, "pageSize": result.get("pageSize") or page_size,
-                  "returned": len(records), "hasMore": bool(result.get("hasMore"))}
     return _json_tool_result(
         status="success", intent="customer_orders",
         message=(f"Showing {len(records)} order{'s' if len(records) != 1 else ''} for {acct_cd}"
@@ -389,9 +397,9 @@ async def _gql_orders_for_customer(
         customerId=acct_cd,
         filters={"startDate": start_date, "endDate": end_date,
                  "status": _display_order_status(order_status) if order_status else None, "minTotal": min_total},
-        records=records, pagination=pagination,
+        records=records, pagination=pagination, truncated=truncated,
         nextAction=(f"More orders are available. Ask whether to show page {pagination['page'] + 1}."
-                    if pagination["hasMore"] else None),
+                    if pagination is not None and pagination["hasMore"] else None),
     )
 
 
@@ -498,17 +506,17 @@ async def _gql_product_details_in_order(
     company_id: int | None = None,
     page: int = 1,
     page_size: int = _DEFAULT_LIST_PAGE_SIZE,
+    fetch_all: bool = False,
 ) -> str:
-    result, items, matched_order_number, matched_company = await _resolve_order_lines_lookup(
+    items, pagination, truncated, matched_order_number, matched_company = await _resolve_order_lines_lookup(
         order_number, company_id, page=page, page_size=page_size,
         select_fields=("product_name", "sku", "quantity", "unit_price", "line_total"),
+        fetch_all=fetch_all,
     )
     if not items:
         return _json_tool_result(
             status="not_found", intent="product_details_in_order",
             message=f"No line items found for order {order_number}.", orderNumber=order_number, records=[],
-            pagination={"page": result.get("page") or page, "pageSize": result.get("pageSize") or page_size,
-                        "returned": 0, "hasMore": bool(result.get("hasMore"))},
         )
 
     f_name = MINIERP_FIELDS["product_name"]
@@ -536,14 +544,12 @@ async def _gql_product_details_in_order(
             "total": float(item.get(f_tot) or 0),
         })
 
-    pagination = {"page": result.get("page") or page, "pageSize": result.get("pageSize") or page_size,
-                  "returned": len(records), "hasMore": bool(result.get("hasMore"))}
     return _json_tool_result(
         status="success", intent="product_details_in_order",
         message=f"Showing {len(records)} item{'s' if len(records) != 1 else ''} from order {matched_order_number or order_number}.",
         orderNumber=matched_order_number or order_number, companyId=matched_company,
-        records=records, pagination=pagination,
+        records=records, pagination=pagination, truncated=truncated,
         enrichment={"inventoryItemLookup": "applied" if inventory else "not_available"},
         nextAction=(f"More line items are available. Ask whether to show page {pagination['page'] + 1}."
-                    if pagination["hasMore"] else None),
+                    if pagination is not None and pagination["hasMore"] else None),
     )

@@ -169,15 +169,18 @@ async def get_customer_orders(
     min_total: float | None = None,
     page: int = 1,
     page_size: int = 10,
+    fetch_all: bool = False,
 ) -> str:
-    """List a customer's sales orders, optionally filtered by date range, status, or minimum total."""
+    """List a customer's sales orders, optionally filtered by date range,
+    status, or minimum total. fetch_all=true returns every matching order in
+    one call instead of paging manually."""
     if not customer_id.strip():
         return _MISSING_CUSTOMER
     return await gql_orders_for_customer(
         customer_id.strip(), resolve_company_ids(None),
         start_date=start_date or None, end_date=end_date or None,
         order_status=order_status or None, min_total=min_total,
-        page=page, page_size=page_size,
+        page=page, page_size=page_size, fetch_all=fetch_all,
     )
 
 
@@ -201,32 +204,38 @@ async def get_order_details(order_number: str, company_id: int | None = None) ->
 
 @mcp.tool()
 async def get_product_details_in_order(
-    order_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10
+    order_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10,
+    fetch_all: bool = False,
 ) -> str:
-    """List the line items (products, quantities, prices) inside one sales order."""
+    """List the line items (products, quantities, prices) inside one sales
+    order. fetch_all=true returns every line item in one call instead of
+    paging manually."""
     if not order_number.strip():
         return _missing("order_number", "product_details_in_order")
     return await gql_product_details_in_order(
-        order_number.strip(), company_id=company_id, page=page, page_size=page_size
+        order_number.strip(), company_id=company_id, page=page, page_size=page_size, fetch_all=fetch_all,
     )
 
 
 # ── Accounts domain ───────────────────────────────────────────────────────────
 
 @mcp.tool()
-async def get_contacts(customer_id: str, page: int = 1, page_size: int = 10) -> str:
-    """List contacts (name, role, phone, email) on a customer's account."""
+async def get_contacts(customer_id: str, page: int = 1, page_size: int = 10, fetch_all: bool = False) -> str:
+    """List contacts (name, role, phone, email) on a customer's account.
+    fetch_all=true returns every contact in one call instead of paging
+    manually."""
     if not customer_id.strip():
         return _MISSING_CUSTOMER
-    return await gql_contacts(customer_id.strip(), page=page, page_size=page_size)
+    return await gql_contacts(customer_id.strip(), page=page, page_size=page_size, fetch_all=fetch_all)
 
 
 @mcp.tool()
-async def get_addresses(customer_id: str, page: int = 1, page_size: int = 10) -> str:
-    """List addresses on file for a customer's account."""
+async def get_addresses(customer_id: str, page: int = 1, page_size: int = 10, fetch_all: bool = False) -> str:
+    """List addresses on file for a customer's account. fetch_all=true
+    returns every address in one call instead of paging manually."""
     if not customer_id.strip():
         return _MISSING_CUSTOMER
-    return await gql_addresses(customer_id.strip(), page=page, page_size=page_size)
+    return await gql_addresses(customer_id.strip(), page=page, page_size=page_size, fetch_all=fetch_all)
 
 
 @mcp.tool()
@@ -275,13 +284,19 @@ async def get_vendor_details(vendor_code: str) -> VendorDetailsResult:
 
 
 @mcp.tool()
-async def get_vendor_ap_invoices(vendor_code: str, page: int = 1, page_size: int = 10) -> VendorApInvoicesResult:
-    """List AP invoices/bills for a vendor by vendor code."""
+async def get_vendor_ap_invoices(
+    vendor_code: str, page: int = 1, page_size: int = 10, fetch_all: bool = False,
+) -> VendorApInvoicesResult:
+    """List AP invoices/bills for a vendor by vendor code. Set fetch_all=true
+    to get this vendor's complete invoice history in one call instead of
+    paging through page=1,2,3... yourself."""
     if not vendor_code.strip():
         return VendorApInvoicesResult(
             status="missing_identifier", message="A vendor_code is required.", missingFields=["vendor_code"],
         )
-    return await _fin_get_vendor_ap_invoices(vendor_code.strip(), page=page, page_size=page_size)
+    return await _fin_get_vendor_ap_invoices(
+        vendor_code.strip(), page=page, page_size=page_size, fetch_all=fetch_all,
+    )
 
 
 @mcp.tool()
@@ -322,8 +337,12 @@ async def get_gl_account_transactions(
     company_id: int | None = None,
     page: int = 1,
     page_size: int = 10,
+    fetch_all: bool = False,
 ) -> GlAccountTransactionsResult:
-    """List GL transactions for one account code, optionally filtered by date range, with a net debit/credit movement for the returned page."""
+    """List GL transactions for one account code, optionally filtered by date
+    range, with a net debit/credit movement for the returned page.
+    fetch_all=true returns every matching transaction in one call instead of
+    paging manually."""
     if not account_cd.strip():
         return GlAccountTransactionsResult(
             status="missing_identifier", message="A account_cd is required.", missingFields=["account_cd"],
@@ -335,6 +354,7 @@ async def get_gl_account_transactions(
         company_id=company_id,
         page=page,
         page_size=page_size,
+        fetch_all=fetch_all,
     )
 
 
@@ -346,9 +366,12 @@ async def get_sales_price(
     company_id: int | None = None,
     page: int = 1,
     page_size: int = 10,
+    fetch_all: bool = False,
 ) -> SalesPriceResult:
     """List sales price records (price class, currency, UOM, break quantity) for
-    one inventory item, optionally narrowed to a price class or customer."""
+    one inventory item, optionally narrowed to a price class or customer.
+    fetch_all=true returns every matching price record in one call instead
+    of paging manually."""
     if not inventory_id.strip():
         return SalesPriceResult(
             status="missing_identifier", message="A inventory_id is required.", missingFields=["inventory_id"],
@@ -360,6 +383,7 @@ async def get_sales_price(
         company_id=company_id,
         page=page,
         page_size=page_size,
+        fetch_all=fetch_all,
     )
 
 
@@ -369,112 +393,159 @@ async def get_ap_invoices_due_soon(
 ) -> ApInvoicesDueSoonResult:
     """Cross-vendor: AP invoices due within the next N days, across every
     vendor (not one vendor at a time like get_vendor_ap_invoices) -- an
-    AP-aging / due-soon signal for a workflow's filter step."""
+    AP-aging / due-soon signal for a workflow's filter step. ONE real page
+    per call -- set paginate:true on this node for the full dataset."""
     return await _fin_get_ap_invoices_due_soon(days_ahead=days_ahead, company_id=company_id, page=page, page_size=page_size)
 
 
 @mcp.tool()
 async def get_ar_invoices_past_due(
-    min_invoice_age_days: int = 30, company_id: int | None = None, page: int = 1,
+    min_invoice_age_days: int = 30, company_id: int | None = None, page: int = 1, page_size: int = 250,
 ) -> ArInvoicesPastDueResult:
     """Cross-customer: AR invoices older than N days that may still be
     outstanding, across every customer -- an AR-aging signal for a workflow's
     filter step. NOTE: ARInvoice has no due-date column or customer link in
     this schema, so this ages by invoice date and cannot be attributed to a
-    specific customer (see the underlying tool's own docstring for why)."""
-    return await _fin_get_ar_invoices_past_due(min_invoice_age_days=min_invoice_age_days, company_id=company_id, page=page)
+    specific customer (see the underlying tool's own docstring for why).
+    ONE real page per call -- set paginate:true on this node for the full
+    dataset (see the underlying tool's own docstring)."""
+    return await _fin_get_ar_invoices_past_due(
+        min_invoice_age_days=min_invoice_age_days, company_id=company_id, page=page, page_size=page_size,
+    )
 
 
 @mcp.tool()
 async def get_po_line_items(
     po_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10,
+    fetch_all: bool = False,
 ) -> PoLineItemsResult:
-    """List the line items (product, quantities, unit/extended cost) inside one purchase order by PO number."""
+    """List the line items (product, quantities, unit/extended cost) inside
+    one purchase order by PO number. fetch_all=true returns every line item
+    in one call instead of paging manually."""
     if not po_number.strip():
         return PoLineItemsResult(
             status="missing_identifier", message="A po_number is required.", missingFields=["po_number"],
         )
-    return await _fin_get_po_line_items(po_number.strip(), company_id=company_id, page=page, page_size=page_size)
+    return await _fin_get_po_line_items(
+        po_number.strip(), company_id=company_id, page=page, page_size=page_size, fetch_all=fetch_all,
+    )
 
 
 @mcp.tool()
-async def get_ar_payment_history(customer_id: str, page: int = 1, page_size: int = 10) -> ArPaymentHistoryResult:
-    """List which invoices a customer's payments/credit memos were applied to, when, and for how much."""
+async def get_ar_payment_history(
+    customer_id: str, page: int = 1, page_size: int = 10, fetch_all: bool = False,
+) -> ArPaymentHistoryResult:
+    """List which invoices a customer's payments/credit memos were applied
+    to, when, and for how much. fetch_all=true returns this customer's
+    complete payment history in one call instead of paging manually."""
     if not customer_id.strip():
         return ArPaymentHistoryResult(
             status="missing_identifier", message="A customer_id is required for this lookup.", missingFields=["customerId"],
         )
-    return await _fin_get_ar_payment_history(customer_id.strip(), page=page, page_size=page_size)
+    return await _fin_get_ar_payment_history(customer_id.strip(), page=page, page_size=page_size, fetch_all=fetch_all)
 
 
 @mcp.tool()
-async def get_ap_payment_history(vendor_code: str, page: int = 1, page_size: int = 10) -> ApPaymentHistoryResult:
-    """List which bills a vendor's payments were applied to, when, and for how much."""
+async def get_ap_payment_history(
+    vendor_code: str, page: int = 1, page_size: int = 10, fetch_all: bool = False,
+) -> ApPaymentHistoryResult:
+    """List which bills a vendor's payments were applied to, when, and for how
+    much. Set fetch_all=true to get this vendor's complete payment history in
+    one call instead of paging through page=1,2,3... yourself."""
     if not vendor_code.strip():
         return ApPaymentHistoryResult(
             status="missing_identifier", message="A vendor_code is required.", missingFields=["vendor_code"],
         )
-    return await _fin_get_ap_payment_history(vendor_code.strip(), page=page, page_size=page_size)
+    return await _fin_get_ap_payment_history(
+        vendor_code.strip(), page=page, page_size=page_size, fetch_all=fetch_all,
+    )
 
 
 @mcp.tool()
 async def get_gl_period_summary(
     account_cd: str, fin_period_id: str = "", company_id: int | None = None,
-    page: int = 1, page_size: int = 12,
+    page: int = 1, page_size: int = 12, fetch_all: bool = False,
 ) -> GlPeriodSummaryResult:
-    """Get period-level GL balances (beginning balance, period debit/credit, YTD balance) for one account, optionally narrowed to one fiscal period ("YYYYMM")."""
+    """Get period-level GL balances (beginning balance, period debit/credit,
+    YTD balance) for one account, optionally narrowed to one fiscal period
+    ("YYYYMM"). fetch_all=true returns every period on file in one call
+    instead of paging manually."""
     if not account_cd.strip():
         return GlPeriodSummaryResult(
             status="missing_identifier", message="A account_cd is required.", missingFields=["account_cd"],
         )
     return await _fin_get_gl_period_summary(
-        account_cd.strip(), fin_period_id=fin_period_id or "", company_id=company_id, page=page, page_size=page_size,
+        account_cd.strip(), fin_period_id=fin_period_id or "", company_id=company_id,
+        page=page, page_size=page_size, fetch_all=fetch_all,
     )
 
 
 @mcp.tool()
-async def get_invoice_line_items(invoice_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10) -> InvoiceLineItemsResult:
-    """List the billed line items (product, quantity, price, sales rep) inside one AR invoice by invoice/reference number."""
+async def get_invoice_line_items(
+    invoice_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10,
+    fetch_all: bool = False,
+) -> InvoiceLineItemsResult:
+    """List the billed line items (product, quantity, price, sales rep) inside
+    one AR invoice by invoice/reference number. fetch_all=true returns every
+    line item in one call instead of paging manually."""
     if not invoice_number.strip():
         return InvoiceLineItemsResult(
             status="missing_identifier", message="A invoice_number is required.", missingFields=["invoice_number"],
         )
-    return await _fin_get_invoice_line_items(invoice_number.strip(), company_id=company_id, page=page, page_size=page_size)
+    return await _fin_get_invoice_line_items(
+        invoice_number.strip(), company_id=company_id, page=page, page_size=page_size, fetch_all=fetch_all,
+    )
 
 
 @mcp.tool()
-async def get_bill_line_items(invoice_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10) -> BillLineItemsResult:
-    """List the billed line items (product, quantity, cost, linked PO) inside one AP bill by invoice/reference number."""
+async def get_bill_line_items(
+    invoice_number: str, company_id: int | None = None, page: int = 1, page_size: int = 10,
+    fetch_all: bool = False,
+) -> BillLineItemsResult:
+    """List the billed line items (product, quantity, cost, linked PO) inside
+    one AP bill by invoice/reference number. fetch_all=true returns every
+    line item in one call instead of paging manually."""
     if not invoice_number.strip():
         return BillLineItemsResult(
             status="missing_identifier", message="A invoice_number is required.", missingFields=["invoice_number"],
         )
-    return await _fin_get_bill_line_items(invoice_number.strip(), company_id=company_id, page=page, page_size=page_size)
+    return await _fin_get_bill_line_items(
+        invoice_number.strip(), company_id=company_id, page=page, page_size=page_size, fetch_all=fetch_all,
+    )
 
 
 @mcp.tool()
-async def get_customer_invoice_history(customer_id: str, page: int = 1, page_size: int = 10) -> CustomerInvoiceHistoryResult:
-    """List a customer's AR invoices (reference number, order number, payment amount/method)."""
+async def get_customer_invoice_history(
+    customer_id: str, page: int = 1, page_size: int = 10, fetch_all: bool = False,
+) -> CustomerInvoiceHistoryResult:
+    """List a customer's AR invoices (reference number, order number, payment
+    amount/method). fetch_all=true returns this customer's complete invoice
+    history in one call instead of paging manually."""
     if not customer_id.strip():
         return CustomerInvoiceHistoryResult(
             status="missing_identifier", message="A customer_id is required for this lookup.", missingFields=["customerId"],
         )
-    return await _fin_get_customer_invoice_history(customer_id.strip(), page=page, page_size=page_size)
+    return await _fin_get_customer_invoice_history(customer_id.strip(), page=page, page_size=page_size, fetch_all=fetch_all)
 
 
 @mcp.tool()
 async def get_item_movement_history(
     inventory_id: str, start_date: str = "", end_date: str = "",
     company_id: int | None = None, page: int = 1, page_size: int = 10,
+    fetch_all: bool = False,
 ) -> ItemMovementHistoryResult:
-    """List inventory transaction history (receipts, issues, transfers) for one item, including lot/serial number and expiration date where tracked. This is transaction history, NOT live lot status or current stock-on-hand."""
+    """List inventory transaction history (receipts, issues, transfers) for
+    one item, including lot/serial number and expiration date where tracked.
+    This is transaction history, NOT live lot status or current
+    stock-on-hand. fetch_all=true returns every transaction in range in one
+    call instead of paging manually."""
     if not inventory_id.strip():
         return ItemMovementHistoryResult(
             status="missing_identifier", message="A inventory_id is required.", missingFields=["inventory_id"],
         )
     return await _fin_get_item_movement_history(
         inventory_id.strip(), start_date=start_date, end_date=end_date,
-        company_id=company_id, page=page, page_size=page_size,
+        company_id=company_id, page=page, page_size=page_size, fetch_all=fetch_all,
     )
 
 

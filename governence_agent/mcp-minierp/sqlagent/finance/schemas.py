@@ -89,6 +89,7 @@ class VendorApInvoicesResult(BaseModel):
     vendorCode: str | None = None
     records: list[VendorApInvoiceRecord] = []
     pagination: Pagination | None = None
+    truncated: bool | None = None
 
 
 # ── get_ap_invoice_details ───────────────────────────────────────────────────
@@ -192,6 +193,7 @@ class GlAccountTransactionsResult(BaseModel):
     netMovementThisPage: float | None = None
     pagination: Pagination | None = None
     note: str | None = None
+    truncated: bool | None = None
 
 
 # ── get_sales_price ───────────────────────────────────────────────────────────
@@ -223,6 +225,7 @@ class SalesPriceResult(BaseModel):
     inventoryId: str | None = None
     records: list[SalesPriceRecord] = []
     pagination: Pagination | None = None
+    truncated: bool | None = None
 
 
 # ── get_ap_invoices_due_soon ─────────────────────────────────────────────────
@@ -249,8 +252,7 @@ class ApInvoicesDueSoonResult(BaseModel):
     status: Literal["ok", "not_found"]
     intent: Literal["ap_invoices_due_soon"] = "ap_invoices_due_soon"
     invoices: list[ApInvoiceDueSoonRecord]
-    count: int
-    truncated: bool
+    pagination: Pagination | None = None
 
 
 # ── get_ar_invoices_past_due ─────────────────────────────────────────────────
@@ -277,8 +279,7 @@ class ArInvoicesPastDueResult(BaseModel):
     status: Literal["ok", "not_found"]
     intent: Literal["ar_invoices_past_due"] = "ar_invoices_past_due"
     invoices: list[ArInvoicePastDueRecord]
-    count: int
-    truncated: bool
+    pagination: Pagination | None = None
 
 
 # ── get_po_line_items ─────────────────────────────────────────────────────────
@@ -315,6 +316,7 @@ class PoLineItemsResult(BaseModel):
     company: int | None = None
     records: list[PoLineItemRecord] = []
     pagination: Pagination | None = None
+    truncated: bool | None = None
 
 
 # ── get_ar_payment_history ───────────────────────────────────────────────────
@@ -346,6 +348,7 @@ class ArPaymentHistoryResult(BaseModel):
     customerId: str | None = None
     records: list[ArPaymentRecord] = []
     pagination: Pagination | None = None
+    truncated: bool | None = None
 
 
 # ── get_ap_payment_history ───────────────────────────────────────────────────
@@ -378,6 +381,7 @@ class ApPaymentHistoryResult(BaseModel):
     vendorCode: str | None = None
     records: list[ApPaymentRecord] = []
     pagination: Pagination | None = None
+    truncated: bool | None = None
 
 
 # ── get_gl_period_summary ────────────────────────────────────────────────────
@@ -439,6 +443,7 @@ class InvoiceLineItemsResult(BaseModel):
     company: int | None = None
     records: list[ArInvoiceLineRecord] = []
     pagination: Pagination | None = None
+    truncated: bool | None = None
 
 
 # ── get_bill_line_items ──────────────────────────────────────────────────────
@@ -470,6 +475,7 @@ class BillLineItemsResult(BaseModel):
     company: int | None = None
     records: list[ApBillLineRecord] = []
     pagination: Pagination | None = None
+    truncated: bool | None = None
 
 
 # ── get_customer_invoice_history ─────────────────────────────────────────────
@@ -496,6 +502,7 @@ class CustomerInvoiceHistoryResult(BaseModel):
     customerId: str | None = None
     records: list[CustomerInvoiceHistoryRecord] = []
     pagination: Pagination | None = None
+    truncated: bool | None = None
 
 
 # ── get_item_movement_history ────────────────────────────────────────────────
@@ -529,3 +536,4 @@ class ItemMovementHistoryResult(BaseModel):
     records: list[ItemMovementRecord] = []
     pagination: Pagination | None = None
     note: str | None = None
+    truncated: bool | None = None

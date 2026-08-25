@@ -166,7 +166,12 @@ try:
                 ]}},
                 {"nodeId": "n1", "kind": "tool_call", "tool": "get_ar_invoices_past_due",
                  "title": "Look up AR invoices",
-                 "inputBindings": {"min_invoice_age_days": {"source": "trigger", "path": "min_invoice_age_days"}}},
+                 "inputBindings": {"min_invoice_age_days": {"source": "trigger", "path": "min_invoice_age_days"}},
+                 # paginate:true -- this tool now returns ONE real page per call
+                 # (see finance/index.py's docstring), so a digest over the full
+                 # company-wide dataset needs the interpreter's generic
+                 # exhaustion mechanism, not just page 1.
+                 "config": {"paginate": True}},
                 {"nodeId": "n2", "kind": "filter", "title": "Flag outstanding balances",
                  "inputBindings": {"input": {"source": "node", "node_id": "n1", "path": "invoices"}},
                  "config": {"table_name": "AR Invoices - Outstanding Balance",

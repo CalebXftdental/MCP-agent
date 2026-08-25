@@ -1,15 +1,18 @@
-"""LIVE test confirming `paginate: true` is a correct, cost-free no-op on a
-tool that does NOT expose a top-level `hasMore` key -- specifically
-get_ap_invoices_due_soon, which already self-exhausts internally (via
-sqlagent/finance/index.py's own `_paginate` -> minierp_core.paginate_all,
-capped at 20 pages) and reports `truncated`, not `hasMore`.
+"""LIVE test confirming `paginate: true` genuinely accumulates multiple real
+pages on get_ap_invoices_due_soon, against the real ERP mirror.
 
-This is the real-world case for "applicable to all tools, no allowlist
-needed": the SAME `paginate: true` config that drives a real multi-page
-exhaustion on get_customers_by_region (test_paginate_node_live.py) must cost
-nothing extra here -- exactly one governed call either way -- because
-_exhaust_tool_call's generic "no hasMore key -> return after one call"
-fallback doesn't know or care which specific tool it's calling.
+Superseded premise (kept here for history): this tool used to self-exhaust
+internally (via sqlagent/finance/index.py's own `_paginate` ->
+minierp_core.paginate_all, capped at 20 pages) regardless of what page/
+page_size was asked for, so `paginate: true` on its tool_call node was a
+documented, cost-free no-op -- the tool had no real per-call `hasMore` to
+loop on. As of 2026-08-21 the tool was redesigned to be an honest single
+real page per call (see finance/index.py's docstring), which makes
+`paginate: true` do real, useful work here for the first time: this test now
+proves that work happens (multiple governed calls, rows accumulate to the
+same total the old auto-exhausting tool used to produce in one call) and that
+`paginate` omitted/false stays a true single page, not the old silent
+5000-row default.
 """
 from __future__ import annotations
 
@@ -101,7 +104,7 @@ try:
                 "nodes": [
                     {"nodeId": "trigger", "kind": "trigger", "config": {"inputs": []}},
                     {"nodeId": "n_ap", "kind": "tool_call", "tool": "get_ap_invoices_due_soon",
-                     "config": {"days_ahead": 30, **paginate_config}},
+                     "config": {"days_ahead": 365, **paginate_config}},
                 ],
                 "edges": [{"edgeId": "e1", "sourceNodeId": "trigger", "targetNodeId": "n_ap"}],
             })
@@ -116,26 +119,55 @@ try:
             step = next((s for s in body.get("steps", []) if s.get("stepId") == "n_ap"), {})
             return elapsed, step.get("outputs", {})
 
-        plain_elapsed, plain_outputs = run_once("AP Due Soon (paginate off)", {})
-        print(f"  paginate off: {plain_elapsed*1000:.1f}ms, count={plain_outputs.get('count')}, truncated={plain_outputs.get('truncated')}")
+        # ── paginate omitted -- one real page, honest pagination block ──────
+        plain_elapsed, plain_outputs = run_once("AP Due Soon (paginate off, page_size default)", {})
+        plain_pagination = plain_outputs.get("pagination") or {}
+        print(f"  paginate off: {plain_elapsed*1000:.1f}ms, invoices={len(plain_outputs.get('invoices') or [])}, "
+              f"pagination={plain_pagination}")
+        check("paginate off: exactly one real page's worth of rows (<= its pageSize), not a silent full dump",
+              len(plain_outputs.get("invoices") or []) <= (plain_pagination.get("pageSize") or 250), plain_outputs)
+        check("paginate off: response carries a real pagination block (page/pageSize/returned/hasMore)",
+              {"page", "pageSize", "returned", "hasMore"} <= set(plain_pagination.keys()), plain_pagination)
 
-        paginate_elapsed, paginate_outputs = run_once("AP Due Soon (paginate on, no-op expected)", {"paginate": True, "max_pages": 5})
-        print(f"  paginate on:  {paginate_elapsed*1000:.1f}ms, count={paginate_outputs.get('count')}, "
-              f"truncated={paginate_outputs.get('truncated')}, pagesFetched={paginate_outputs.get('pagesFetched')}")
+        # ── paginate:true -- small page_size forces >1 real page, proving the
+        #    interpreter's generic exhaustion loop actually drives this tool's
+        #    now-honest hasMore, not just replaying page 1 forever. ──────────
+        small_page_elapsed, small_page_outputs = run_once(
+            "AP Due Soon (paginate on, small page_size)",
+            {"page_size": 10, "paginate": True, "max_pages": 5},
+        )
+        print(f"  paginate on (page_size=10): {small_page_elapsed*1000:.1f}ms, "
+              f"invoices={len(small_page_outputs.get('invoices') or [])}, "
+              f"pagesFetched={small_page_outputs.get('pagesFetched')}, truncated={small_page_outputs.get('truncated')}")
+        check(
+            "paginate:true with a small page_size fetched more than one real page",
+            (small_page_outputs.get("pagesFetched") or 0) > 1, small_page_outputs,
+        )
+        check(
+            "paginate:true accumulated more rows than a single small page alone would have",
+            len(small_page_outputs.get("invoices") or []) > 10, small_page_outputs,
+        )
 
-        check(
-            "same invoice count with paginate on vs off (no hasMore key -> no extra pages attempted)",
-            paginate_outputs.get("count") == plain_outputs.get("count"), (paginate_outputs.get("count"), plain_outputs.get("count")),
+        # ── paginate:true at the tool's normal default page_size -- total
+        #    accumulated rows should match what the OLD auto-exhausting tool
+        #    used to return in a single call (same underlying dataset). ──────
+        full_elapsed, full_outputs = run_once(
+            "AP Due Soon (paginate on, default page_size)",
+            {"paginate": True, "max_pages": 20},
         )
+        full_count = len(full_outputs.get("invoices") or [])
+        print(f"  paginate on (default page_size): {full_elapsed*1000:.1f}ms, invoices={full_count}, "
+              f"pagesFetched={full_outputs.get('pagesFetched')}, truncated={full_outputs.get('truncated')}")
         check(
-            "paginate:true costs roughly the same wall-clock as paginate off (no 5x multiplier from a phantom loop)",
-            paginate_elapsed < plain_elapsed * 2.5, (paginate_elapsed, plain_elapsed),
+            "paginate:true (default page_size) matches or exceeds the small-page_size run's total "
+            "(same underlying dataset, fully exhausted either way)",
+            full_count >= len(small_page_outputs.get("invoices") or []), (full_count, small_page_outputs),
         )
-        check(
-            "exactly one page fetched -- this tool has an invoices list but no hasMore key, so "
-            "_exhaust_tool_call correctly stopped after the first (and only) governed call",
-            paginate_outputs.get("pagesFetched") == 1 and paginate_outputs.get("truncated") is False, paginate_outputs,
-        )
+        check("paginate:true (default page_size) was not truncated by the max_pages cap",
+              full_outputs.get("truncated") is False, full_outputs)
+        full_pagination = full_outputs.get("pagination") or {}
+        check("paginate:true's merged pagination.returned reflects the full accumulated total, not one page's",
+              full_pagination.get("returned") == full_count, full_pagination)
 
 finally:
     minierp.terminate()

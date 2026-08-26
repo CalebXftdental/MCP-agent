@@ -1,5 +1,5 @@
 /**
- * Key → page component, for all 25 tabs.
+ * Key → page component, for all tabs.
  *
  * There is no separate Assistant tab — Home's composer/thread IS the governed
  * assistant, so that entry was retired from the registry entirely rather than
@@ -31,6 +31,7 @@ import KnowledgePage from './KnowledgePage'
 import MonitorPage from './MonitorPage'
 import MyWorkflowsPage from './MyWorkflowsPage'
 import AutomationsPage from './AutomationsPage'
+import PendingSignupsPage from './PendingSignupsPage'
 import PlaceholderPage from './PlaceholderPage'
 import PlaygroundPage from './PlaygroundPage'
 import RequestsPage from './RequestsPage'
@@ -47,6 +48,7 @@ const PAGES: Partial<Record<RouteKey, ComponentType<PageProps>>> = {
   access: AccessPage,
   history: HistoryPage,
   requests: RequestsPage,
+  'pending-signups': PendingSignupsPage,
   approvals: ApprovalsPage,
   monitor: MonitorPage,
   security: SecurityPage,
@@ -92,6 +94,7 @@ export { default as KnowledgePage } from './KnowledgePage'
 export { default as MonitorPage } from './MonitorPage'
 export { default as MyWorkflowsPage } from './MyWorkflowsPage'
 export { default as AutomationsPage } from './AutomationsPage'
+export { default as PendingSignupsPage } from './PendingSignupsPage'
 export { default as PlaceholderPage } from './PlaceholderPage'
 export { default as PlaygroundPage } from './PlaygroundPage'
 export { default as RequestsPage } from './RequestsPage'

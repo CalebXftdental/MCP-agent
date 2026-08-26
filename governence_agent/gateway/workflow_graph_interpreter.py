@@ -825,10 +825,18 @@ async def _interpret(run: WorkflowRun, graph: WorkflowGraphDefinition, body: dic
     for n in version.nodes:
         if n.kind != "loop":
             continue
-        body = [b for b in ((n.config or {}).get("body") or []) if b in nodes_by_id]
-        for bid in body:
+        # NOTE: deliberately NOT named `body` -- this function's own `body`
+        # parameter (the run's request body dict) is still read below (the
+        # broad-export-approval check), and previously got shadowed by this
+        # loop-node's config body (a list of node ids) whenever a graph had
+        # both a loop node and a downstream EXPORT-risk tool_call, crashing
+        # with "'list' object has no attribute 'get'" inside
+        # _workflow_requires_broad_export_approval. Confirmed live via
+        # _smoke/test_ar_aging_buckets_graph.py.
+        loop_body_ids = [b for b in ((n.config or {}).get("body") or []) if b in nodes_by_id]
+        for bid in loop_body_ids:
             body_owner.setdefault(bid, n.node_id)
-        body_order_by_loop[n.node_id] = [nid for nid in order if nid in set(body)]
+        body_order_by_loop[n.node_id] = [nid for nid in order if nid in set(loop_body_ids)]
 
     session_id = "workflow:" + run.run_id
     owner = run.requested_by

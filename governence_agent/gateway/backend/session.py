@@ -1,7 +1,9 @@
 """Login/logout, the caller's own access, key rotation, access requests, playground."""
 from __future__ import annotations
 
+from auth import graph_mailer
 from auth import lockout
+from auth import signup_codes
 from auth.passwords import hash_password
 from auth.passwords import verify_password
 from auth.session import issue_session
@@ -17,6 +19,7 @@ from store.models import ConsumerRecord
 import audit
 import edge
 import json
+import os
 import request_context as ctx
 import safety
 import time
@@ -112,7 +115,10 @@ async def _departments(_request):
     ]})
 
 
-async def _signup(request):
+async def _signup_request_code(request):
+    """Step 1 of self-service signup: validate the form, then email a 6-digit code
+    to the company address given (see auth/signup_codes.py) instead of creating
+    the account yet -- proof-of-mailbox comes before anything is persisted."""
     store, err = _writable_or_error()
     if err:
         return err
@@ -123,9 +129,13 @@ async def _signup(request):
     username = str(body.get("username") or "").strip()
     password = str(body.get("password") or "")
     department_id = str(body.get("department") or "").strip()
-    if not full_name or not username or not password or not department_id:
+    email = str(body.get("email") or "").strip().lower()
+    if not full_name or not username or not password or not department_id or not email:
         return JSONResponse(
-            {"error": "full name, username, password, and department are required"}, status_code=400)
+            {"error": "full name, username, password, department, and email are required"}, status_code=400)
+    domain = (os.getenv("SIGNUP_EMAIL_DOMAIN") or "").strip().lower()
+    if domain and not email.endswith("@" + domain):
+        return JSONResponse({"error": f"email must be a @{domain} address"}, status_code=400)
     department = store.get_department(department_id)
     if department is None:
         return JSONResponse(
@@ -135,23 +145,97 @@ async def _signup(request):
     consumer_id = f"user:{username}"
     if store.get_by_username(username) or store.get_consumer(consumer_id):
         return JSONResponse({"error": "that username is taken"}, status_code=409)
+
+    ticket_id, code = signup_codes.create_ticket(email, {
+        "full_name": full_name, "username": username, "password": password,
+        "department": department_id, "email": email,
+    })
+    try:
+        await graph_mailer.send_verification_email(email, code)
+    except graph_mailer.GraphMailerError as exc:
+        return JSONResponse({"error": f"could not send verification email: {exc}"}, status_code=502)
+    return JSONResponse(
+        {"ok": True, "ticket_id": ticket_id,
+         "expires_in_sec": int(os.getenv("GOVERNANCE_SIGNUP_CODE_TTL_SEC") or "600")},
+        status_code=201)
+
+
+async def _signup_verify_code(request):
+    """Step 2: the code proves the mailbox, so this is where the account actually
+    gets created -- as status="pending" plus a kind="account" access request, the
+    same shape admin_policy.py's _admin_request_approve/_admin_request_deny
+    already know how to flip to active/disabled. No session cookie here: the
+    account isn't usable yet, so nothing should look logged in."""
+    store, err = _writable_or_error()
+    if err:
+        return err
+    body = await request.json()
+    ticket_id = str(body.get("ticket_id") or "").strip()
+    code = str(body.get("code") or "").strip()
+    if not ticket_id or not code:
+        return JSONResponse({"error": "ticket_id and code are required"}, status_code=400)
+    payload = signup_codes.verify(ticket_id, code)
+    if payload is None:
+        return JSONResponse({"error": "invalid or expired code"}, status_code=400)
+
+    username = payload["username"]
+    department = store.get_department(payload["department"])
+    if department is None:
+        return JSONResponse(
+            {"error": "that department no longer exists; please sign up again"}, status_code=409)
+    consumer_id = f"user:{username}"
+    if store.get_by_username(username) or store.get_consumer(consumer_id):
+        return JSONResponse(
+            {"error": "that username was taken while you were verifying; please sign up again"},
+            status_code=409)
+
     # categories stays empty -- the department's CURRENT categories are resolved live
     # on every request (policy/resolve.py), not copied here. Editing the department
     # later reaches this user automatically; no per-user field to keep in sync.
     store.upsert_consumer(ConsumerRecord(
-        consumer_id=consumer_id, name=username, key_hash="", status="active",
+        consumer_id=consumer_id, name=username, key_hash="", status="pending",
         role="user", type="user", categories=[],
-        login_password_hash=hash_password(password),
-        full_name=full_name, department=department.id,
+        login_password_hash=hash_password(payload["password"]),
+        full_name=payload["full_name"], department=department.id, email=payload["email"],
     ))
+    store.add_access_request({
+        "id": uuid.uuid4().hex[:12], "kind": "account", "consumer_id": consumer_id,
+        "username": username, "email": payload["email"], "department": department.id,
+        "status": "pending", "created_at": time.time(),
+    })
     audit.log_policy_change(actor=username, action="signup", target=consumer_id,
                             detail=f"department={department.id}")
+    try:
+        await graph_mailer.send_admin_signup_notification(
+            full_name=payload["full_name"], username=username,
+            email=payload["email"], department=department.id)
+    except graph_mailer.GraphMailerError:
+        # Best-effort -- the account is already created and queued either way;
+        # Pending Signups is still the source of truth if this email never arrives.
+        pass
+    return JSONResponse({"ok": True, "status": "pending"}, status_code=201)
 
-    token = issue_session(consumer_id, username, "user", _SESSION_TTL)
-    resp = JSONResponse({"ok": True, "status": "active", "name": username}, status_code=201)
-    resp.set_cookie(_COOKIE, token, max_age=_SESSION_TTL, httponly=True,
-                    secure=_COOKIE_SECURE, samesite="strict", path="/")
-    return resp
+
+async def _signup_resend_code(request):
+    body = await request.json()
+    ticket_id = str(body.get("ticket_id") or "").strip()
+    if not ticket_id:
+        return JSONResponse({"error": "ticket_id is required"}, status_code=400)
+    resend_key = f"signup-resend:{ticket_id}"
+    if lockout.is_locked(resend_key):
+        return JSONResponse(
+            {"error": "too many resend attempts; please sign up again to get a new code"}, status_code=429)
+    result = signup_codes.resend(ticket_id)
+    if result is None:
+        return JSONResponse(
+            {"error": "that verification session has expired; please sign up again"}, status_code=400)
+    lockout.record_failure(resend_key)
+    code, email = result
+    try:
+        await graph_mailer.send_verification_email(email, code)
+    except graph_mailer.GraphMailerError as exc:
+        return JSONResponse({"error": f"could not send verification email: {exc}"}, status_code=502)
+    return JSONResponse({"ok": True})
 
 
 async def _my_access(request):

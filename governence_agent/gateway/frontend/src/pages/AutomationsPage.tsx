@@ -9,6 +9,7 @@ import {
   Field,
   Input,
   Modal,
+  PageShell,
   SegmentedControl,
   useToast,
   type Column,
@@ -212,7 +213,7 @@ function AutomationsPage({ session }: PageProps) {
   )
 
   return (
-    <div className="automations">
+    <PageShell className="automations">
       <Card
         title={
           <span className="workflows-run-title">
@@ -356,7 +357,7 @@ function AutomationsPage({ session }: PageProps) {
       {!session.isAdmin && (
         <p className="automations-scope-note">You're seeing your own automations. An admin sees everyone's.</p>
       )}
-    </div>
+    </PageShell>
   )
 }
 

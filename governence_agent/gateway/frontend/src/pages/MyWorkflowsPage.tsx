@@ -9,6 +9,7 @@ import {
   Field,
   Input,
   Modal,
+  PageShell,
   SegmentedControl,
   Spinner,
   Textarea,
@@ -693,7 +694,7 @@ function MyWorkflowsPage({ session, navigate }: PageProps) {
   )
 
   return (
-    <div className="my-workflows">
+    <PageShell className="my-workflows">
       <Card
         title={
           <span className="workflows-run-title">
@@ -1005,7 +1006,7 @@ function MyWorkflowsPage({ session, navigate }: PageProps) {
           </div>
         </div>
       </Card>
-    </div>
+    </PageShell>
   )
 }
 

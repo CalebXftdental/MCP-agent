@@ -1,7 +1,15 @@
 import { useEffect, useState } from 'react'
 import type { CSSProperties, FormEvent } from 'react'
 import { Button, Dropdown, Field, Input, type DropdownOption } from '../components/ui'
-import { ApiError, getDepartments, login, signup, type Department } from '../lib/api'
+import {
+  ApiError,
+  getDepartments,
+  login,
+  requestSignupCode,
+  resendSignupCode,
+  verifySignupCode,
+  type Department,
+} from '../lib/api'
 import type { Session } from '../hooks/useSession'
 import './LoginPage.css'
 
@@ -32,7 +40,7 @@ import './LoginPage.css'
  * silently.
  */
 
-type Mode = 'signin' | 'signup'
+type Mode = 'signin' | 'signup' | 'verify' | 'pending'
 
 function initialMode(): Mode {
   return window.location.pathname === '/signup' ? 'signup' : 'signin'
@@ -127,11 +135,19 @@ function LoginPage({ session }: LoginPageProps) {
 
   const [fullName, setFullName] = useState('')
   const [signupUsername, setSignupUsername] = useState('')
+  const [signupEmail, setSignupEmail] = useState('')
   const [signupPassword, setSignupPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [departmentId, setDepartmentId] = useState('')
   const [signupError, setSignupError] = useState<string | null>(null)
   const [signupBusy, setSignupBusy] = useState(false)
+
+  const [ticketId, setTicketId] = useState<string | null>(null)
+  const [verifyCode, setVerifyCode] = useState('')
+  const [verifyError, setVerifyError] = useState<string | null>(null)
+  const [verifyBusy, setVerifyBusy] = useState(false)
+  const [resendBusy, setResendBusy] = useState(false)
+  const [resendMessage, setResendMessage] = useState<string | null>(null)
 
   useEffect(() => {
     let live = true
@@ -184,7 +200,8 @@ function LoginPage({ session }: LoginPageProps) {
     e.preventDefault()
     const name = fullName.trim()
     const username = signupUsername.trim()
-    if (!name || !username || !signupPassword || !departmentId) {
+    const email = signupEmail.trim()
+    if (!name || !username || !email || !signupPassword || !departmentId) {
       setSignupError('Fill in every field and choose a department.')
       return
     }
@@ -195,13 +212,57 @@ function LoginPage({ session }: LoginPageProps) {
     setSignupBusy(true)
     setSignupError(null)
     try {
-      await signup({ full_name: name, username, password: signupPassword, department: departmentId })
-      window.history.replaceState(null, '', '/')
-      session.refresh()
+      const result = await requestSignupCode({
+        full_name: name,
+        username,
+        password: signupPassword,
+        department: departmentId,
+        email,
+      })
+      setTicketId(result.ticket_id)
+      setVerifyCode('')
+      setVerifyError(null)
+      setResendMessage(null)
+      setMode('verify')
     } catch (cause) {
       setSignupError(errorMessage(cause))
     } finally {
       setSignupBusy(false)
+    }
+  }
+
+  async function submitVerify(e: FormEvent) {
+    e.preventDefault()
+    if (!ticketId) return
+    const code = verifyCode.trim()
+    if (!code) {
+      setVerifyError('Enter the 6-digit code from your email.')
+      return
+    }
+    setVerifyBusy(true)
+    setVerifyError(null)
+    try {
+      await verifySignupCode({ ticket_id: ticketId, code })
+      setMode('pending')
+    } catch (cause) {
+      setVerifyError(errorMessage(cause))
+    } finally {
+      setVerifyBusy(false)
+    }
+  }
+
+  async function resendCode() {
+    if (!ticketId) return
+    setResendBusy(true)
+    setResendMessage(null)
+    setVerifyError(null)
+    try {
+      await resendSignupCode({ ticket_id: ticketId })
+      setResendMessage('A new code is on its way.')
+    } catch (cause) {
+      setVerifyError(errorMessage(cause))
+    } finally {
+      setResendBusy(false)
     }
   }
 
@@ -297,7 +358,7 @@ function LoginPage({ session }: LoginPageProps) {
                   </button>
                 </p>
               </>
-            ) : (
+            ) : mode === 'signup' ? (
               <>
                 <h2 className="login-card-title">Create your account</h2>
                 <p className="login-card-sub">Join your team's governed workspace.</p>
@@ -324,6 +385,19 @@ function LoginPage({ session }: LoginPageProps) {
                         autoComplete="username"
                         value={signupUsername}
                         onChange={(e) => setSignupUsername(e.target.value)}
+                      />
+                    )}
+                  </Field>
+
+                  <Field label="Work email" required hint="We'll send a 6-digit code here to verify it's you.">
+                    {(props) => (
+                      <Input
+                        {...props}
+                        type="email"
+                        required
+                        autoComplete="email"
+                        value={signupEmail}
+                        onChange={(e) => setSignupEmail(e.target.value)}
                       />
                     )}
                   </Field>
@@ -362,7 +436,7 @@ function LoginPage({ session }: LoginPageProps) {
                   )}
 
                   <Button type="submit" block loading={signupBusy}>
-                    Create account
+                    Send verification code
                   </Button>
                 </form>
 
@@ -370,6 +444,71 @@ function LoginPage({ session }: LoginPageProps) {
                   Already have an account?{' '}
                   <button type="button" className="login-switch-link" onClick={() => switchMode('signin')}>
                     Sign in
+                  </button>
+                </p>
+              </>
+            ) : mode === 'verify' ? (
+              <>
+                <h2 className="login-card-title">Check your email</h2>
+                <p className="login-card-sub">
+                  We sent a 6-digit code to {signupEmail.trim() || 'your work email'}. Enter it below to finish
+                  creating your account.
+                </p>
+
+                <form className="login-form" onSubmit={submitVerify} noValidate>
+                  <Field label="Verification code" required>
+                    {(props) => (
+                      <Input
+                        {...props}
+                        required
+                        autoFocus
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        maxLength={6}
+                        value={verifyCode}
+                        onChange={(e) => setVerifyCode(e.target.value)}
+                      />
+                    )}
+                  </Field>
+
+                  {verifyError && (
+                    <p className="login-banner login-banner--danger" role="alert" aria-live="polite">
+                      {verifyError}
+                    </p>
+                  )}
+                  {resendMessage && !verifyError && (
+                    <p className="login-banner" role="status">
+                      {resendMessage}
+                    </p>
+                  )}
+
+                  <Button type="submit" block loading={verifyBusy}>
+                    Verify
+                  </Button>
+                </form>
+
+                <p className="login-switch">
+                  Didn't get it?{' '}
+                  <button type="button" className="login-switch-link" onClick={resendCode} disabled={resendBusy}>
+                    Resend code
+                  </button>
+                </p>
+                <p className="login-switch">
+                  <button type="button" className="login-switch-link" onClick={() => switchMode('signin')}>
+                    Back to sign in
+                  </button>
+                </p>
+              </>
+            ) : (
+              <>
+                <h2 className="login-card-title">Verified</h2>
+                <p className="login-card-sub">
+                  Your account is pending admin approval. You'll be able to sign in once an admin approves it.
+                </p>
+
+                <p className="login-switch">
+                  <button type="button" className="login-switch-link" onClick={() => switchMode('signin')}>
+                    Back to sign in
                   </button>
                 </p>
               </>

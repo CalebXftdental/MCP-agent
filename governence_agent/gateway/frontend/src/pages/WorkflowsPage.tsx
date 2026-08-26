@@ -8,6 +8,7 @@ import {
   EmptyState,
   Field,
   Modal,
+  PageShell,
   Spinner,
   Textarea,
   useToast,
@@ -311,7 +312,7 @@ function WorkflowsPage({ session }: PageProps) {
   )
 
   return (
-    <div className="workflows">
+    <PageShell className="workflows">
       {session.isAdmin && health && (
         <Card className="workflows-health" title="Workflow health" description="Run quality across every workflow, derived from persisted runs.">
           <div className="workflows-health-kpis">
@@ -590,7 +591,7 @@ function WorkflowsPage({ session }: PageProps) {
           their artifacts, but nothing further will run.
         </p>
       </Modal>
-    </div>
+    </PageShell>
   )
 }
 

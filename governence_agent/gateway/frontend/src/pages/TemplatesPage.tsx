@@ -13,6 +13,7 @@ import {
   Input,
   KeyValue,
   Modal,
+  PageShell,
   Skeleton,
   Textarea,
   useToast,
@@ -733,7 +734,7 @@ function TemplatesPage({ session }: PageProps) {
     : {}
 
   return (
-    <div className="templates">
+    <PageShell className="templates">
       <Card
         title="Templates"
         description="Versioned reusable templates for governed office workflows and generated artifacts."
@@ -937,7 +938,7 @@ function TemplatesPage({ session }: PageProps) {
           </div>
         </div>
       </Modal>
-    </div>
+    </PageShell>
   )
 }
 

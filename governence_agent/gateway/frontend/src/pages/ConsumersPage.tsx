@@ -13,6 +13,7 @@ import {
   Input,
   KeyValue,
   Modal,
+  PageShell,
   SecretKey,
   Skeleton,
   useToast,
@@ -476,7 +477,7 @@ function ConsumersPage(_props: PageProps) {
   )
 
   return (
-    <div className="consumers">
+    <PageShell className="consumers">
       <Card
         title="Consumers"
         description="Every principal — person or agent — that can call the gateway."
@@ -828,7 +829,7 @@ function ConsumersPage(_props: PageProps) {
           </div>
         )}
       </Modal>
-    </div>
+    </PageShell>
   )
 }
 

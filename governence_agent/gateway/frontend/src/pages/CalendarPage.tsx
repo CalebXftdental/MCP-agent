@@ -11,6 +11,7 @@ import {
   EmptyState,
   Field,
   Input,
+  PageShell,
   Textarea,
   useToast,
   type BadgeTone,
@@ -261,7 +262,7 @@ function CalendarPage({ navigate }: PageProps) {
   )
 
   return (
-    <div className="calendar">
+    <PageShell className="calendar" width="narrow">
       <Card
         title="Calendar invites"
         description="Create .ics invite drafts, route them for approval, then queue external calendar creation for Outlook/Google/Graph adapters."
@@ -398,7 +399,7 @@ function CalendarPage({ navigate }: PageProps) {
           }
         />
       </Card>
-    </div>
+    </PageShell>
   )
 }
 

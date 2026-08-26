@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Badge, Button, Card, DataTable, EmptyState, type BadgeTone, type Column } from '../components/ui'
+import {
+  Badge,
+  Button,
+  Card,
+  DataTable,
+  EmptyState,
+  PageShell,
+  type BadgeTone,
+  type Column,
+} from '../components/ui'
 import { getEmailSends, type EmailSend } from '../lib/api'
 import { formatRelative, formatWhen } from '../lib/format'
 import type { PageProps } from './types'
@@ -93,7 +102,7 @@ function SendQueuePage(_props: PageProps) {
   )
 
   return (
-    <div className="sendqueue">
+    <PageShell className="sendqueue">
       <Card
         title="Email send queue"
         description="Approved drafts land here for connector-backed delivery. Local mode queues without external delivery."
@@ -128,7 +137,7 @@ function SendQueuePage(_props: PageProps) {
           }
         />
       </Card>
-    </div>
+    </PageShell>
   )
 }
 

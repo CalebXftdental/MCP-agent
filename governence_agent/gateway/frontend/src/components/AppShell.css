@@ -264,7 +264,12 @@
   display: flex;
   align-items: center;
   gap: 0.9rem;
-  padding: 0.95rem 1.75rem;
+  /* Inline inset must equal the page shell's (--ui-s-5), or the page title sits
+     a few pixels off the left edge of the cards directly beneath it. The block
+     padding is deliberately NOT a token: the resulting topbar height is what
+     HomePage's `calc(100svh - 4.2rem)` is measured against, so changing it
+     silently mis-sizes the chat thread. */
+  padding: 0.95rem var(--ui-s-5);
   /* Translucent so content scrolling underneath is visible, which keeps the
      header feeling attached to the page rather than floating over it. */
   background: color-mix(in srgb, var(--ui-bg) 82%, transparent);
@@ -362,6 +367,6 @@
   }
 
   .shell-top {
-    padding: 0.85rem 1rem;
+    padding: 0.85rem var(--ui-s-4);
   }
 }

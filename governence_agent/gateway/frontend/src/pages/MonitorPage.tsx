@@ -14,6 +14,7 @@ import {
   Input,
   KeyValue,
   Legend,
+  PageShell,
   SegmentedControl,
   Skeleton,
   Sparkline,
@@ -319,7 +320,7 @@ function MonitorPage(_props: PageProps) {
   const k = overview?.kpis
 
   return (
-    <div className="monitor">
+    <PageShell className="monitor">
       <div className="monitor-toolbar">
         <div className="monitor-toolbar-controls">
           <SegmentedControl label="Time range" segments={RANGES} value={range} onChange={setRange} />
@@ -556,7 +557,7 @@ function MonitorPage(_props: PageProps) {
           </div>
         )}
       </Drawer>
-    </div>
+    </PageShell>
   )
 }
 

@@ -7,6 +7,7 @@ import {
   Drawer,
   EmptyState,
   KeyValue,
+  PageShell,
   useToast,
   type BadgeTone,
   type Column,
@@ -220,7 +221,7 @@ function RequestsPage(_props: PageProps) {
   )
 
   return (
-    <div className="requests">
+    <PageShell className="requests">
       <Card
         title="Pending requests"
         description="Account signups and access asks — approve to grant them, deny to close them out."
@@ -326,7 +327,7 @@ function RequestsPage(_props: PageProps) {
           />
         )}
       </Drawer>
-    </div>
+    </PageShell>
   )
 }
 

@@ -184,7 +184,7 @@ def _consumer_public(r) -> dict:
     grant = resolve_grant(r, store.get_category, store.get_department)
     return {
         "consumer_id": r.consumer_id, "name": r.name, "full_name": r.full_name, "department": r.department,
-        "status": r.status,
+        "email": r.email, "status": r.status,
         "type": r.type, "role": r.role, "categories": r.categories,
         # what this consumer ACTUALLY resolves to right now (own categories + their
         # department's current ones, if any) -- shown so a department member's row

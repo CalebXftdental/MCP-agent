@@ -89,6 +89,33 @@
   --ui-eyebrow-size: var(--ui-fs-2xs);
   --ui-eyebrow-tracking: 0.08em;
 
+  /* ── space ────────────────────────────────────────────────────────────── */
+  /* A 4px grid. Before this existed every component picked its own value —
+     1.05rem here, 0.85rem there, 0.65rem in the next one — so no two panels
+     breathed at the same rate. Use these, not a hand-typed rem: the calm comes
+     from a shared rhythm, not from any individual measurement being ideal.
+     The ramp doubles rather than stepping evenly past s-4, because the useful
+     distinctions are tight (4/8/12/16) inside a component and coarse
+     (24/32/48/64) between them. */
+  --ui-s-1: 0.25rem; /*  4px — icon/text gap, badge inset */
+  --ui-s-2: 0.5rem; /*   8px — control gap, tight stack */
+  --ui-s-3: 0.75rem; /*  12px — cell padding, chip row */
+  --ui-s-4: 1rem; /*    16px — card padding, default stack gap */
+  --ui-s-5: 1.5rem; /*  24px — page inset, section break */
+  --ui-s-6: 2rem; /*    32px — major section break */
+  --ui-s-7: 3rem; /*    48px — page bottom run-off */
+  --ui-s-8: 4rem; /*    64px — hero breathing room */
+
+  /* ── page measure ─────────────────────────────────────────────────────── */
+  /* Two measures, not five. Every data page shares `--ui-page-max` so the
+     content column does not resize when you switch tabs — the console had four
+     different caps (60/72/80/84rem), which is invisible in a screenshot and
+     very visible when clicking through the sidebar. `narrow` is for pages that
+     are genuinely a single column of prose or form fields, where 80rem would
+     stretch a label/value pair across the whole monitor. */
+  --ui-page-max: 80rem;
+  --ui-page-max-narrow: 60rem;
+
   /* ── shape ────────────────────────────────────────────────────────────── */
   --ui-r-xs: 4px;
   --ui-r-sm: 8px;

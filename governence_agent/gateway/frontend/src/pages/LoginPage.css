@@ -172,21 +172,26 @@
   opacity: 0.8;
 }
 
+/* Monospace here is deliberate — it belongs to the brand panel's "console"
+   treatment alongside the grid texture, and is the one place in the app that
+   isn't Inter. Routed through --ui-mono rather than the bare `monospace`
+   generic so it gets the same stack as every CodeBlock.
+   Colour comes from `.login-panel--brand`, which already sets white on the
+   gradient; restating it here was redundant. */
 .login-brand-title {
   margin: 0 0 0.6rem;
+  font-family: var(--ui-mono);
   font-size: var(--ui-fs-2xl);
-  font-weight: 1200;
+  font-weight: 700;
   letter-spacing: -0.01em;
-  color: #ffffff;
-  font-family: monospace
 }
 
 .login-brand-tagline {
   margin: 0 0 1.8rem;
+  font-family: var(--ui-mono);
   font-size: var(--ui-fs-lg);
   line-height: 1.5;
   opacity: 0.94;
-  font-family: monospace
 }
 
 .login-stat-row {

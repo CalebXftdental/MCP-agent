@@ -118,7 +118,9 @@ def register(app) -> None:
 
     # ── Session, self-service, catalogs ───────────────────────────────────────
     api("/dashboard/login", session._login, methods=["POST"])
-    api("/dashboard/signup", session._signup, methods=["POST"])
+    api("/dashboard/signup/request-code", session._signup_request_code, methods=["POST"])
+    api("/dashboard/signup/verify-code", session._signup_verify_code, methods=["POST"])
+    api("/dashboard/signup/resend-code", session._signup_resend_code, methods=["POST"])
     api("/dashboard/logout", session._logout, methods=["POST"])
     api("/dashboard/me", session._me)
     api("/dashboard/my-access", session._my_access)

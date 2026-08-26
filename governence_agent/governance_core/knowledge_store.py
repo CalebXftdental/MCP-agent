@@ -13,8 +13,20 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 
 import docintel_client
+import rerank_client
 from knowledge_models import KnowledgeChunk, KnowledgeDocument
 from policy.manifest import INTERNAL
+
+# Same funnel/pool as personal_knowledge_store.py's -- see rerank_client.py
+# and ../howtousereranker.md. This tier is TF-IDF only (no embeddings), so
+# "narrow" here means "cheap TF-IDF order", not cosine, but the reranker slots
+# in identically as the second stage either way.
+_RERANK_CANDIDATE_POOL = int(os.getenv("GOVERNANCE_KB_RERANK_CANDIDATE_POOL", "30"))
+
+# Same skip-margin knob as personal_knowledge_store.py's -- reranking a
+# candidate pool no bigger than what's being returned anyway buys nothing but
+# latency. See that module's docstring for the full reasoning.
+_RERANK_SKIP_MARGIN = int(os.getenv("GOVERNANCE_KB_RERANK_SKIP_MARGIN", "0"))
 
 _WORD_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.'-]*")
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -251,7 +263,17 @@ def search(owner: str, query: str, limit: int = 5, document_id: str | None = Non
             })
             scored.append((score, item))
     scored.sort(key=lambda x: x[0], reverse=True)
-    return [item for _, item in scored[: max(1, int(limit or 5))]]
+
+    limit = max(1, int(limit or 5))
+    candidates = [item for _, item in scored[:_RERANK_CANDIDATE_POOL]]
+    order = (
+        rerank_client.rerank(query, [c["text"] for c in candidates], top_n=limit)
+        if len(candidates) - limit > _RERANK_SKIP_MARGIN
+        else None
+    )
+    if order is not None:
+        return [candidates[i] for i in order if i < len(candidates)]
+    return candidates[:limit]
 
 
 def answer(owner: str, query: str, limit: int = 5, document_id: str | None = None) -> dict:

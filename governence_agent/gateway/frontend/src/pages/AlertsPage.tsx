@@ -7,6 +7,7 @@ import {
   Drawer,
   EmptyState,
   KeyValue,
+  PageShell,
   SecretKey,
   SegmentedControl,
   SeverityBar,
@@ -261,7 +262,7 @@ function AlertsPage(_props: PageProps) {
   )
 
   return (
-    <div className="alerts">
+    <PageShell className="alerts">
       <Card
         title="Security incidents"
         description="Flagged behavior grouped per principal — enumeration, denial bursts, call bursts, repeated errors."
@@ -414,7 +415,7 @@ function AlertsPage(_props: PageProps) {
             </div>
           ))}
       </Drawer>
-    </div>
+    </PageShell>
   )
 }
 

@@ -7,6 +7,7 @@ import {
   EmptyState,
   Field,
   Input,
+  PageShell,
   SecretKey,
   Skeleton,
   Textarea,
@@ -154,29 +155,29 @@ function DeveloperPage({ navigate }: PageProps) {
 
   if (state === 'loading') {
     return (
-      <div className="developer">
+      <PageShell className="developer" width="narrow">
         <Skeleton height="8rem" index={0} />
         <Skeleton height="6rem" index={1} />
         <Skeleton height="14rem" index={2} />
-      </div>
+      </PageShell>
     )
   }
 
   if (state === 'error') {
     return (
-      <div className="developer">
+      <PageShell className="developer" width="narrow">
         <Card title="Couldn't load your access" accent="danger">
           <p className="developer-error-body">{error}</p>
           <Button variant="ghost" onClick={load}>
             Try again
           </Button>
         </Card>
-      </div>
+      </PageShell>
     )
   }
 
   return (
-    <div className="developer">
+    <PageShell className="developer" width="narrow">
       <Card
         title="API key"
         description={`${account?.has_key ? 'A key is issued.' : 'No key yet.'} Minting shows it once — store it safely; it replaces any previous key.`}
@@ -268,7 +269,7 @@ function DeveloperPage({ navigate }: PageProps) {
           </div>
         )}
       </Card>
-    </div>
+    </PageShell>
   )
 }
 

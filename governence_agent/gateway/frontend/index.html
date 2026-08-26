@@ -9,11 +9,22 @@
     <!-- Inter, the app's font everywhere (--sans in index.css, --ui-sans in
          theme.css). Full variable weight range, not fixed instances — the UI
          relies on in-between weights (550, 650, ...) that only a variable
-         font renders correctly. -->
+         font renders correctly.
+
+         `display=optional` rather than `swap`: swap re-flowed every heading on
+         each cold load, and on a console people open many times a day the trade
+         is the wrong way round. Optional means the first-ever visit renders in
+         the fallback stack and Inter is cached for every visit after — a fallback
+         on one load, instead of a visible reflow on all of them.
+
+         NOTE: this is still a request to a third-party CDN. In a deployment with
+         restricted egress it fails silently and the whole app falls back to
+         Segoe UI / SF, which changes the type hierarchy. Self-hosting the woff2
+         is the robust fix — see improveUI.md Phase 0. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,100..900&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,100..900&display=optional"
       rel="stylesheet"
     />
   </head>

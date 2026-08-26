@@ -8,6 +8,7 @@ import {
   EmptyState,
   Field,
   KeyValue,
+  PageShell,
   Textarea,
   severityTone,
   useToast,
@@ -178,7 +179,7 @@ function ApprovalsPage(_props: PageProps) {
   )
 
   return (
-    <div className="approvals">
+    <PageShell className="approvals">
       <Card
         title="Approval queue"
         description="External sends and other high-impact actions wait here until you decide."
@@ -261,7 +262,7 @@ function ApprovalsPage(_props: PageProps) {
           </div>
         )}
       </Drawer>
-    </div>
+    </PageShell>
   )
 }
 

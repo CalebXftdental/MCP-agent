@@ -9,6 +9,7 @@ import {
   EmptyState,
   Field,
   Input,
+  PageShell,
   Textarea,
   TypingDots,
   useToast,
@@ -249,7 +250,7 @@ function PlaygroundPage({ session }: PageProps) {
   const running = runStatus === 'tools' || runStatus === 'answer'
 
   return (
-    <div className="playground">
+    <PageShell className="playground" layout="bare">
       <Card
         className="playground-tasks"
         title="AI tasks"
@@ -408,7 +409,7 @@ function PlaygroundPage({ session }: PageProps) {
           </>
         )}
       </div>
-    </div>
+    </PageShell>
   )
 }
 

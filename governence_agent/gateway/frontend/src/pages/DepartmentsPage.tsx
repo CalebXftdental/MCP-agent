@@ -10,6 +10,7 @@ import {
   Field,
   Input,
   Modal,
+  PageShell,
   useToast,
   type Column,
 } from '../components/ui'
@@ -244,7 +245,7 @@ function DepartmentsPage(_props: PageProps) {
   )
 
   return (
-    <div className="departments">
+    <PageShell className="departments">
       <Card
         title="Departments"
         description="Org-unit groupings of categories, used by self-signup. Editing a department's categories updates every member's access immediately."
@@ -356,7 +357,7 @@ function DepartmentsPage(_props: PageProps) {
           </Field>
         </div>
       </Modal>
-    </div>
+    </PageShell>
   )
 }
 

@@ -34,8 +34,31 @@ from pathlib import Path
 
 import embeddings_client
 import knowledge_store
+import rerank_client
 from knowledge_models import KnowledgeChunk, KnowledgeDocument
 from policy.manifest import INTERNAL
+
+# Personal KBs start small (digest_persoanl_kb.md) -- below this many total
+# chunks for an owner, the whole corpus is already smaller than the
+# reranker's own tested/latency-known candidate-pool size (howtousereranker.md
+# §3's 30-50 doc range), so search() skips the cosine/TF-IDF narrowing stage
+# entirely and sends every chunk straight to the cross-encoder: more accurate
+# than narrowing first (a lexical/embedding miss can't hide a chunk from a
+# reranker that reads full query+doc text jointly), and cheap enough at this
+# size. Above the threshold, narrow to _RERANK_CANDIDATE_POOL first, same
+# reason embedding retrieval exists at all -- a cross-encoder is too
+# expensive to run over an entire large corpus.
+_VECTORIZE_THRESHOLD_CHUNKS = int(os.getenv("GOVERNANCE_PERSONAL_KB_VECTORIZE_THRESHOLD", "40"))
+_RERANK_CANDIDATE_POOL = int(os.getenv("GOVERNANCE_KB_RERANK_CANDIDATE_POOL", "30"))
+
+# Reranking only matters when there's an actual narrowing decision to make --
+# if the candidate pool is already no bigger than what the caller asked for
+# (plus this margin), every candidate is going back regardless of order, so
+# the ~350ms-1s reranker round trip (howtousereranker.md §3) buys nothing.
+# Skip it and use the fallback (cosine/TF-IDF) order as-is. margin=0 means
+# "skip only when there's truly nothing to narrow"; raise it to also skip
+# reranking small edges (e.g. 6 candidates for a limit of 5).
+_RERANK_SKIP_MARGIN = int(os.getenv("GOVERNANCE_KB_RERANK_SKIP_MARGIN", "0"))
 
 
 def _now() -> float:
@@ -136,10 +159,33 @@ def _chunk_from_item(d: dict) -> KnowledgeChunk:
 
 # ── ingest ──────────────────────────────────────────────────────────────────
 
+# digest_persoanl_kb.md §4 flagged both caps as an open item at design time
+# ("not yet decided -- needs concrete numbers before ingest ships"). 20MB is a
+# conservative default, comfortably under Document Intelligence's own inline
+# (non-blob-URL) request-body limits on any tier/api-version -- tune down via
+# env if the actual DI resource's confirmed limit is tighter, or up once it's
+# confirmed to have real headroom. The per-owner document cap is a simple,
+# cheap bound on total embedding-API cost and Cosmos RU/item-count exposure
+# from one runaway or malicious upload loop -- not tied to any storage limit.
+_MAX_UPLOAD_BYTES = int(os.getenv("GOVERNANCE_PERSONAL_KB_MAX_UPLOAD_BYTES", str(20 * 1024 * 1024)))
+_MAX_DOCS_PER_OWNER = int(os.getenv("GOVERNANCE_PERSONAL_KB_MAX_DOCS_PER_OWNER", "300"))
+
+
 def ingest_document(
     owner: str, title: str, filename: str, payload: bytes,
     classification: list[str] | None = None, metadata: dict | None = None,
 ) -> KnowledgeDocument:
+    if len(payload) > _MAX_UPLOAD_BYTES:
+        raise ValueError(
+            f"File is too large ({len(payload):,} bytes) -- the per-upload limit is "
+            f"{_MAX_UPLOAD_BYTES:,} bytes ({_MAX_UPLOAD_BYTES // (1024 * 1024)}MB)."
+        )
+    existing = len(list_documents(owner, limit=_MAX_DOCS_PER_OWNER + 1))
+    if existing >= _MAX_DOCS_PER_OWNER:
+        raise ValueError(
+            f"Your personal knowledge base already has {existing} documents, at the limit of "
+            f"{_MAX_DOCS_PER_OWNER} -- delete an existing document before uploading a new one."
+        )
     text, source_type = knowledge_store.extract_text(filename, payload)
     if not text:
         raise ValueError("No text could be extracted from the document")
@@ -311,20 +357,60 @@ def _tfidf_scored(chunks: list[KnowledgeChunk], query: str) -> list[tuple[float,
     return scored
 
 
+def _first_stage_order(chunks: list[KnowledgeChunk], query: str, use_embeddings: bool = True) -> list[tuple[float, KnowledgeChunk]]:
+    """Cosine-over-embeddings order (falling back to TF-IDF if embeddings are
+    unconfigured or every chunk predates embeddings), best first. Used both to
+    narrow a large corpus to a candidate pool before reranking, and as the
+    fallback order if the rerank call itself fails.
+
+    `use_embeddings=False` skips the embed_query() call entirely and goes
+    straight to TF-IDF -- see search()'s small-corpus path, where this order
+    is only ever needed as a rerank-failure fallback, not for narrowing, so
+    paying for a live embedding call on every such query buys nothing most of
+    the time (rerank succeeds) for a corpus that's going to the reranker in
+    full regardless."""
+    if use_embeddings:
+        query_embedding = embeddings_client.embed_query(query)
+        embedded_chunks = [c for c in chunks if c.embedding]
+    else:
+        query_embedding, embedded_chunks = None, []
+    if query_embedding is not None and embedded_chunks:
+        scored = [(s, c) for s, c in ((_cosine(query_embedding, c.embedding), c) for c in embedded_chunks) if s > 0]
+    else:
+        scored = _tfidf_scored(chunks, query)
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return scored
+
+
 def search(owner: str, query: str, limit: int = 5, document_id: str | None = None) -> list[dict]:
     chunks = _chunks_for(owner, document_id)
     if not chunks:
         return []
+    limit = max(1, int(limit or 5))
 
-    query_embedding = embeddings_client.embed_query(query)
-    embedded_chunks = [c for c in chunks if c.embedding]
-    if query_embedding is not None and embedded_chunks:
-        scored = [(_cosine(query_embedding, c.embedding), c) for c in embedded_chunks]
-        scored = [(s, c) for s, c in scored if s > 0]
+    # Below the vectorize threshold, the whole corpus goes straight to the
+    # reranker (see below) and this order is only ever used as the
+    # rerank-failure fallback -- skip the per-query embed_query() call in
+    # that case (free TF-IDF fallback instead) and only pay for a live
+    # embedding call when it's actually doing narrowing work on a larger
+    # corpus. Configurable via GOVERNANCE_PERSONAL_KB_VECTORIZE_THRESHOLD.
+    small_corpus = len(chunks) <= _VECTORIZE_THRESHOLD_CHUNKS
+    fallback = _first_stage_order(chunks, query, use_embeddings=not small_corpus)
+    if small_corpus:
+        candidates = chunks  # send the whole corpus to the reranker, unfiltered
     else:
-        scored = _tfidf_scored(chunks, query)
+        candidates = [c for _, c in fallback[:_RERANK_CANDIDATE_POOL]]
 
-    scored.sort(key=lambda x: x[0], reverse=True)
+    reranked = (
+        rerank_client.rerank(query, [c.text for c in candidates], top_n=limit)
+        if len(candidates) - limit > _RERANK_SKIP_MARGIN
+        else None
+    )
+    if reranked is not None:
+        n = max(1, len(reranked))
+        scored = [(1.0 - pos / n, candidates[i]) for pos, i in enumerate(reranked) if i < len(candidates)]
+    else:
+        scored = fallback[:limit]
 
     if _cosmos_configured():
         docs_c, _ = _cosmos_containers()
@@ -343,7 +429,7 @@ def search(owner: str, query: str, limit: int = 5, document_id: str | None = Non
             return _data.get(did, {})
 
     results = []
-    for score, chunk in scored[: max(1, int(limit or 5))]:
+    for score, chunk in scored[:limit]:
         doc = _doc_lookup(chunk.document_id)
         item = chunk.public_dict(score=score)
         item.update({

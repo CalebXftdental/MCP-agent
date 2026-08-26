@@ -84,6 +84,11 @@ export type { KeyValueItem, KeyValueProps } from './KeyValue'
 export { default as Modal } from './Modal'
 export type { ModalProps } from './Modal'
 
+// `PageShell`, not `Page`: `PageProps` in pages/types.ts is already the contract
+// every routed page implements, and two `Page*` types in one file is a trap.
+export { default as PageShell } from './PageShell'
+export type { PageShellProps } from './PageShell'
+
 export { default as PlusIcon } from './PlusIcon'
 export type { PlusIconProps } from './PlusIcon'
 

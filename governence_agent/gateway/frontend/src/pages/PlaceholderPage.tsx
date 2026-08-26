@@ -1,4 +1,4 @@
-import { Button, Card } from '../components/ui'
+import { Button, Card, PageShell } from '../components/ui'
 import type { PageProps } from './types'
 import './PlaceholderPage.css'
 
@@ -17,7 +17,7 @@ import './PlaceholderPage.css'
 
 function PlaceholderPage({ route }: PageProps) {
   return (
-    <div className="stub">
+    <PageShell className="stub" width="narrow">
       <Card
         title={
           <span className="stub-title">
@@ -47,7 +47,7 @@ function PlaceholderPage({ route }: PageProps) {
           fully functional — the link above opens it.
         </p>
       </Card>
-    </div>
+    </PageShell>
   )
 }
 

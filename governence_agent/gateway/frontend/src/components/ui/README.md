@@ -22,6 +22,7 @@ list looks like this rather than like a generic starter kit:
 | Component | Replaces | Occurrences |
 |---|---|---|
 | `ToastProvider` / `useToast` | global `toast(msg, bad)` | 144 |
+| `Page` | the page-shell block hand-copied into every page stylesheet | 22 |
 | `Card`, `SectionHeader` | `.card`, `.section-head` | 92 |
 | `Badge`, `SeverityBar` | `.pill`, `.pill.sev-*`, `.sevbar` | 81 |
 | `EmptyState` | `.empty` | 69 |
@@ -47,9 +48,21 @@ needs one, move it here then.
 
 ## Design decisions
 
-**Tokens, not values.** `theme.css` is the single source of colour, type, radii,
-shadow, duration, and easing. No component stylesheet contains a raw hex. That is
-what makes the dark theme a token swap instead of a second stylesheet.
+**Tokens, not values.** `theme.css` is the single source of colour, type, space,
+radii, shadow, duration, and easing. No component stylesheet contains a raw hex.
+That is what makes the dark theme a token swap instead of a second stylesheet.
+
+**Space is a 4px grid (`--ui-s-1` … `--ui-s-8`).** Reach for a token, not a
+hand-typed rem. Before these existed each component picked its own value —
+`1.05rem`, `0.85rem`, `0.65rem` — so no two panels breathed at the same rate;
+the calm comes from sharing one rhythm, not from any single measurement being
+ideal.
+
+**Two page widths, not one per page.** `Page` owns the content measure, and it
+offers exactly `default` (80rem) and `narrow` (60rem). The console had drifted to
+four different caps because every page stylesheet declared its own, so the
+content column resized whenever you switched tabs. If a page seems to need a
+third width, that's a conversation about the page.
 
 **The brand teal is a fill colour, not a text colour.** `#2FC7BA` is ~2.1:1 on
 white. Use `--ui-accent` for fills, indicators, and borders; `--ui-accent-text`
@@ -112,9 +125,14 @@ the old UI, not just restyling:
   restyled by it wherever the two coexist. Every component also restates the
   properties that stylesheet sets, so the kit renders correctly even inside a page
   that still loads it.
-- **Fonts stay system.** No webfont: the console is internal, must work offline,
-  and a font CDN would be one more origin to allow. Type personality comes from
-  the scale and the uppercase eyebrow treatment instead.
+- **The font is Inter, loaded from a CDN — and that is a live constraint.**
+  `index.html` pulls Inter variable from `fonts.googleapis.com`. The in-between
+  weights the kit uses (550, 650) only render on a variable font, so if that
+  request fails — restricted egress, offline deployment — the app falls back to
+  Segoe UI / SF and the type hierarchy flattens. `display=optional` keeps a cold
+  load from re-flowing, but the CDN dependency itself is unresolved; self-hosting
+  the woff2 is the fix. (An earlier version of this file claimed the kit used no
+  webfont. That stopped being true and the reasoning behind it still stands.)
 
 ## When mounting starts
 

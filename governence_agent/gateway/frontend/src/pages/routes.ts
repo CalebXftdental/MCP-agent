@@ -32,6 +32,7 @@ export type RouteKey =
   | 'categories'
   | 'department-admin'
   | 'requests'
+  | 'pending-signups'
   | 'approvals'
   | 'agents'
   | 'code-plans'
@@ -169,6 +170,13 @@ export const ROUTES: Record<RouteKey, RouteDef> = {
     icon: '📥',
     admin: true,
   },
+  'pending-signups': {
+    key: 'pending-signups',
+    title: 'Pending Signups',
+    description: 'New accounts that verified their email, waiting on admin approval before they can sign in.',
+    icon: '🆕',
+    admin: true,
+  },
   approvals: {
     key: 'approvals',
     title: 'Approvals',
@@ -239,7 +247,7 @@ export const NAV_GROUPS: NavGroup[] = [
   { label: 'Content', keys: ['knowledge', 'files', 'templates', 'sends', 'calendar'] },
   { label: 'My Account', keys: ['access', 'developer', 'history'] },
   { label: 'Access Control', keys: ['consumers', 'categories', 'department-admin'] },
-  { label: 'Requests & Approvals', keys: ['requests', 'approvals'] },
+  { label: 'Requests & Approvals', keys: ['requests', 'pending-signups', 'approvals'] },
   { label: 'Automation Admin', keys: ['agents', 'code-plans'] },
   { label: 'Monitoring & Security', keys: ['monitor', 'alerts', 'security', 'whitelist'] },
 ]

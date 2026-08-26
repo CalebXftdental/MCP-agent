@@ -5,6 +5,7 @@ import {
   Card,
   DataTable,
   EmptyState,
+  PageShell,
   SegmentedControl,
   Stat,
   StatGrid,
@@ -192,7 +193,7 @@ function HistoryPage({ session, navigate }: PageProps) {
   )
 
   return (
-    <div className="history">
+    <PageShell className="history">
       <StatGrid columns={4}>
         <Stat
           label="Governed calls"
@@ -351,7 +352,7 @@ function HistoryPage({ session, navigate }: PageProps) {
           </Card>
         </div>
       </div>
-    </div>
+    </PageShell>
   )
 }
 

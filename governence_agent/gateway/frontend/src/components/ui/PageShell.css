@@ -1,0 +1,30 @@
+/* The page shell. This block was copy-pasted into 22 page stylesheets before it
+   lived here, which is why the console had drifted to four different content
+   widths — each copy picked its own cap. One definition, two measures. */
+
+.ui-page {
+  padding: var(--ui-s-5) var(--ui-s-5) var(--ui-s-7);
+  max-width: var(--ui-page-max);
+}
+
+.ui-page--narrow {
+  max-width: var(--ui-page-max-narrow);
+}
+
+/* The standard vertical rhythm: a column of cards, one gap between each. A page
+   that owns its own layout (Playground's two-column grid, Home's centred hero)
+   opts out with `layout="bare"` and keeps its own `display` in its own
+   stylesheet. */
+.ui-page--stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-s-4);
+}
+
+/* Below the sidebar breakpoint the inset drops to one step so narrow screens
+   don't spend a third of their width on margin. */
+@media (max-width: 640px) {
+  .ui-page {
+    padding: var(--ui-s-4) var(--ui-s-4) var(--ui-s-6);
+  }
+}

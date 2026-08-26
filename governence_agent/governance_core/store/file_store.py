@@ -33,7 +33,7 @@ def _consumer_to_dict(r: ConsumerRecord) -> dict:
     return {
         "consumer_id": r.consumer_id, "name": r.name, "key_hash": r.key_hash,
         "status": r.status, "login_password_hash": r.login_password_hash,
-        "full_name": r.full_name, "department": r.department,
+        "full_name": r.full_name, "department": r.department, "email": r.email,
         "rate_limit_per_hour": r.rate_limit_per_hour, "ip_allowlist": list(r.ip_allowlist),
         "allowed_levels": sorted(r.allowed_levels), "categories": list(r.categories),
         "overrides": r.overrides, "role": r.role, "type": r.type,
@@ -45,7 +45,7 @@ def _consumer_from_dict(d: dict) -> ConsumerRecord:
     return ConsumerRecord(
         consumer_id=d["consumer_id"], name=d["name"], key_hash=d.get("key_hash", ""),
         status=d.get("status", "active"), login_password_hash=d.get("login_password_hash"),
-        full_name=d.get("full_name", ""), department=d.get("department", ""),
+        full_name=d.get("full_name", ""), department=d.get("department", ""), email=d.get("email", ""),
         rate_limit_per_hour=d.get("rate_limit_per_hour"), ip_allowlist=list(d.get("ip_allowlist") or []),
         allowed_levels=frozenset(d.get("allowed_levels") or []), categories=list(d.get("categories") or []),
         overrides=d.get("overrides") or {}, role=d.get("role", "user"), type=d.get("type", "agent"),

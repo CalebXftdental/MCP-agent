@@ -7,6 +7,7 @@ import {
   DataTable,
   EmptyState,
   KeyValue,
+  PageShell,
   SecretKey,
   Skeleton,
   useToast,
@@ -285,31 +286,31 @@ function AccessPage(_props: PageProps) {
 
   if (state === 'loading') {
     return (
-      <div className="access">
+      <PageShell className="access">
         <Skeleton height="6rem" index={0} />
         <Skeleton height="8rem" index={1} />
         <Skeleton height="10rem" index={2} />
-      </div>
+      </PageShell>
     )
   }
 
   if (state === 'error') {
     return (
-      <div className="access">
+      <PageShell className="access">
         <Card title="Couldn't load your access" accent="danger">
           <p className="access-error-body">{error}</p>
           <Button variant="ghost" onClick={load}>
             Try again
           </Button>
         </Card>
-      </div>
+      </PageShell>
     )
   }
 
   const displayName = account.full_name || account.name
 
   return (
-    <div className="access">
+    <PageShell className="access">
       {/* Account and the API key are both short, identity-shaped cards — paired
           side by side on a wide screen rather than each sitting full-width
           with mostly empty space to the right. */}
@@ -435,7 +436,7 @@ function AccessPage(_props: PageProps) {
           />
         </div>
       </Card>
-    </div>
+    </PageShell>
   )
 }
 

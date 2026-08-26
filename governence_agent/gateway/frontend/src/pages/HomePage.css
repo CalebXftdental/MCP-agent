@@ -105,12 +105,16 @@
 
 /* ── hero / thread, inside .home-main ────────────────────────────────────── */
 
+/* Not a `<Page>`: this screen is a centred hero, not a column of cards, and it
+   sizes itself to the viewport rather than running off the bottom. It borrows
+   the shell's inline inset (--ui-s-5) so the composer lines up with card
+   content everywhere else. */
 .home {
   flex: 1;
   display: grid;
   place-items: center;
   min-height: 0;
-  padding: 1.5rem 1.75rem 2.5rem;
+  padding: var(--ui-s-5) var(--ui-s-5) var(--ui-s-6);
   overflow-y: auto;
 }
 
@@ -126,9 +130,9 @@
 .home-thread-bar {
   display: flex;
   justify-content: flex-end;
-  gap: 0.4rem;
+  gap: var(--ui-s-1);
   flex: none;
-  padding: 0.6rem 1.75rem 0;
+  padding: var(--ui-s-2) var(--ui-s-5) 0;
 }
 
 .home-thread-composer {
@@ -136,7 +140,7 @@
   max-width: 46rem;
   width: 100%;
   margin: 0 auto;
-  padding: 0 1.75rem 1.1rem;
+  padding: 0 var(--ui-s-5) var(--ui-s-4);
 }
 
 @media (max-width: 640px) {
@@ -146,7 +150,7 @@
 
   .home-thread-bar,
   .home-thread-composer {
-    padding-inline: 1rem;
+    padding-inline: var(--ui-s-4);
   }
 }
 

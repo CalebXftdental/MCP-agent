@@ -23,6 +23,7 @@ class ConsumerRecord:
     login_password_hash: str | None = None   # scrypt hash of the dashboard login password (users only)
     full_name: str = ""             # display name (self-service users); "" falls back to `name` in the UI
     department: str = ""            # signup_departments id this user picked, if self-service (UI-only; the real grant is `categories`)
+    email: str = ""                 # verified company email (self-service signup only; "" for agents/admin-created consumers)
     rate_limit_per_hour: int | None = None
     ip_allowlist: list[str] = field(default_factory=list)
     allowed_levels: frozenset[str] = frozenset()   # legacy/fallback when no categories

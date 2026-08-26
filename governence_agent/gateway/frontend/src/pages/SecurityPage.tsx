@@ -11,6 +11,7 @@ import {
   EmptyState,
   Field,
   KeyValue,
+  PageShell,
   SecretKey,
   Skeleton,
   Switch,
@@ -430,29 +431,29 @@ function SecurityPage(_props: PageProps) {
 
   if (state === 'loading') {
     return (
-      <div className="security">
+      <PageShell className="security">
         <Skeleton height="9rem" index={0} />
         <Skeleton height="12rem" index={1} />
         <Skeleton height="14rem" index={2} />
-      </div>
+      </PageShell>
     )
   }
 
   if (state === 'error') {
     return (
-      <div className="security">
+      <PageShell className="security">
         <Card title="Couldn't load security data" accent="danger">
           <p className="security-error-body">{error}</p>
           <Button variant="ghost" onClick={load}>
             Try again
           </Button>
         </Card>
-      </div>
+      </PageShell>
     )
   }
 
   return (
-    <div className="security">
+    <PageShell className="security">
       <Card
         title="Break-glass controls"
         description="Incident containment enforced on every governed call — takes effect immediately."
@@ -783,7 +784,7 @@ function SecurityPage(_props: PageProps) {
           </div>
         )}
       </Drawer>
-    </div>
+    </PageShell>
   )
 }
 

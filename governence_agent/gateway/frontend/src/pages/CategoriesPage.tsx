@@ -12,6 +12,7 @@ import {
   Field,
   Input,
   Modal,
+  PageShell,
   Switch,
   useToast,
   type Column,
@@ -486,7 +487,7 @@ function CategoriesPage(_props: PageProps) {
   )
 
   return (
-    <div className="categories">
+    <PageShell className="categories">
       <Card
         title="Categories"
         description="Data-domain templates — which backend, tools, and sensitivity levels each grants."
@@ -613,7 +614,7 @@ function CategoriesPage(_props: PageProps) {
           onDataDomainsChange={setCreateDataDomains}
         />
       </Modal>
-    </div>
+    </PageShell>
   )
 }
 

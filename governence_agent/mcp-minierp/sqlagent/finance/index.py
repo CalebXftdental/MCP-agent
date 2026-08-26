@@ -290,6 +290,18 @@ def _select_all_for(*field_keys: str) -> dict[str, bool]:
     return {MINIERP_FIELDS[k]: True for k in field_keys}
 
 
+def _str_or_none(value: Any) -> str | None:
+    """Some numeric-looking id columns (e.g. POLine.inventoryId, ARSalesPrice.
+    inventoryId) come back from the live GraphQL endpoint as a JSON number, not
+    a string, even though the Result schemas declare these fields `str | None`
+    -- confirmed by direct probe against db-api.frontierdental.com (2026-08-25).
+    Coerce defensively here rather than at the pydantic layer so a raw int/float
+    id doesn't blow up response validation."""
+    if value is None:
+        return None
+    return str(value)
+
+
 def _company_ids(company_id: int | None) -> list[int]:
     """Finance is company-wide: search both legal entities unless one is given."""
     if company_id is not None:
@@ -793,8 +805,8 @@ async def get_sales_price(
 
         records = [
             {
-                "inventoryId": it.get(f["sp_inventory_id"]),
-                "customerId": it.get(f["sp_customer_id"]),
+                "inventoryId": _str_or_none(it.get(f["sp_inventory_id"])),
+                "customerId": _str_or_none(it.get(f["sp_customer_id"])),
                 "custPriceClassId": it.get(f["sp_cust_price_class_id"]),
                 "salesPrice": float(it.get(f["sp_sales_price"]) or 0),
                 "curyId": it.get(f["sp_cury_id"]),
@@ -1035,7 +1047,7 @@ async def get_po_line_items(
                 records = [
                     {
                         "lineNumber": it.get(f["pol_line_nbr"]),
-                        "inventoryId": it.get(f["pol_inventory_id"]),
+                        "inventoryId": _str_or_none(it.get(f["pol_inventory_id"])),
                         "description": it.get(f["pol_descr"]),
                         "orderedQty": float(it.get(f["pol_order_qty"]) or 0),
                         "receivedQty": float(it.get(f["pol_received_qty"]) or 0),
@@ -1236,9 +1248,9 @@ async def get_gl_period_summary(
         )
     records = [
         {
-            "finPeriodId": it.get(f["glh_fin_period_id"]),
-            "ledgerId": it.get(f["glh_ledger_id"]),
-            "subId": it.get(f["glh_sub_id"]),
+            "finPeriodId": _str_or_none(it.get(f["glh_fin_period_id"])),
+            "ledgerId": _str_or_none(it.get(f["glh_ledger_id"])),
+            "subId": _str_or_none(it.get(f["glh_sub_id"])),
             "balanceType": it.get(f["glh_balance_type"]),
             "beginningBalance": float(it.get(f["glh_beg_balance"]) or 0),
             "periodDebit": float(it.get(f["glh_ptd_debit"]) or 0),

@@ -412,6 +412,7 @@ class GlPeriodSummaryResult(BaseModel):
     company: int | None = None
     records: list[GlPeriodRecord] = []
     pagination: Pagination | None = None
+    truncated: bool | None = None
 
 
 # ── get_invoice_line_items ───────────────────────────────────────────────────

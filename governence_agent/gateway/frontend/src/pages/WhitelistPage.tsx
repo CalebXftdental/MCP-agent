@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Badge, Button, Card, CidrListEditor, Drawer, EmptyState, Skeleton, useToast } from '../components/ui'
+import {
+  Badge,
+  Button,
+  Card,
+  CidrListEditor,
+  Drawer,
+  EmptyState,
+  PageShell,
+  Skeleton,
+  useToast,
+} from '../components/ui'
 import { ApiError, getWhitelist, setWhitelist } from '../lib/api'
 import type { PageProps } from './types'
 import './WhitelistPage.css'
@@ -90,7 +100,7 @@ function WhitelistPage(_props: PageProps) {
   }, [draft, toast])
 
   return (
-    <div className="whitelist">
+    <PageShell className="whitelist">
       <Card
         title="IP Allowlist"
         description="Global CIDR allowlist enforced on every request -- MCP tool calls, the login page, and the dashboard alike."
@@ -201,7 +211,7 @@ function WhitelistPage(_props: PageProps) {
           <p className="whitelist-note">Takes effect on the next request — no rollout delay.</p>
         </div>
       </Drawer>
-    </div>
+    </PageShell>
   )
 }
 

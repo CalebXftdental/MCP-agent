@@ -46,10 +46,25 @@ class Department:
 # at all (env-seeded Stage-1 consumers, or an admin-created one with no
 # department picked) already resolves to allow-all-tools under resolve.py's
 # legacy fallback, so it's already covered without appearing in any tuple here.
+#
+# "knowledge" (read-only, shared company KB -- search_knowledge/
+# answer_from_knowledge) is added to every department below for the same
+# reason: signup is gated behind company-email verification
+# (auth/signup_codes.py), so the population here is already vetted staff, and
+# the shared KB content is process/SOP-level, not access-tier-restricted --
+# same reasoning as personal_knowledge above, applied to the company tier.
+# Same backfill mechanism applies retroactively to already-persisted
+# departments, same live-resolution shape.
 DEPARTMENTS: dict[str, Department] = {
-    "sales": Department("sales", "Sales", ("orders", "personal_knowledge")),
-    "customer_service": Department("customer_service", "Customer Service", ("accounts", "orders", "personal_knowledge")),
-    "finance": Department("finance", "Finance", ("finance", "personal_knowledge")),
+    "sales": Department("sales", "Sales", ("orders", "personal_knowledge", "knowledge")),
+    "customer_service": Department("customer_service", "Customer Service", ("accounts", "orders", "personal_knowledge", "knowledge")),
+    "finance": Department("finance", "Finance", ("finance", "personal_knowledge", "knowledge")),
+    # A least-privilege home for a self-signup user who doesn't fit any of the
+    # three operational departments above -- KB access only (personal +
+    # company), no orders/accounts/finance backend tools at all. Without this,
+    # such a user either can't complete signup (a department is required) or
+    # has to pick an ill-fitting one and pick up data access they don't need.
+    "other": Department("other", "Other", ("personal_knowledge", "knowledge")),
 }
 
 

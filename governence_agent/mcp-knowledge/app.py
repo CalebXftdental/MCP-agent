@@ -46,8 +46,10 @@ from starlette.responses import JSONResponse
 
 import base64
 
+import embeddings_client
 import knowledge_store
 import personal_knowledge_store
+import rerank_client
 from policy import manifest
 
 
@@ -89,11 +91,69 @@ def _timeout() -> float:
     return float(os.getenv("KNOWLEDGE_HTTP_TIMEOUT_SEC") or "60")
 
 
+# Company-KB candidate pool for the embed/search-then-rerank funnel (see
+# ../howtousereranker.md): fetch this many from whichever tier answers, then
+# rerank down to the caller's requested `limit`. Same constant name/value as
+# personal_knowledge_store.py's, but company KB has no "small corpus" case to
+# special-case around -- an org-wide index/proxy is never small -- so this is
+# just the funnel's cheap-narrowing width, unconditionally.
+_RERANK_CANDIDATE_POOL = int(os.getenv("GOVERNANCE_KB_RERANK_CANDIDATE_POOL", "30"))
+
+# Same skip-margin knob as governance_core's knowledge_store.py/
+# personal_knowledge_store.py -- reranking a candidate pool no bigger than
+# what's being returned anyway buys nothing but latency (~350ms-1s per
+# ../howtousereranker.md §3). margin=0 means "skip only when there's truly
+# nothing to narrow".
+_RERANK_SKIP_MARGIN = int(os.getenv("GOVERNANCE_KB_RERANK_SKIP_MARGIN", "0"))
+
+
+def _apply_rerank(query: str, items: list[dict], limit: int) -> list[dict]:
+    """Re-order `items` (each must carry a "text" key) by the cross-encoder
+    reranker, truncated to `limit`. Falls back to the given order (whichever
+    tier's own relevance ranking produced it), truncated to `limit`, if the
+    reranker is unreachable/unconfigured -- see rerank_client.py / that doc's
+    §5 fail-soft instruction -- or if there's no real narrowing decision to
+    make (len(items) already within _RERANK_SKIP_MARGIN of limit)."""
+    if not items:
+        return items
+    if len(items) - limit <= _RERANK_SKIP_MARGIN:
+        return items[:limit]
+    order = rerank_client.rerank(query, [it.get("text", "") for it in items], top_n=limit)
+    if order is None:
+        return items[:limit]
+    return [items[i] for i in order if i < len(items)]
+
+
+def _pick_text(content: str, caption: str, kind: str) -> str:
+    """Which field actually holds usable text for this chunk.
+
+    The index (and, per its own docstring, the ragAgent proxy this mirrors)
+    stores one row per extracted "type": text/table/image/excel_table.
+    `content` is the raw extraction -- real prose for `text`, but for `image`
+    chunks it's a blob SAS URL (never empty, so a plain `content or caption`
+    always picks the URL and silently drops the actual human-written
+    description) and for `table` chunks it's often a garbled positional dump
+    of cell text. `caption` is a clean, ML-generated natural-language summary
+    of the same chunk for every non-text type -- prefer it there, falling
+    back to `content` only if no caption was generated. `text`-type chunks
+    keep the existing content-first behavior since their raw content already
+    IS the clean text."""
+    content = (content or "").strip()
+    caption = (caption or "").strip()
+    if kind == "text":
+        return content or caption
+    return caption or content
+
+
+def _matches_document(item: dict, document_id: str) -> bool:
+    return (item.get("documentId") or "") == document_id or (item.get("filename") or "") == document_id
+
+
 def _result_items(raw: dict) -> list[dict]:
     items = raw.get("results") or raw.get("context_chunks") or []
     out = []
     for idx, item in enumerate(items):
-        content = item.get("content") or item.get("text") or item.get("caption") or ""
+        content = _pick_text(item.get("content") or item.get("text"), item.get("caption"), item.get("type") or "text")
         out.append({
             "chunkId": item.get("chunk_id") or item.get("id") or f"remote_{idx}",
             "documentId": item.get("filename") or item.get("documentId") or "remote",
@@ -127,7 +187,7 @@ def _direct_search_client():
 def _direct_result_items(docs: list[dict]) -> list[dict]:
     out = []
     for idx, d in enumerate(docs):
-        content = d.get("content") or d.get("caption") or ""
+        content = _pick_text(d.get("content"), d.get("caption"), d.get("type") or "text")
         out.append({
             "chunkId": d.get("chunk_id") or d.get("id") or f"direct_{idx}",
             "documentId": d.get("filename") or "indexed",
@@ -143,20 +203,70 @@ def _direct_result_items(docs: list[dict]) -> list[dict]:
     return out
 
 
-async def _direct_search(query: str, limit: int) -> dict | None:
+def _filename_filter(document_id: str) -> str:
+    """OData $filter for Azure AI Search's `filename` field (confirmed
+    filterable in the live index schema) -- a query-time parameter, not an
+    index/blob change. Single quotes are the OData string-literal escape."""
+    return "filename eq '" + document_id.replace("'", "''") + "'"
+
+
+# The index's `embedding` field is 3072-dim (confirmed live against the
+# actual index schema) -- the FULL native output of text-embedding-3-large,
+# not personal-KB's own truncated 1024-dim default (embeddings_client.py's
+# `dims` override exists specifically for this: request the space this
+# index's vectors actually live in, without touching personal KB's default
+# or re-embedding its existing corpus). Same Azure OpenAI resource personal
+# KB already uses (GOVERNANCE_EMBEDDING_*) -- no dedicated resource, per the
+# "only one model actively in use here" call.
+_COMPANY_KB_VECTOR_DIMS = 3072
+_COMPANY_KB_VECTOR_FIELD = "embedding"
+# Fail fast: this runs in a live chat turn's critical path, unlike personal-KB
+# ingest which can afford to wait. A slow/rate-limited shared embedding
+# resource should degrade to keyword-only immediately, not stall the turn.
+_COMPANY_KB_EMBED_TIMEOUT_SEC = float(os.getenv("GOVERNANCE_KB_VECTOR_EMBED_TIMEOUT_SEC", "3.0"))
+
+
+def _query_vector(query: str) -> list[float] | None:
+    """None on any failure/missing config/timeout -- callers fall back to
+    keyword-only search, same fail-soft shape as every other tier here."""
+    return embeddings_client.embed_query(query, dims=_COMPANY_KB_VECTOR_DIMS, timeout=_COMPANY_KB_EMBED_TIMEOUT_SEC)
+
+
+async def _direct_search(query: str, limit: int, document_id: str = "") -> dict | None:
     client = _direct_search_client()
     if client is None:
         return None
+    pool = max(int(limit or 5), _RERANK_CANDIDATE_POOL)
+    odata_filter = _filename_filter(document_id) if document_id else None
+    # Hybrid: keyword (search_text) + vector, fused server-side by Azure AI
+    # Search's own RRF when both are present on one call -- this can only add
+    # semantic recall on top of the existing keyword ranking, never replace
+    # it, so an exact-match query (a SKU, an exact title) isn't put at risk
+    # by a bad vector hit. None vector (unconfigured/timed-out/failed embed
+    # call) -> plain keyword search, identical to before this was added.
+    vector = await asyncio.to_thread(_query_vector, query)
+    vector_queries = None
+    if vector is not None:
+        from azure.search.documents.models import VectorizedQuery
+        vector_queries = [VectorizedQuery(vector=vector, k_nearest_neighbors=pool, fields=_COMPANY_KB_VECTOR_FIELD)]
+
     def _run() -> list[dict]:
         # SearchClient is sync (no writes -- .search() only); run off the event
         # loop so one slow query doesn't block other in-flight MCP calls.
-        return [dict(d) for d in client.search(search_text=query, top=limit, include_total_count=True)]
+        return [
+            dict(d)
+            for d in client.search(
+                search_text=query, vector_queries=vector_queries, top=pool, filter=odata_filter,
+                include_total_count=True,
+            )
+        ]
     docs = await asyncio.to_thread(_run)
-    return {"query": query, "results": _direct_result_items(docs), "mode": "direct_azure_search"}
+    items = _apply_rerank(query, _direct_result_items(docs), limit)
+    return {"query": query, "results": items, "mode": "direct_azure_search_hybrid" if vector_queries else "direct_azure_search"}
 
 
-async def _direct_answer(query: str, limit: int) -> dict | None:
-    searched = await _direct_search(query, limit)
+async def _direct_answer(query: str, limit: int, document_id: str = "") -> dict | None:
+    searched = await _direct_search(query, limit, document_id)
     if searched is None:
         return None
     matches = searched["results"]
@@ -176,22 +286,48 @@ async def _direct_answer(query: str, limit: int) -> dict | None:
 
 # ── Tier 2: HTTP proxy to AraTestEnvBE's ragAgent API ─────────────────────────
 
-async def _remote_search(query: str, limit: int) -> dict | None:
+async def _remote_search(query: str, limit: int, document_id: str = "") -> dict | None:
     base = _base("KNOWLEDGE_RETRIEVAL_BASE_URL") or _base("RAG_RETRIEVAL_BASE_URL") or _base("RAG_API_BASE_URL")
     if not base:
         return None
-    payload = {"query": query, "top_k": limit, "use_multiquery": False, "use_hybrid": True, "min_score": 0.0}
+    # We don't control AraTestEnvBE's ragAgent request contract and can't
+    # assume it supports a filename/document filter param -- fetch a much
+    # wider pool when scoping to one document (best-effort: the target
+    # document's chunks need to actually be IN the returned pool for the
+    # client-side filter below to find them) and filter client-side, on our
+    # end only, rather than inventing an unverified upstream filter param.
+    pool = max(int(limit or 5), _RERANK_CANDIDATE_POOL) * (5 if document_id else 1)
+    payload = {"query": query, "top_k": pool, "use_multiquery": False, "use_hybrid": True, "min_score": 0.0}
     async with httpx.AsyncClient(timeout=_timeout()) as client:
         resp = await client.post(f"{base}/api/ai-search/test-retriever", json=payload, headers=_api_headers())
         resp.raise_for_status()
         raw = resp.json()
-    return {"query": query, "results": _result_items(raw), "remote": raw, "mode": "remote"}
+    items = _result_items(raw)
+    if document_id:
+        items = [it for it in items if _matches_document(it, document_id)]
+    items = _apply_rerank(query, items, limit)
+    return {"query": query, "results": items, "remote": raw, "mode": "remote"}
 
 
-async def _remote_answer(query: str, limit: int) -> dict | None:
+async def _remote_answer(query: str, limit: int, document_id: str = "") -> dict | None:
     base = _base("KNOWLEDGE_RETRIEVAL_BASE_URL") or _base("RAG_RETRIEVAL_BASE_URL") or _base("RAG_API_BASE_URL")
     if not base:
         return None
+    if document_id:
+        # /api/ai-search/chat has no retrieval-scoping knob at all -- reuse
+        # the scoped search above (client-side filtered) rather than the
+        # unscoped chat endpoint, same reasoning as _remote_search.
+        searched = await _remote_search(query, limit, document_id)
+        matches = (searched or {}).get("results") or []
+        if not matches:
+            return {"query": query, "answer": "No matching indexed document content was found.", "citations": [], "mode": "remote"}
+        lines = [f"{i}. {m['documentTitle']}: {m['text']}" for i, m in enumerate(matches, 1)]
+        return {
+            "query": query,
+            "answer": "Relevant indexed context:\n" + "\n".join(lines),
+            "citations": [{"documentId": m["documentId"], "chunkId": m["chunkId"], "documentTitle": m["documentTitle"], "score": m.get("score", 0), "url": m.get("url")} for m in matches],
+            "mode": "remote",
+        }
     async with httpx.AsyncClient(timeout=_timeout()) as client:
         resp = await client.post(f"{base}/api/ai-search/chat", json={"query": query}, headers=_api_headers())
         resp.raise_for_status()
@@ -210,11 +346,13 @@ async def _remote_answer(query: str, limit: int) -> dict | None:
 @mcp.tool()
 async def search_knowledge(owner: str, query: str, limit: int = 5, document_id: str = "") -> str:
     """Search indexed knowledge chunks (direct Azure AI Search, then the
-    AraTestEnvBE HTTP proxy, then a local fallback -- first configured wins)."""
-    direct = await _direct_search(query, limit)
+    AraTestEnvBE HTTP proxy, then a local fallback -- first configured wins).
+    `document_id` (the filename returned as documentId on an earlier result)
+    scopes the search to just that document, when given."""
+    direct = await _direct_search(query, limit, document_id)
     if direct is not None:
         return _ok(direct)
-    remote = await _remote_search(query, limit)
+    remote = await _remote_search(query, limit, document_id)
     if remote is not None:
         return _ok(remote)
     results = knowledge_store.search(owner, query, limit, document_id or None)
@@ -224,11 +362,12 @@ async def search_knowledge(owner: str, query: str, limit: int = 5, document_id: 
 @mcp.tool()
 async def answer_from_knowledge(owner: str, query: str, limit: int = 5, document_id: str = "") -> str:
     """Return a citation-backed extractive answer from indexed documents (same
-    direct/proxy/local precedence as search_knowledge)."""
-    direct = await _direct_answer(query, limit)
+    direct/proxy/local precedence as search_knowledge, including document_id
+    scoping)."""
+    direct = await _direct_answer(query, limit, document_id)
     if direct is not None:
         return _ok(direct)
-    remote = await _remote_answer(query, limit)
+    remote = await _remote_answer(query, limit, document_id)
     if remote is not None:
         return _ok(remote)
     result = knowledge_store.answer(owner, query, limit, document_id or None)

@@ -2,6 +2,7 @@
 whitelist, access requests, agent profiles. Every write is audited."""
 from __future__ import annotations
 
+from auth import graph_mailer
 from auth.passwords import hash_password
 from dataclasses import replace
 from departments import Department
@@ -14,6 +15,7 @@ from store.keys import hash_api_key
 from store.models import ConsumerRecord
 import agent_store
 import audit
+import os
 import personal_knowledge_store
 import time
 import workflows
@@ -393,6 +395,15 @@ async def _admin_request_approve(request):
         categories = (body.get("categories") or req.get("categories") or record.categories)
         store.upsert_consumer(replace(record, status="active", categories=list(categories),
                                       overrides=body.get("overrides") or record.overrides))
+        if record.email:
+            login_url = (os.getenv("GATEWAY_PUBLIC_URL") or "").rstrip("/")
+            try:
+                await graph_mailer.send_account_approved_email(
+                    record.email, record.full_name, f"{login_url}/login" if login_url else "")
+            except graph_mailer.GraphMailerError:
+                # Best-effort -- the account is already active either way; they
+                # can still sign in without ever seeing this email.
+                pass
     elif "selections" in req:  # access request (tool-level, grouped by category)
         overrides = {k: dict(v) for k, v in (record.overrides or {}).items()}
         any_valid = False

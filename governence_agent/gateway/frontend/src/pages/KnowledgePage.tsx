@@ -12,6 +12,7 @@ import {
   Field,
   Input,
   KeyValue,
+  PageShell,
   Skeleton,
   Switch,
   TypingDots,
@@ -463,7 +464,7 @@ function KnowledgePage({ session }: PageProps) {
   )
 
   return (
-    <div className="knowledge">
+    <PageShell className="knowledge">
       <div ref={askSectionRef}>
         <Card
           title="Ask your documents"
@@ -759,7 +760,7 @@ function KnowledgePage({ session }: PageProps) {
           </div>
         )}
       </Drawer>
-    </div>
+    </PageShell>
   )
 }
 

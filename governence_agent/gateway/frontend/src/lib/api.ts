@@ -801,6 +801,8 @@ export interface AdminAccessRequest {
   kind: string
   consumer_id?: string
   username?: string
+  email?: string
+  department?: string
   selections?: AccessSelection[]
   categories?: string[]
   backend?: string
@@ -1326,18 +1328,41 @@ export interface Department {
  *  department picker before the visitor has an account. */
 export const getDepartments = () => api.get<{ departments: Department[] }>('/dashboard/departments')
 
-export interface SignupResult {
+export interface SignupCodeRequestResult {
   ok: boolean
-  status: string
-  name: string
+  ticket_id: string
+  expires_in_sec: number
 }
 
-/** Creates an active account and signs it in immediately (no email
- *  verification, no admin approval gate on the account itself) — sets the
- *  session cookie the same as `login`. 400 for a missing field or an unknown
- *  department, 409 for a taken username or a read-only policy store. */
-export const signup = (input: { full_name: string; username: string; password: string; department: string }) =>
-  api.post<SignupResult>('/dashboard/signup', input)
+/** Step 1 of signup: validates the form and emails a 6-digit code to `email`
+ *  (must match SIGNUP_EMAIL_DOMAIN server-side, if set) — creates nothing yet.
+ *  400 for a missing/invalid field, an unknown department, or the wrong email
+ *  domain; 409 for a taken username; 502 if the verification email couldn't be
+ *  sent. */
+export const requestSignupCode = (input: {
+  full_name: string
+  username: string
+  password: string
+  department: string
+  email: string
+}) => api.post<SignupCodeRequestResult>('/dashboard/signup/request-code', input)
+
+export interface SignupVerifyResult {
+  ok: boolean
+  status: string
+}
+
+/** Step 2: the code proves the mailbox, so this is where the account is
+ *  actually created — as status "pending", not signed in. An admin must
+ *  approve it (Pending Signups) before `login` will work for this account.
+ *  400 for a missing/wrong/expired code, 409 if the username was taken by
+ *  someone else while this session was verifying. */
+export const verifySignupCode = (input: { ticket_id: string; code: string }) =>
+  api.post<SignupVerifyResult>('/dashboard/signup/verify-code', input)
+
+/** Re-sends a fresh code for an in-flight ticket; rate-limited per ticket. */
+export const resendSignupCode = (input: { ticket_id: string }) =>
+  api.post<{ ok: boolean }>('/dashboard/signup/resend-code', input)
 
 // ── Knowledge base ───────────────────────────────────────────────────────────
 // Read-only end to end (governance_core/policy/manifest.py: "Deliberately no

@@ -1,16 +1,18 @@
+/* Page inset and measure come from `<Page>` (layout="bare", so the grid below
+   is not overridden by the standard column stack). Only the two-column shape
+   is this page's own. */
 .playground {
   display: grid;
   grid-template-columns: 19rem 1fr;
   align-items: start;
-  gap: 1.25rem;
-  padding: 1.5rem 1.75rem 3rem;
-  max-width: 72rem;
+  gap: var(--ui-s-5);
 }
 
+/* Collapses earlier than the shared 640px inset step: two columns stop working
+   well before the padding needs to shrink. */
 @media (max-width: 860px) {
   .playground {
     grid-template-columns: 1fr;
-    padding: 1rem 1rem 2.5rem;
   }
 }
 

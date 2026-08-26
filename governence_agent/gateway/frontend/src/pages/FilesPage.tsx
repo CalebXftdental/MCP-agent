@@ -15,6 +15,7 @@ import {
   Input,
   KeyValue,
   Modal,
+  PageShell,
   SegmentedControl,
   Skeleton,
   Switch,
@@ -601,7 +602,7 @@ function FilesPage({ session }: PageProps) {
   const artifact = workbench?.artifact
 
   return (
-    <div className="files">
+    <PageShell className="files">
       <Card
         title="Files"
         description="Generated artifacts, classifications, and downloads."
@@ -1034,7 +1035,7 @@ function FilesPage({ session }: PageProps) {
           )}
         </div>
       </Modal>
-    </div>
+    </PageShell>
   )
 }
 

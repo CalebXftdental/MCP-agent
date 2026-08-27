@@ -169,9 +169,19 @@ async def get_tool_schema(backend: str, tool: str) -> dict | None:
     return None
 
 
-async def call(backend: str, tool: str, args: dict) -> str:
-    """Call `tool` on `backend` with `args`; return its raw text result."""
+async def call(backend: str, tool: str, args: dict, timeout: float | None = None) -> str:
+    """Call `tool` on `backend` with `args`; return its raw text result.
+
+    `timeout` overrides GATEWAY_BACKEND_TIMEOUT_SEC for this one call -- for
+    most tools the default (30s) is well above anything they actually take, but
+    `ingest_my_document` (mcp-knowledge) can run PDF text extraction through
+    Azure Document Intelligence, whose own poller is allowed up to
+    GOVERNANCE_DOCINTEL_TIMEOUT_SEC (default 60s) -- a caller doing that specific
+    call needs a longer budget here or it gets cut off before DI's own timeout
+    ever has a chance to fire.
+    """
     url = backend_url(backend)
+    effective_timeout = timeout if timeout is not None else _timeout_sec()
 
     async def _invoke() -> object:
         async with streamablehttp_client(url) as (read_stream, write_stream, _get_session_id):
@@ -180,9 +190,9 @@ async def call(backend: str, tool: str, args: dict) -> str:
                 return await session.call_tool(tool, arguments=args)
 
     try:
-        result = await asyncio.wait_for(_invoke(), timeout=_timeout_sec())
+        result = await asyncio.wait_for(_invoke(), timeout=effective_timeout)
     except asyncio.TimeoutError as exc:
-        raise BackendError(f"{backend}.{tool} timed out after {_timeout_sec()}s") from exc
+        raise BackendError(f"{backend}.{tool} timed out after {effective_timeout}s") from exc
     except Exception as exc:  # noqa: BLE001 -- normalize every failure to fail-closed
         raise BackendError(f"{backend}.{tool} call failed: {describe_error(exc)}") from exc
 

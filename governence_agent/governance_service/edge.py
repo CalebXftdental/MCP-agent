@@ -88,7 +88,7 @@ def _load_ip_allowlist() -> list:
     if not raw:
         return []
     networks = []
-    for entry in raw.split(","):
+    for entry in re.split(r"[,\s]+", raw):
         entry = entry.strip()
         if not entry:
             continue

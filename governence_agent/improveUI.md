@@ -1,8 +1,20 @@
 # UI Improvement Notes
 
 Goal: make the console feel calmer, tidier, and more elegant (Apple-like) —
-simpler hierarchy, less visual noise. **No color/theme changes** — scoped to
-spacing, typography, layout structure, motion, and iconography.
+simpler hierarchy, less visual noise — **and usable by someone who does not
+work in IT.**
+
+Scope: spacing, typography, layout structure, motion, iconography, **the words
+on screen, and how many doors the sidebar offers.** The palette itself stays as
+it is; how *often* the accent fires does not (root cause F).
+
+The second half of that goal is new. The first three drafts of this file treated
+"elegant" as a purely visual problem and pushed information architecture into an
+"out of scope" note at the bottom. That note was right about the elephant and
+wrong to walk away from it: for a non-technical user the console's hardest
+problem is not that six font weights are in play, it is that five sidebar
+entries lead to what looks like the same feature. Phase 4 picks that up, and the
+old out-of-scope note is retired.
 
 Frontend root: `governence_agent/gateway/frontend/src/`
 
@@ -18,7 +30,7 @@ remaining item a one-liner instead of a judgment call.
 
 ## Reference points (keep as-is)
 
-- **HomePage greeting** (`pages/HomePage.css:163-173`) — the most Apple-like
+- **HomePage greeting** (`pages/HomePage.css:167-177`) — the most Apple-like
   line in the codebase, and worth reading closely: weight **500**, `clamp(1.55rem,
   4vw, 2.05rem)`, tracking `-0.025em`. Big, light, tight. It is *lighter* than
   every card title in the app. That is the model for Phase 1.
@@ -32,7 +44,35 @@ remaining item a one-liner instead of a judgment call.
   `currentColor`, round caps, plus a comment on why SVG geometry beats a text
   glyph under transform. Phase 2 extends this rather than inventing a style.
 
+Two more, added for Phase 4 — the app already contains its own best answers to
+"how should this read to someone who doesn't work in IT," and they are worth
+copying rather than re-deriving:
+
+- **`PlaygroundPage`'s `AI_TASKS`** (`:68-130`) — the strongest non-IT surface in
+  the console. Named for the job ("Draft a message", "Compare two customers"),
+  not the mechanism; a three-field form instead of a blank prompt; the model's
+  jargon confined to `tmpl`, where the user never sees it. Phase 4c's "Do a task"
+  launcher is essentially this pattern given more room.
+- **`AccessPage`'s denial table** (`:236-266`) — the column header is literally
+  **"What you tried to do"**, the tool id is demoted to small mono underneath,
+  and the fix is a one-press "Request access" button in the row. That is the
+  right instinct on the highest-stakes screen a non-technical user reaches: the
+  one they land on because something was already refused. (`:261`'s stray "no
+  category" is the single lapse — Phase 4b.)
+
 ## Root causes
+
+**A, B, C, and E are closed** (Phase 0) and are kept as the diagnosis that
+produced it, not as live findings. Read their line references as historical:
+`theme.css:92-111` in A, for instance, now points at the space scale Phase 0
+*added* there — the fix, not the problem it describes. E is likewise done, and
+re-verified here: `LoginPage.css` no longer contains `font-weight: 1200`, and
+both brand elements now read `var(--ui-mono)` (`:183`, `:191`). The two `#ffffff`
+still in that file (`:44`, `:64`) are decorative radial-gradient stops, not the
+token violation E flagged — leave them.
+
+**D is half-closed**: `display=optional` shipped, the CDN dependency did not
+(Phase 5.3). **F, G, and H are open**, and are new in this draft.
 
 ### A. There is no spacing scale
 
@@ -98,6 +138,61 @@ still correct, which is the point.
   both missing their trailing semicolon.
 - `:180` — hardcoded `#ffffff` instead of a token.
 
+### F. The accent fires on hover, everywhere, and so signals nothing
+
+`border-color: var(--ui-accent)` appears **24 times across 20 files.** That count
+on its own is misleading, though, and an earlier version of this section used it
+to argue for a palette change. Broken down by the state it responds to:
+
+| State | Uses | Verdict |
+|---|---|---|
+| **Selection** — `[data-selected]` | `PickableAccessCard.css:34,91`, `Chip.css:88`, `WorkflowCatalogTile.css:35`, `WorkflowCanvas.css` | **Correct.** "This one is chosen" is exactly what a brand accent is for. |
+| **Focus** — `:focus` / `:focus-within` | `Field.css:92`, `Composer.css:23`, `Card.css:31`, `Dropdown.css:30`, `DateTimePicker.css:29`, `CodeBlock.css:34` | **Correct.** Deliberate, and `Field.css:88-89` documents why it is a border rather than an outline. |
+| **Hover** | `Card.css:24`, `Stat.css:112`, `Chip.css:15`, `Button.css:87`, `NavHelpBubble.css:31`, `WorkflowInfoIcon.css:28`, `PlaygroundPage.css:71` | **The actual problem.** |
+
+Only the last row is overuse. Brushing the pointer across a page currently lights
+things up in brand teal that the user has neither chosen nor focused — so by the
+time the accent means "selected," it has already been spent on "the mouse passed
+over this." Apple and Cohere are near-monochrome precisely so the one accent
+still lands when it appears.
+
+`AccessCard.css:24-28` already does the right thing — hover moves
+`--ui-border-strong`, no accent. Make that the rule and the other seven follow.
+
+### G. The copy is written by the people who built it
+
+The page description is the first sentence a non-technical user reads under
+every title, and `pages/routes.ts` writes them in the vocabulary of the
+implementation:
+
+- `:89` — "Recurring governed workflows with deterministic local due-run execution."
+- `:120` — "Approval-gated email delivery queue and connector handoff status."
+- `:126` — "Draft invite artifacts and approval-gated calendar connector queue."
+- `:108` — "Generated artifacts, classifications, and downloads."
+
+"Deterministic local due-run execution" is three pieces of jargon in four words,
+describing a page that means *"workflows that run on a schedule."*
+
+It is not only `routes.ts`. `components/chat/Composer.tsx:54` labels the main ask
+box, for screen readers, "Ask the governed assistant." `pages/AccessPage.tsx:261`
+prints a literal **"no category"** to an end user in the denials table — on the
+one screen someone visits *because* something already went wrong for them.
+
+The nav group labels have the same problem: **"Content"** (`routes.ts:254`) is an
+information-architecture term, not a thing anyone came here to do.
+
+### H. Two doors are open that should not be
+
+- **`Developer` is not admin-gated.** `routes.ts:135-140` carries no
+  `admin: true`, so every ordinary user gets a sidebar entry offering an API key
+  and an MCP connection snippet. It also duplicates the API key already on My
+  Access (`:132`), so the one user who *does* want it is offered it twice.
+- **The unported dot is nearly retired.** `pages/index.ts:47-72` registers 24 of
+  26 routes; only `agents` and `code-plans` still fall through to
+  `PlaceholderPage`, and both are admin-only. So `AppShell.tsx:180-186`'s dimming
+  and dot — plus the `isPorted` plumbing behind it — now render for two admin
+  tabs and no one else. Worth deleting once those two land, not before.
+
 ## Plan
 
 ### Phase 0 — make the system enforce calm — **DONE**
@@ -141,7 +236,7 @@ three, and let size and tracking carry hierarchy the way HomePage already does.
 Weight 650 currently appears ~35 times and therefore signals nothing: card
 titles (`Card.css:73`), section titles (`Card.css:140`), modal titles
 (`Modal.css:79`), drawer titles (`Drawer.css:75`), eyebrows
-(`theme.css:228`), table `<th>` (`DataTable.css:42`), the active nav item
+(`theme.css:255`), table `<th>` (`DataTable.css:42`), the active nav item
 (`AppShell.css:122`), and `DateTimePicker` six separate times. If everything is
 emphasized, nothing is.
 
@@ -154,8 +249,19 @@ Target:
 - **650** stays only on `.ui-eyebrow`: at 11px uppercase, weight is the only
   thing holding it up.
 
-Retire 700 and 800 outright (`NotFoundPage.css:4`, `Avatar.css:7`,
-`RequestPicker.css:34`, `CidrInput.css:15`, and the workflow-canvas labels).
+Retire 700 and 800 outright. Grepped fresh, that is eleven declarations, more
+than the four the earlier draft listed: `NotFoundPage.css` (800), `Avatar.css`,
+`CidrInput.css`, `RequestPicker.css`, `PickableAccessCard.css`,
+`ChatMessageBubble.css`, `WorkflowAlertBadge.css`, `StepFlow.css`,
+`WorkflowCanvasLegend.css`, and **`LoginPage.css` three times**.
+
+That last one needs a deliberate call rather than a blind sweep: Phase 0 item 3
+*set* one of those 700s, replacing the invalid `font-weight: 1200` that had been
+silently dropped. So Phase 1 is about to re-open a line Phase 0 just closed —
+correctly, since 700 was chosen then only as "a valid weight," not as a
+considered place in a three-weight system. Login is also the first screen anyone
+sees, so it is the one file where the brand title arguably earns an exception.
+Decide it explicitly; do not let a find-and-replace decide it.
 
 ### Phase 2 — the icon set
 
@@ -196,6 +302,104 @@ it reads as a list of report widgets rather than one screen.
   dense grid of 7.5rem tiles, every tile you brush past popping reads as
   jittery. Keep the border/shadow change.
 
+### Phase 4 — non-IT usability
+
+The half of the goal the earlier drafts skipped. Ordered cheapest-first, because
+the first two items are an afternoon and carry most of the gain.
+
+**4a. Close the two open doors** (root cause H). Add `admin: true` to the
+`developer` route, or fold its contents into My Access behind a `<details>` — it
+is one line either way, and it removes an API key from the sidebar of every
+non-technical user.
+
+**4b. Rewrite the user-facing copy** (root cause G). Roughly eight strings:
+
+| `routes.ts` | Rewrite |
+|---|---|
+| "Recurring governed workflows with deterministic local due-run execution." | "Workflows that run on a schedule." |
+| "Approval-gated email delivery queue and connector handoff status." | "Emails waiting to be approved and sent." |
+| "Draft invite artifacts and approval-gated calendar connector queue." | "Meeting invites waiting for approval." |
+| "Generated artifacts, classifications, and downloads." | "Files the assistant made for you." |
+| "Your status, granted data domains, and API key." | "What you can see — and how to ask for more." |
+
+Plus `Composer.tsx:54` "Ask the governed assistant" → "Ask a question", and
+`AccessPage.tsx:261`'s "no category" → something that tells the user what to do
+instead. Group label "Content" → "Your files and documents."
+
+Leave the admin-only descriptions (`whitelist`'s CIDR language, `consumers`'
+"principals") alone. Admins are the audience there and the precision is worth
+more than the plainness.
+
+**4c. Collapse the five automation doors.** The one that matters, and the one
+that needs a product decision rather than a patch.
+
+A non-admin sees **14 destinations** (`visibleNav` over `NAV_GROUPS`), and five
+of them are the same idea wearing different names:
+
+> AI Playground · Workflows · Workflow Store · Automations · My Workflow
+
+The distinction between them is architectural, not something a user came here
+holding. Ask an office manager which one drafts a payment reminder and they will
+guess. Proposed:
+
+| Today | Proposed |
+|---|---|
+| AI Playground, Workflows | **Do a task** — one launcher: Playground's guided cards on top, the workflow catalog below |
+| My Workflow, Automations, Workflow Store | **Automations** — three tabs *inside* one page (Mine / Scheduled / Browse) |
+
+Five doors → two, no backend change; `routes.ts` and `pages/index.ts` already
+make the registry side of this cheap. No amount of spacing or weight work
+substitutes for it.
+
+**4d. Give the nav helper a label.** `NavHelpBubble` is the best non-IT idea in
+the app — a floating "where do I find X" assistant — and it renders as a bare 🧭
+with an `aria-label` and no visible text (`NavHelpBubble.tsx:143-151`). The users
+who need it most are exactly the ones who will not click an unlabeled emoji.
+Ship it as a labeled pill ("Need help?") that collapses to the icon after first
+use.
+
+**4e. First-run orientation.** A new user lands on Home facing an empty
+composer. Add a dismissible three-step card in the hero, first session only —
+*ask a question → your files land in Files → if you're refused, request access.*
+`useStoredList` already has the persistence pattern.
+
+**4f. Auto-select quick-ask blanks.** Clicking a chip inserts
+`Find the customer {name or email}` and expects the user to infer that the braces
+are theirs to replace. `Composer.tsx:72-76` guards this well — but a guard is a
+worse fix than not needing one. On insert, select the first blank's text range so
+the next keystroke replaces it. Two lines in `useComposer`.
+
+### Phase 5 — finish the visual system
+
+Three loose ends, all cheap, all visible.
+
+1. **Scope the accent to selection and focus** (root cause F). Move the seven
+   *hover* uses to `--ui-border-strong`, matching `AccessCard.css:24-28`. Leave
+   every selection and focus use alone.
+2. **Wire the theme toggle that already exists.** `theme.css:179-239` defines
+   both themes under `:root[data-theme=…]` so an explicit choice beats the OS in
+   both directions — and **nothing in the app ever sets the attribute.** Grepped:
+   `data-theme` appears only inside CSS selectors (`theme.css`, `AppShell.css:67`,
+   `Avatar.css:23`, `Tooltip.css:26`) and `ui/README.md:81`, which says outright
+   "Nothing sets `data-theme` yet." The hard half is done; the switch is missing.
+3. **Self-host the Inter woff2.** Still open from Phase 0, and it is a
+   correctness issue rather than a taste one: the hierarchy Phase 1 establishes
+   depends on weights 550/650, which exist **only** on the variable font. One
+   blocked egress request and the whole system silently flattens to Segoe UI.
+   ~110KB in the repo settles it permanently.
+
+## Suggested order
+
+Phase numbers are chronological, not priority — 4a/4b are far cheaper than
+Phase 2 and land more value per hour. Recommended sequence:
+
+1. **Phase 1** (typography) — biggest aesthetic gain per hour; mechanical.
+2. **Phase 4a + 4b** (admin gate, copy) — an afternoon, immediate non-IT gain.
+3. **Phase 2** (icons, nav's 24 first) — the most visible "not quite Apple" tell.
+4. **Phase 5** (accent, toggle, font) — cheap, and 5.3 protects Phase 1's work.
+5. **Phase 4c** (the IA consolidation) — biggest single win; needs a product call.
+6. **Phase 3**, then 4d–4f.
+
 ## The governing principle
 
 The previous draft treated elegance as *subtraction of borders*. The sharper
@@ -235,10 +439,29 @@ Verified against the code; do not re-do these.
   large singular surfaces where it belongs. The one pixel that remains is folded
   into Phase 3.
 
-## Out of scope, but worth saying
+## Promoted out of "out of scope"
 
-The sidebar has **24 destinations in 8 groups**. Apple's calm is mostly *fewer
-doors*. No amount of spacing, weight, or iconography work will offset an
-information architecture that wide. That's a product conversation, not a
-styling pass — but it is the elephant, and this file would be dishonest without
-naming it.
+This section used to say the sidebar breadth was the elephant, that no amount of
+spacing or iconography would offset it, and that it was a product conversation
+rather than a styling pass. All three claims still hold. The conclusion drawn
+from them — leave it alone — did not, so the item is now **Phase 4c** and this
+section records the correction rather than repeating the note.
+
+Two corrections to the numbers it quoted, both counted fresh against
+`NAV_GROUPS`:
+
+- It said **24 destinations in 8 groups**. It is **26** in 8 — 1 + 5 + 5 + 3 + 3
+  + 3 + 2 + 4. The count drifted as `workflow_store` and `my_workflows` landed.
+- More to the point, 26 is the *admin* number and was never the right one to
+  quote here. A non-admin sees **14**, and that is the figure Phase 4c has to
+  move, because the non-technical user is by definition never an admin.
+
+## Still genuinely out of scope
+
+- **The palette.** `--ui-accent` stays `#2FC7BA`. Phase 5.1 changes how often it
+  fires, not what it is.
+- **The workflow canvas** (`components/workflow/`). It is a node editor for
+  people building automations, and it should be judged as a power tool. Phase 2's
+  icon work touches `stepMeta.ts`; nothing else here applies to it.
+- **The admin console's density.** Monitor, Alerts, Security, and Consumers are
+  dense on purpose. Their audience reads dense tables for a living.

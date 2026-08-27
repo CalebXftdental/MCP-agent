@@ -92,7 +92,16 @@ if ($dirty) {
 }
 
 # ── 4. Zip, respecting the same exclude list as .vscode/settings.json's
-#      appService.zipIgnorePattern (kept in sync manually -- see that file). ───────
+#      appService.zipIgnorePattern (kept in sync manually -- see that file).
+#      NOTE: do NOT use Compress-Archive here -- on Windows PowerShell 5.1 it
+#      writes zip entry names with backslash path separators for nested
+#      folders (a long-standing .NET Framework ZipFile bug). Windows tools
+#      tolerate that, but Linux extraction (Oryx, on App Service) treats the
+#      backslash as a literal filename character, not a separator -- so every
+#      subfolder (mcp-minierp/, gateway/, ...) silently flattens into oddly
+#      named single files and startup.sh's `cd` into each backend fails.
+#      Building the archive directly via ZipArchive with explicit forward-
+#      slash entry names avoids this entirely. ─────────────────────────────
 $excludeRegex = '(^|[\\/])(\.venv|__pycache__|_smoke|governance_service|node_modules|\.git|data)([\\/]|$)' +
                 '|gateway[\\/]frontend[\\/]src([\\/]|$)' +
                 '|\.pyc$|\.env\.local$|appservice\.settings\.local\.json$|minierp\.env$|\.md$'
@@ -101,23 +110,25 @@ $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $zipPath = Join-Path $env:TEMP "governence_agent-$stamp.zip"
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 
-$stagingDir = Join-Path $env:TEMP "governence_agent-stage-$stamp"
-if (Test-Path $stagingDir) { Remove-Item $stagingDir -Recurse -Force }
-New-Item -ItemType Directory -Path $stagingDir | Out-Null
+Write-Host "`nBuilding deploy zip (excluding dev-only paths)..." -ForegroundColor Cyan
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-Write-Host "`nStaging deploy contents (excluding dev-only paths)..." -ForegroundColor Cyan
-Get-ChildItem -Path $root -Recurse -File -Force | Where-Object {
-    $rel = $_.FullName.Substring($root.Length + 1) -replace '\\', '/'
-    $rel -notmatch $excludeRegex
-} | ForEach-Object {
-    $rel = $_.FullName.Substring($root.Length + 1)
-    $dest = Join-Path $stagingDir $rel
-    New-Item -ItemType Directory -Path (Split-Path $dest) -Force | Out-Null
-    Copy-Item $_.FullName $dest
+$zipStream = [System.IO.File]::Open($zipPath, [System.IO.FileMode]::Create)
+$archive = [System.IO.Compression.ZipArchive]::new($zipStream, [System.IO.Compression.ZipArchiveMode]::Create)
+try {
+    Get-ChildItem -Path $root -Recurse -File -Force | ForEach-Object {
+        $relForward = $_.FullName.Substring($root.Length + 1) -replace '\\', '/'
+        if ($relForward -notmatch $excludeRegex) {
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                $archive, $_.FullName, $relForward,
+                [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+        }
+    }
+} finally {
+    $archive.Dispose()
+    $zipStream.Dispose()
 }
-
-Compress-Archive -Path "$stagingDir/*" -DestinationPath $zipPath -CompressionLevel Optimal
-Remove-Item $stagingDir -Recurse -Force
 
 $zipSizeMb = [Math]::Round((Get-Item $zipPath).Length / 1MB, 2)
 Write-Host "Zip built: $zipPath ($zipSizeMb MB)"

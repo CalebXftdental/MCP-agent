@@ -1,0 +1,29 @@
+/* Tile styling itself (.wf-tile, the hover-reveal overlay, the corner-action
+   affordance) lives in components/workflow/WorkflowCatalogTile.css -- this
+   page only lays out the toolbar and the grid the tiles sit in, same split
+   WorkflowsPage.css already uses for its own catalog grid. */
+
+.wf-store-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
+.wf-store-search {
+  width: 16rem;
+}
+
+.wf-store-catalog {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 0.75rem;
+  padding: 1.1rem;
+}
+
+.wf-store-skeleton {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 0.75rem;
+  padding: 1.1rem;
+}

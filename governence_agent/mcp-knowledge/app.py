@@ -47,6 +47,7 @@ from starlette.responses import JSONResponse
 import base64
 
 import embeddings_client
+import ingest_progress
 import knowledge_store
 import personal_knowledge_store
 import rerank_client
@@ -382,19 +383,33 @@ async def answer_from_knowledge(owner: str, query: str, limit: int = 5, document
 # route that lets an owner value reach this file from anywhere else.
 
 @mcp.tool()
-async def ingest_my_document(owner: str, title: str, filename: str, content_base64: str, classification: str = "") -> str:
+async def ingest_my_document(
+    owner: str, title: str, filename: str, content_base64: str, classification: str = "", job_id: str = "",
+) -> str:
     """Upload a document into the caller's own private knowledge base (PDF, docx,
     pptx, xlsx, txt, md, csv, json, log). Not visible to anyone else, including
-    admins."""
+    admins. `job_id`, if given, is an `ingest_progress` job the gateway already
+    created before calling in -- this marks it "error" on any failure so a
+    caller polling that job doesn't hang forever waiting for a stage that will
+    never arrive; success itself is left for the gateway to mark "done" once it
+    also has the resulting document in hand."""
     try:
         payload = base64.b64decode(content_base64)
     except Exception as exc:  # noqa: BLE001
+        if job_id:
+            ingest_progress.set_stage(job_id, "error", message=f"invalid content_base64: {exc}")
         return json.dumps({"source": "knowledge", "status": "error", "message": f"invalid content_base64: {exc}"})
     classes = [c.strip() for c in classification.split(",") if c.strip()] or None
     try:
-        doc = personal_knowledge_store.ingest_document(owner, title, filename, payload, classes)
+        doc = personal_knowledge_store.ingest_document(owner, title, filename, payload, classes, job_id=job_id)
     except ValueError as exc:
+        if job_id:
+            ingest_progress.set_stage(job_id, "error", message=str(exc))
         return json.dumps({"source": "knowledge", "status": "error", "message": str(exc)})
+    except Exception as exc:  # noqa: BLE001 -- an unexpected failure must still resolve the job, not strand it
+        if job_id:
+            ingest_progress.set_stage(job_id, "error", message="Upload failed unexpectedly.")
+        raise
     return _ok({"document": doc.public_dict()})
 
 

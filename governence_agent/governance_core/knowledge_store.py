@@ -71,6 +71,19 @@ def _xml_text(raw: bytes) -> str:
     return _normalize_text(" ".join(parts))
 
 
+# What extract_text() below actually knows how to turn into text. pdf is the
+# only one that goes through Azure Document Intelligence itself (docintel_client
+# .extract_pdf_text, prebuilt-read); the rest are parsed locally (docx/pptx/xlsx
+# via their own zip/XML structure, the others as plain text). Anything outside
+# this set falls through extract_text's last branch and gets decoded as if it
+# were UTF-8 text, which for a real binary (a .jpg, a .zip) produces garbage
+# "extracted text" instead of a clear rejection -- callers that accept uploads
+# from a user (personal_knowledge_store.ingest_document, gateway/backend/
+# knowledge.py's _knowledge_mine) MUST check the filename's extension against
+# this set themselves before calling in, rather than relying on this fallback.
+ALLOWED_UPLOAD_EXTENSIONS = frozenset({"pdf", "docx", "pptx", "xlsx", "txt", "md", "csv", "tsv", "json", "log"})
+
+
 def extract_text(filename: str, payload: bytes) -> tuple[str, str]:
     suffix = Path(filename or "document.txt").suffix.lower().lstrip(".") or "txt"
     if suffix in {"txt", "md", "csv", "tsv", "json", "log"}:

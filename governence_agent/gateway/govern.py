@@ -17,6 +17,7 @@ from policy.redaction import apply as apply_redaction
 from policy.resolve import resolve as resolve_grant
 from store import get_store
 import audit
+import bulk_result_cache
 import mcp_clients
 import schema_catalog
 import json
@@ -59,6 +60,24 @@ _GATED_TOOLS_ENV_FLAGS = {"get_sales_price": "ALLOW_PRICE_QUERY"}
 _BUILD_MODE_SESSION_PREFIX = "workflow-chat"
 _BUILD_MODE_SAMPLE_PAGE_SIZE = int(os.getenv("GOVERNANCE_BUILD_MODE_SAMPLE_PAGE_SIZE", "3"))
 _BUILD_MODE_MAX_RESULT_ROWS = int(os.getenv("GOVERNANCE_BUILD_MODE_MAX_RESULT_ROWS", "75"))
+
+# Home chat ("chat:"+session id, backend/chat.py's _chat/_chat_stream) gets its
+# OWN cap, separate from build-mode's -- and a DIFFERENT shape. Build-mode
+# hard-rejects an oversized result (the copilot is authoring a report and
+# needs the real thing or nothing). Home chat is a person asking a normal
+# question -- rejecting outright is worse than just answering with what's
+# useful. Confirmed live (2026-08-26): an ordinary "what invoices are due
+# soon" question with no unusual phrasing returned 1,115 rows / ~67K tokens in
+# ONE call with no page_size given -- an instant guaranteed context-length
+# crash on the local Qwen backend (40,960 tokens) that actually serves Home
+# chat by default, not a hypothetical. The model does not reliably choose a
+# small page_size on its own (confirmed same run) -- this has to be enforced
+# here, not left to the system prompt. The full result is cached
+# (bulk_result_cache) before truncating so export_bulk_result_to_excel
+# (gateway/app.py) can hand the user the complete data later without it ever
+# re-entering the model's own context.
+_HOME_CHAT_SESSION_PREFIX = "chat:"
+_HOME_CHAT_MAX_RESULT_ROWS = int(os.getenv("GOVERNANCE_HOME_CHAT_MAX_RESULT_ROWS", "15"))
 
 
 def _tool_gated_off(canonical_tool: str) -> bool:
@@ -116,6 +135,24 @@ def _too_large_result(intent: str, field: str, actual: int, limit: int) -> str:
         ),
         "matchedCount": actual, "limit": limit,
     })
+
+
+def _truncate_list_field(obj: dict, field: str, limit: int) -> dict:
+    """Cap `obj[field]` to `limit` items, in place on a shallow copy, and add
+    metadata the model can honestly relay (real total, and how to get the
+    rest) instead of silently presenting a partial list as complete."""
+    full = obj[field]
+    out = dict(obj)
+    out[field] = full[:limit]
+    out["truncated"] = True
+    out["totalMatched"] = len(full)
+    out["shown"] = limit
+    out["exportHint"] = (
+        f"Only the first {limit} of {len(full)} matching rows are shown here. If the user wants "
+        "the complete list, call export_bulk_result_to_excel to get it as a downloadable file -- "
+        "don't page through repeated calls to reconstruct it yourself."
+    )
+    return out
 
 
 def _resolve_scope(session_id: str, customer_id: str) -> str | None:
@@ -216,6 +253,21 @@ async def _govern(canonical_tool: str, session_id: str, customer_id: str, backen
         schema = await schema_catalog.get_output_schema(policy.backend, canonical_tool)
         if schema is None:
             args["page_size"] = min(args["page_size"], _BUILD_MODE_SAMPLE_PAGE_SIZE)
+    elif session_id.startswith(_HOME_CHAT_SESSION_PREFIX) and isinstance(args.get("page_size"), int):
+        # Unlike build-mode, always clamp -- there's no "deliberate full
+        # fetch" concept in Home chat, just a person asking a normal
+        # question. Confirmed live (2026-08-26): when a backend actually
+        # honors page_size (a real DB-level LIMIT via find_with_offset_
+        # pagination, not fetch-everything-then-slice), asking for a small
+        # page is genuinely fast -- the ~7s latency seen on an unbounded
+        # get_ar_invoices_past_due call was the backend fetching all 5,000
+        # rows regardless of what was asked, not an inherent cost of the
+        # query. Requesting few rows up front means most Home-chat questions
+        # never pay that cost at all, instead of paying it every time and
+        # only trimming the DISPLAY afterward. The response-side cap below
+        # is still the backstop for any tool that (like that stale example)
+        # doesn't actually honor page_size.
+        args["page_size"] = min(args["page_size"], _HOME_CHAT_MAX_RESULT_ROWS)
 
     start = time.time()
     args_summary = audit.summarize_args({**args, "session_id": session_id})
@@ -237,6 +289,7 @@ async def _govern(canonical_tool: str, session_id: str, customer_id: str, backen
     try:
         parsed = json.loads(raw)
         redacted, redactions = apply_redaction(verdict.redaction_plan, parsed)
+        home_chat_truncated = None
         if session_id.startswith(_BUILD_MODE_SESSION_PREFIX):
             oversized = _find_oversized_list_field(redacted, _BUILD_MODE_MAX_RESULT_ROWS)
             if oversized is not None:
@@ -249,11 +302,23 @@ async def _govern(canonical_tool: str, session_id: str, customer_id: str, backen
                     customer_id=resolved_customer, rows=actual_len,
                 )
                 return _too_large_result(verdict.intent, field_name, actual_len, _BUILD_MODE_MAX_RESULT_ROWS)
+        elif session_id.startswith(_HOME_CHAT_SESSION_PREFIX):
+            oversized = _find_oversized_list_field(redacted, _HOME_CHAT_MAX_RESULT_ROWS)
+            if oversized is not None:
+                field_name, actual_len = oversized
+                # Cache the FULL (untruncated, already-redacted) result before
+                # truncating -- export_bulk_result_to_excel serves the real
+                # export from here, never by re-asking the model to reproduce
+                # rows it was only shown a capped view of.
+                bulk_result_cache.remember(session_id, field_name, redacted, actual_len)
+                redacted = _truncate_list_field(redacted, field_name, _HOME_CHAT_MAX_RESULT_ROWS)
+                home_chat_truncated = f"home_chat_capped: {field_name} had {actual_len} rows, showing {_HOME_CHAT_MAX_RESULT_ROWS}"
         rows = _result_rows(redacted)
         out = json.dumps(redacted)
     except (TypeError, ValueError):
         out = raw
         detail = "unstructured_backend_result_not_redacted"
+        home_chat_truncated = None
 
     # Flag (audit-only, non-blocking here) when an export-risk tool's raw result
     # crosses its declared max_rows_without_approval (manifest.py §7.3). This is
@@ -268,6 +333,8 @@ async def _govern(canonical_tool: str, session_id: str, customer_id: str, backen
         and rows > verdict.max_rows_without_approval
     )
     detail_parts = [detail] if detail else []
+    if home_chat_truncated:
+        detail_parts.append(home_chat_truncated)
     if redactions:
         detail_parts.append(f"redacted: {', '.join(redactions)}")
     if over_threshold:

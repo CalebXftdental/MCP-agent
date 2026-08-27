@@ -1365,12 +1365,11 @@ export const resendSignupCode = (input: { ticket_id: string }) =>
   api.post<{ ok: boolean }>('/dashboard/signup/resend-code', input)
 
 // ── Knowledge base ───────────────────────────────────────────────────────────
-// Read-only end to end (governance_core/policy/manifest.py: "Deliberately no
-// ingest_knowledge_text/ingest_knowledge_file entries"). New documents arrive
-// through AraTestEnvBE's own ingestion pipeline into the shared knowledge
-// base, never through this gateway — so there is no upload/ingest client here,
-// only list/view/delete of what's already indexed, plus search and
-// citation-backed answers.
+// The company-wide, read-only tier (search/answer/list over documents
+// AraTestEnvBE's own pipeline indexes) has no dedicated page anymore — asking
+// over it is covered by the home chatbot's search_knowledge/answer_from_knowledge
+// MCP tools, so a duplicate Q&A/list surface here was redundant. KnowledgeDocument
+// survives only as the shape MyDocument (below) reuses.
 
 export interface KnowledgeDocument {
   documentId: string
@@ -1386,19 +1385,6 @@ export interface KnowledgeDocument {
   metadata: Record<string, unknown>
 }
 
-/** `all` only takes effect for an admin caller — a non-admin passing it gets
- *  silently scoped back to their own documents (backend/knowledge.py). */
-export const listKnowledgeDocuments = (all = false) =>
-  api.get<{ documents: KnowledgeDocument[] }>(`/knowledge/documents${all ? '?all=1' : ''}`)
-
-export const getKnowledgeDocument = (id: string) =>
-  api.get<{ document: KnowledgeDocument }>(`/knowledge/documents/${encodeURIComponent(id)}`)
-
-/** 404s — not 403 — for someone else's document if you're not an admin; the
- *  backend won't even confirm it exists. */
-export const deleteKnowledgeDocument = (id: string) =>
-  api.del<{ ok: boolean }>(`/knowledge/documents/${encodeURIComponent(id)}`)
-
 export interface KnowledgeSearchHit {
   chunkId: string
   documentId: string
@@ -1410,41 +1396,6 @@ export interface KnowledgeSearchHit {
   classification: string[]
 }
 
-/** The live mcp-knowledge backend (Azure AI Search in production) wraps hits
- *  as `{results: [...]}`; the local dev fallback store returns a bare array.
- *  Normalised here so the page never has to guess which one answered. */
-export const searchKnowledge = async (
-  query: string,
-  limit = 5,
-  documentId = '',
-): Promise<KnowledgeSearchHit[]> => {
-  const body: Record<string, unknown> = { query, limit }
-  if (documentId) body.document_id = documentId
-  const result = await api.post<{ results?: KnowledgeSearchHit[] } | KnowledgeSearchHit[]>(
-    '/knowledge/search',
-    body,
-  )
-  return Array.isArray(result) ? result : (result.results ?? [])
-}
-
-export interface KnowledgeCitation {
-  documentId: string
-  chunkId: string
-  documentTitle: string
-  score: number
-}
-
-export interface KnowledgeAnswer {
-  answer: string
-  citations: KnowledgeCitation[]
-}
-
-export const answerFromKnowledge = (query: string, limit = 5, documentId = '') => {
-  const body: Record<string, unknown> = { query, limit }
-  if (documentId) body.document_id = documentId
-  return api.post<KnowledgeAnswer>('/knowledge/answer', body)
-}
-
 // ── Personal knowledge tier ──────────────────────────────────────────────────
 // Private to the uploading user, no admin bypass — separate MCP tools and a
 // separate category grant from the company tier above (governance_core/
@@ -1454,17 +1405,50 @@ export const answerFromKnowledge = (query: string, limit = 5, documentId = '') =
 /** Same shape as KnowledgeDocument — a personal doc has no extra fields. */
 export type MyDocument = KnowledgeDocument
 
+/** Mirrors gateway/backend/knowledge.py's _CURRENT_UPLOAD_EXTENSIONS — PDF
+ *  only for the current stage. The pipeline itself (knowledge_store.py's
+ *  ALLOWED_UPLOAD_EXTENSIONS) already knows how to parse docx/pptx/xlsx/txt/
+ *  md/csv/tsv/json/log too; this is a narrower, temporary product-stage gate
+ *  on top of that, not a capability limit. Widen this list (and the matching
+ *  one in knowledge.py) together when the other formats are ready. */
+export const ALLOWED_UPLOAD_EXTENSIONS = ['pdf'] as const
+
+export const ALLOWED_UPLOAD_ACCEPT = ALLOWED_UPLOAD_EXTENSIONS.map((ext) => `.${ext}`).join(',')
+
+export function isUploadableFilename(filename: string): boolean {
+  const ext = filename.split('.').pop()?.toLowerCase() ?? ''
+  return (ALLOWED_UPLOAD_EXTENSIONS as readonly string[]).includes(ext)
+}
+
 export const listMyDocuments = () => api.get<{ documents: MyDocument[] }>('/knowledge/mine')
+
+/** Ingest pipeline stages, in order — mirrors governance_core/ingest_progress
+ *  .py's STAGE_ORDER, plus the terminal "error" stage outside that order. */
+export type IngestStage = 'uploaded' | 'extracting' | 'chunking' | 'embedding' | 'indexing' | 'done' | 'error'
+
+export interface IngestProgress {
+  jobId: string
+  stage: IngestStage
+  message: string
+  documentId: string
+  filename: string
+}
 
 /** Multipart upload — deliberately bypasses api.post's JSON body path (passing
  *  `body: undefined` up front so `request()` never sets a JSON Content-Type,
- *  letting the browser set the multipart boundary itself). */
+ *  letting the browser set the multipart boundary itself). Ingestion runs in a
+ *  background task on the gateway; this returns as soon as it's queued, with a
+ *  job id to poll via `getUploadProgress` for live extract/chunk/embed/index
+ *  status instead of blocking on the whole pipeline. */
 export const uploadMyDocument = (file: File, title?: string) => {
   const form = new FormData()
   form.append('file', file, file.name)
   if (title) form.append('title', title)
-  return api.post<{ document: MyDocument }>('/knowledge/mine', undefined, { body: form })
+  return api.post<{ jobId: string; status: string }>('/knowledge/mine', undefined, { body: form })
 }
+
+export const getUploadProgress = (jobId: string) =>
+  api.get<IngestProgress>(`/knowledge/mine/progress/${encodeURIComponent(jobId)}`)
 
 export const deleteMyDocument = (id: string) =>
   api.del<{ documentId: string; deleted: boolean }>(`/knowledge/mine/${encodeURIComponent(id)}`)
@@ -1500,6 +1484,15 @@ export interface WorkflowTemplate {
 }
 
 export const listWorkflows = () => api.get<{ workflows: WorkflowTemplate[] }>('/workflows')
+
+/** "Smart search" for the Workflow Store — server-side reorder of the same
+ *  catalog `listWorkflows()` returns (never a different/filtered shape), via
+ *  `rerank_client.rerank()` when a query is non-trivial and long enough to be
+ *  worth it, falling back to a substring-match order when the reranker isn't
+ *  configured or fails (`usedReranker: false`). Returns every templateId, just
+ *  reordered — callers re-sort their already-fetched template list by this. */
+export const getWorkflowSearch = (q: string) =>
+  api.get<{ templateIds: string[]; usedReranker: boolean }>(`/dashboard/workflow-search?q=${encodeURIComponent(q)}`)
 
 /** One input a template declares as user-fillable (backend/workflow_api.py's
  *  `_workflow_input_requirements`) — a graph-backed template's trigger node

@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import request_context as ctx
+import rerank_client
 import time
 import workflow_graph_interpreter
 import workflow_graph_store
@@ -145,6 +146,60 @@ async def _workflow_template(request):
     if template is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     return JSONResponse(template)
+
+
+# Minimum query length before Smart Search bothers calling the reranker at all
+# -- same discipline as knowledge_store.search's _RERANK_SKIP_MARGIN: don't pay
+# for a network round trip (and its latency) ranking against a query too short
+# to carry any semantic signal, or a candidate set too small to need reordering.
+_WORKFLOW_SEARCH_MIN_QUERY_LEN = 2
+
+
+def _workflow_search_substring_order(query: str, templates: list[dict]) -> list[dict]:
+    """Fallback used whenever rerank_client.rerank() returns None -- unconfigured,
+    or any failure; it fails soft by contract (rerank_client.py's module docstring).
+    Case-insensitive substring match over displayName/description, matches first
+    (each group keeps templates' original order). template_dict()/_graph_template_dict()
+    (gateway/workflows.py) have no `tags` field today, so unlike the plan's tentative
+    "and tags if that field exists" there is nothing there yet to also match on.
+    """
+    q = query.lower()
+    matched, rest = [], []
+    for t in templates:
+        haystack = f"{t.get('displayName', '')} {t.get('description', '')}".lower()
+        (matched if q in haystack else rest).append(t)
+    return matched + rest
+
+
+async def _workflow_search(request):
+    """GET /dashboard/workflow-search?q=... -- reorders the same catalog `/workflows`
+    returns (never filters it out) so the frontend can reorder its already-fetched
+    template list rather than refetch a second shape. Same retrieve-then-rerank
+    funnel discipline as knowledge_store.search(): skip the reranker call entirely
+    for a trivial query or a candidate set too small to matter, fall back to a
+    plain substring order on any rerank failure (missing RERANKER_API_KEY, network
+    error, bad response -- rerank_client.rerank() collapses all of those to None)."""
+    if not _session(request):
+        return _unauthorized()
+    query = str(request.query_params.get("q") or "").strip()
+    templates = workflows.list_templates()
+    if len(query) < _WORKFLOW_SEARCH_MIN_QUERY_LEN or len(templates) < 2:
+        return JSONResponse({"templateIds": [t["templateId"] for t in templates], "usedReranker": False})
+    order = rerank_client.rerank(
+        query, [t.get("description") or t.get("displayName") or "" for t in templates], top_n=len(templates),
+    )
+    if order is not None:
+        ordered = [templates[i] for i in order if 0 <= i < len(templates)]
+        # top_n is a ceiling on how many the reranker returns, not a guarantee it
+        # covers every candidate -- append anything left out (original order) so a
+        # template never just vanishes from the store over an under-return.
+        seen = {t["templateId"] for t in ordered}
+        ordered += [t for t in templates if t["templateId"] not in seen]
+        used_reranker = True
+    else:
+        ordered = _workflow_search_substring_order(query, templates)
+        used_reranker = False
+    return JSONResponse({"templateIds": [t["templateId"] for t in ordered], "usedReranker": used_reranker})
 
 
 async def _admin_workflow_template_status(request):

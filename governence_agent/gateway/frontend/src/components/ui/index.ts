@@ -92,6 +92,9 @@ export type { PageShellProps } from './PageShell'
 export { default as PlusIcon } from './PlusIcon'
 export type { PlusIconProps } from './PlusIcon'
 
+export { default as ProgressBar } from './ProgressBar'
+export type { ProgressBarProps, ProgressStep } from './ProgressBar'
+
 export { default as SegmentedControl } from './SegmentedControl'
 export type { Segment, SegmentedControlProps } from './SegmentedControl'
 

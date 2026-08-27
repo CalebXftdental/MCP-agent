@@ -42,6 +42,7 @@ Config (env):
 from __future__ import annotations
 
 import os
+import re
 import time
 
 from azure.cosmos import CosmosClient, PartitionKey
@@ -332,7 +333,7 @@ class CosmosPolicyStore(PolicyStore):
         for department in dept_seed.DEPARTMENTS.values():
             self.upsert_department(department)
         raw = (os.getenv("GOVERNANCE_IP_ALLOWLIST") or "").strip()
-        wl = [c.strip() for c in raw.split(",") if c.strip()]
+        wl = [c.strip() for c in re.split(r"[,\s]+", raw) if c.strip()]
         if wl:
             self.set_whitelist(wl)
         self._loaded_at = time.time()

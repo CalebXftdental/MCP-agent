@@ -53,6 +53,7 @@ if _CORE_DIR not in sys.path:
 
 import uvicorn
 
+import bulk_result_cache
 import edge
 import request_context as ctx
 import workflow_graph_store
@@ -325,6 +326,40 @@ async def office_create_excel_report(
         "classification": classification or [manifest.INTERNAL],
         "filename": filename,
     })
+
+
+@mcp.tool(name="export_bulk_result_to_excel")
+async def export_bulk_result_to_excel(session_id: SessionId, title: str = "") -> str:
+    """Export the COMPLETE data behind the most recent row-capped Home-chat
+    result to a downloadable Excel file. Only call this when the user
+    explicitly asks for the full/complete list, all rows, or to export or
+    download something you already showed them a partial (capped) result
+    for -- never call this speculatively, and never for a result that wasn't
+    capped (a result is capped only if it has `"truncated": true` on it).
+    Deliberately ungated (no manifest entry, cross-cutting like compute_stats)
+    -- it reuses office_create_excel_report's own governance internally, so
+    a caller without export access is still denied there, just one hop in.
+    """
+    entry = bulk_result_cache.get(session_id)
+    if entry is None:
+        return json.dumps({
+            "source": "governance", "status": "error",
+            "message": (
+                "There's no recent capped result to export in this conversation -- run the "
+                "lookup again first, then ask to export it."
+            ),
+        })
+    field_name = entry["field_name"]
+    rows = entry["result"].get(field_name) or []
+    result = await _govern("create_excel_report", session_id, "", {
+        "owner": ctx.consumer_ctx.get() or "unknown",
+        "title": title or f"Export - {field_name}",
+        "tables": [{"name": field_name, "rows": rows}],
+        "classification": [manifest.INTERNAL],
+        "filename": "",
+    })
+    bulk_result_cache.clear(session_id)
+    return result
 
 
 @mcp.tool(name="office_create_powerpoint_deck")
@@ -1439,6 +1474,14 @@ _UNGOVERNED_GATEWAY_TOOLS = {
     # computation over values/rows the caller already has, no backend call, no
     # _govern(...), nothing to redact or authorize.
     "calculate", "compute_stats", "percent_change", "group_stats",
+    # Home-chat bulk-result export (govern.py's _HOME_CHAT_MAX_RESULT_ROWS
+    # cap): ungated itself, but NOT ungoverned data access -- it delegates to
+    # office_create_excel_report's own _govern("create_excel_report", ...)
+    # call internally, so a caller without export access is still denied
+    # there, one hop in. Ungated only so every principal can retrieve data
+    # THEY were already shown a capped view of, regardless of which category
+    # originally granted the underlying lookup.
+    "export_bulk_result_to_excel",
 }
 
 

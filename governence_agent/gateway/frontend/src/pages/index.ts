@@ -40,6 +40,7 @@ import SendQueuePage from './SendQueuePage'
 import TemplatesPage from './TemplatesPage'
 import WhitelistPage from './WhitelistPage'
 import WorkflowsPage from './WorkflowsPage'
+import WorkflowStorePage from './WorkflowStorePage'
 import type { RouteKey } from './routes'
 import type { PageProps } from './types'
 
@@ -65,6 +66,7 @@ const PAGES: Partial<Record<RouteKey, ComponentType<PageProps>>> = {
   files: FilesPage,
   knowledge: KnowledgePage,
   workflows: WorkflowsPage,
+  workflow_store: WorkflowStorePage,
   automations: AutomationsPage,
   my_workflows: MyWorkflowsPage,
 }
@@ -103,5 +105,6 @@ export { default as SendQueuePage } from './SendQueuePage'
 export { default as TemplatesPage } from './TemplatesPage'
 export { default as WhitelistPage } from './WhitelistPage'
 export { default as WorkflowsPage } from './WorkflowsPage'
+export { default as WorkflowStorePage } from './WorkflowStorePage'
 export * from './routes'
 export type { PageProps } from './types'

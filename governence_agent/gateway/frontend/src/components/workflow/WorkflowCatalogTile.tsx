@@ -44,11 +44,22 @@ export interface WorkflowCatalogTileProps {
   /** Rendered as a small always-there-on-hover affordance, outside the
    *  portaled detail overlay — see the module note above for why. */
   adminActions?: ReactNode
+  /** Additional grey-out condition beyond `template.status` — e.g. the Workflow
+   *  Store using this to grey a template the viewer lacks category access for,
+   *  independent of whether an admin disabled it. Same `[data-disabled]`
+   *  opacity/cursor treatment either way (WorkflowCatalogTile.css), not a
+   *  second visual state. */
+  accessBlocked?: boolean
+  /** Shown in the hover/focus detail overlay, under the description, when
+   *  `accessBlocked` — e.g. "Requires access to: <tools> (category: <name>)".
+   *  Reuses `.wf-tile-overlay-reason` (the same class the disabled-reason line
+   *  below already uses) rather than a new style. */
+  accessNote?: ReactNode
 }
 
-function WorkflowCatalogTile({ template, selected, onSelect, adminActions }: WorkflowCatalogTileProps) {
+function WorkflowCatalogTile({ template, selected, onSelect, adminActions, accessBlocked, accessNote }: WorkflowCatalogTileProps) {
   const { ref, style, show, hide } = useCardReveal<HTMLDivElement>()
-  const disabled = template.status !== 'active'
+  const disabled = template.status !== 'active' || !!accessBlocked
 
   const activate = () => {
     if (disabled) return
@@ -84,6 +95,7 @@ function WorkflowCatalogTile({ template, selected, onSelect, adminActions }: Wor
         <span className="ui-sr-only">
           {template.description} Outputs: {template.outputTypes.join(', ') || 'none'}.
           {disabled && template.disabledReason ? ` Disabled: ${template.disabledReason}.` : ''}
+          {accessBlocked && accessNote ? ` ${accessNote}` : ''}
         </span>
       </div>
 
@@ -95,6 +107,7 @@ function WorkflowCatalogTile({ template, selected, onSelect, adminActions }: Wor
             <p className="wf-tile-overlay-desc">{template.description}</p>
             <p className="wf-tile-overlay-outputs">Outputs: {template.outputTypes.length ? template.outputTypes.join(', ') : 'none'}</p>
             {disabled && template.disabledReason && <p className="wf-tile-overlay-reason">Disabled: {template.disabledReason}</p>}
+            {accessBlocked && accessNote && <p className="wf-tile-overlay-reason">{accessNote}</p>}
           </div>,
           document.body,
         )}

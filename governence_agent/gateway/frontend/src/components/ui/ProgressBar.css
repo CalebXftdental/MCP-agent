@@ -1,0 +1,108 @@
+.ui-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  animation: ui-rise var(--ui-dur-2) var(--ui-ease-out) both;
+}
+
+.ui-progress-labels {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+  font-size: var(--ui-fs-sm);
+}
+
+.ui-progress-label {
+  font-weight: 600;
+  color: var(--ui-text);
+}
+
+.ui-progress-sublabel {
+  color: var(--ui-text-faint);
+  font-size: var(--ui-fs-2xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-progress-track {
+  position: relative;
+  height: 0.4rem;
+  border-radius: var(--ui-r-pill);
+  background: var(--ui-surface-sunken);
+  border: 1px solid var(--ui-border);
+  overflow: hidden;
+}
+
+.ui-progress-fill {
+  height: 100%;
+  border-radius: var(--ui-r-pill);
+  background: var(--ui-accent);
+  transition: width var(--ui-dur-3) var(--ui-ease-out);
+}
+
+.ui-progress-track--danger .ui-progress-fill {
+  background: var(--ui-danger);
+}
+
+/* A subtle sweep while genuinely in flight, so a bar sitting mid-way doesn't
+   read as stalled during a slow stage (Document Intelligence extraction can
+   take tens of seconds). Stops the instant the stage reaches 100%. */
+.ui-progress-fill--active {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, white 35%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: ui-shimmer 1.6s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-progress-fill--active {
+    animation: none;
+    background-image: none;
+  }
+}
+
+.ui-progress-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.9rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--ui-fs-2xs);
+  color: var(--ui-text-faint);
+}
+
+.ui-progress-step::before {
+  content: '';
+  display: inline-block;
+  width: 0.4rem;
+  height: 0.4rem;
+  margin-right: 0.35rem;
+  border-radius: 50%;
+  background: var(--ui-border-strong);
+  vertical-align: middle;
+}
+
+.ui-progress-step--done {
+  color: var(--ui-text-muted);
+}
+
+.ui-progress-step--done::before {
+  background: var(--ui-accent);
+}
+
+.ui-progress-step--active {
+  color: var(--ui-accent-text);
+  font-weight: 600;
+}
+
+.ui-progress-step--active::before {
+  background: var(--ui-accent);
+  box-shadow: 0 0 0 3px var(--ui-accent-soft);
+}

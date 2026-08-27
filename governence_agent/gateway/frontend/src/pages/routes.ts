@@ -18,6 +18,7 @@ export type RouteKey =
   | 'home'
   | 'playground'
   | 'workflows'
+  | 'workflow_store'
   | 'automations'
   | 'my_workflows'
   | 'knowledge'
@@ -76,6 +77,12 @@ export const ROUTES: Record<RouteKey, RouteDef> = {
     description: 'Run governed office workflows that turn data into reports, decks, and files.',
     icon: '⚙️',
   },
+  workflow_store: {
+    key: 'workflow_store',
+    title: 'Workflow Store',
+    description: 'Browse and search every published workflow, and request access to the ones you don’t have yet.',
+    icon: '🛍️',
+  },
   automations: {
     key: 'automations',
     title: 'Automations',
@@ -92,7 +99,7 @@ export const ROUTES: Record<RouteKey, RouteDef> = {
   knowledge: {
     key: 'knowledge',
     title: 'Knowledge',
-    description: 'Local document ingestion, search, and citation-backed answers.',
+    description: 'Upload and manage your own private documents. Ask about them from chat.',
     icon: '📚',
   },
   files: {
@@ -243,7 +250,7 @@ export interface NavGroup {
  *  is one line here. */
 export const NAV_GROUPS: NavGroup[] = [
   { label: null, keys: ['home'] },
-  { label: 'Ask & Automate', keys: ['playground', 'workflows', 'automations', 'my_workflows'] },
+  { label: 'Ask & Automate', keys: ['playground', 'workflows', 'workflow_store', 'automations', 'my_workflows'] },
   { label: 'Content', keys: ['knowledge', 'files', 'templates', 'sends', 'calendar'] },
   { label: 'My Account', keys: ['access', 'developer', 'history'] },
   { label: 'Access Control', keys: ['consumers', 'categories', 'department-admin'] },

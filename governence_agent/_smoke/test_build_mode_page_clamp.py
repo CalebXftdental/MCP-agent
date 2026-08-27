@@ -125,9 +125,21 @@ try:
         check("get_ap_invoices_due_soon has a real schema", typed is not None, typed)
         check("get_customers_by_region does NOT have a real schema yet", untyped is None, untyped)
 
-        # ── 1. Typed bulk tool: no request-side clamp, but an honest
-        # too-large signal when the real result is too big for a build-mode
-        # turn. Home chat gets the same call, fully unclamped. ──────────────
+        # ── 1. Typed bulk tool: build-mode has no REQUEST-side clamp for a
+        # known-schema tool (a deliberate fetch is presumably intentional),
+        # so it relies entirely on the response-side too-large signal. Home
+        # chat, added 2026-08-26 (see _smoke/test_home_chat_bulk_cap.py),
+        # clamps the OUTBOUND page_size unconditionally instead -- there's no
+        # "deliberate full fetch" concept in a normal chat question. Against
+        # this specific tool, which already does a real DB-level LIMIT
+        # (mcp-minierp/sqlagent/finance/index.py, fixed 2026-08-21), that
+        # means Home chat's request comes back small directly -- nothing left
+        # for the response-side truncation to even need to do. The response
+        # cap (truncated=true/totalMatched) is still the necessary BACKSTOP
+        # for any tool that, like the currently-deployed-to-production
+        # get_ar_invoices_past_due, does NOT honor page_size -- confirmed
+        # separately in test_home_chat_bulk_cap.py against a mock backend
+        # built to reproduce exactly that. ──────────────────────────────────
         build_result = await call_tool(
             "workflow-chat:clamp_tester", "minierp_finance_get_ap_invoices_due_soon",
             {"days_ahead": 365, "page_size": 250},
@@ -138,13 +150,14 @@ try:
         )
         home_count = len(home_result.get("invoices") or [])
         print(f"  workflow-chat (typed, oversized real match) -> status={build_result.get('status')!r}; "
-              f"chat (Home) returned {home_count} rows")
+              f"chat (Home) returned {home_count} rows (real pagination.pageSize={((home_result.get('pagination') or {}).get('pageSize'))})")
         check("build-mode call to a typed tool with an oversized real match returns too_large_for_context",
               build_result.get("status") == "too_large_for_context", build_result)
         check("the too_large_for_context message tells the model not to page for more",
               "page" in (build_result.get("message") or "").lower(), build_result)
-        check("Home chat call is NOT affected -- real bulk result, more than 150 rows",
-              home_count > 150, home_count)
+        check("Home chat call is NOT a hard reject, and returns a small preview either way "
+              "(request-clamped directly, or response-truncated as the backstop)",
+              home_result.get("status") != "too_large_for_context" and home_count <= 15, home_count)
 
         # ── 2. Untyped tool: build-mode DOES force a small page_size (still
         # needs probing for shape, per schema_catalog above). ───────────────

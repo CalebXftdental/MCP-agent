@@ -2,15 +2,49 @@
 knowledge tier (private per-owner upload/list/delete/search) below."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from starlette.responses import JSONResponse
 from store import get_store
+import asyncio
 import audit
 import base64
+import ingest_progress
 import mcp_clients
 import json
 import knowledge_store
+import logging
+import uuid
 
 from .deps import _effective_category_ids, _session, _unauthorized
+
+_log = logging.getLogger("gateway.knowledge")
+
+# Personal-KB upload through the Knowledge page's "Upload document" button
+# (the REST route below) is PDF-only for the current stage -- the other
+# formats in knowledge_store.ALLOWED_UPLOAD_EXTENSIONS parse locally rather
+# than through Document Intelligence and haven't gotten the same scrutiny yet.
+# Deliberately a narrower gate than knowledge_store.ALLOWED_UPLOAD_EXTENSIONS
+# itself (personal_knowledge_store.ingest_document still accepts the full
+# set) -- that keeps the chat tool (knowledge_ingest_my_document) and
+# deploy_health_check.py's synthetic .txt lifecycle check working unchanged.
+# Widen by pointing this back at knowledge_store.ALLOWED_UPLOAD_EXTENSIONS.
+_CURRENT_UPLOAD_EXTENSIONS = frozenset({"pdf"})
+
+# PDF extraction alone can run up to GOVERNANCE_DOCINTEL_TIMEOUT_SEC (default
+# 60s) against Azure Document Intelligence -- give the ingest call real
+# headroom above that rather than the default GATEWAY_BACKEND_TIMEOUT_SEC
+# (30s), which would cut off a slow-but-legitimate PDF before DI's own timeout
+# ever gets a chance to fire. See mcp_clients.call's docstring.
+_INGEST_CALL_TIMEOUT_SEC = 90.0
+
+# Ingestion runs in a background task so the POST can return the job id
+# immediately for the frontend to poll (see _knowledge_mine_progress) instead
+# of holding the HTTP request open for however long extraction+embedding
+# takes. Tasks are kept here only so they aren't garbage-collected mid-flight
+# -- asyncio only holds a weak reference otherwise -- and dropped again via
+# their own done-callback; nothing ever reads this set's contents.
+_background_tasks: set[asyncio.Task] = set()
 
 
 def _knowledge_allowed(claims: dict) -> bool:
@@ -117,7 +151,10 @@ async def _knowledge_mine(request):
         raw = await mcp_clients.call("knowledge", "list_my_documents", {"owner": claims["name"], "limit": 100})
         return JSONResponse(json.loads(raw))
 
-    # POST: multipart file upload.
+    # POST: multipart file upload. Validated and queued here, then actually
+    # ingested (extract -> chunk -> embed -> index) in a background task --
+    # see ingest_progress and _knowledge_mine_progress below for how the
+    # frontend follows along instead of blocking on this request.
     form = await request.form()
     upload = form.get("file")
     if upload is None or not hasattr(upload, "read"):
@@ -127,19 +164,72 @@ async def _knowledge_mine(request):
         return JSONResponse({"error": "uploaded file is empty"}, status_code=400)
     filename = str(form.get("filename") or upload.filename or "document")
     title = str(form.get("title") or filename)
+
+    suffix = Path(filename).suffix.lower().lstrip(".")
+    if suffix not in _CURRENT_UPLOAD_EXTENSIONS:
+        allowed = ", ".join(sorted(_CURRENT_UPLOAD_EXTENSIONS))
+        return JSONResponse(
+            {"error": f'Unsupported file type ".{suffix or "?"}" -- only {allowed} is supported right now.'},
+            status_code=400,
+        )
+
+    owner = claims["name"]
+    job_id = "ing_" + uuid.uuid4().hex[:20]
+    ingest_progress.start(job_id, owner=owner, filename=filename)
+
+    task = asyncio.create_task(_run_ingest(job_id, owner, title, filename, payload))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+    return JSONResponse({"jobId": job_id, "status": "processing"})
+
+
+async def _run_ingest(job_id: str, owner: str, title: str, filename: str, payload: bytes) -> None:
+    """The actual ingest call, off the request/response cycle. Every exit path
+    MUST leave the job in a terminal `ingest_progress` stage ("done" or
+    "error") -- a poller (see _knowledge_mine_progress) waits for exactly
+    that, and this task's exceptions otherwise vanish into asyncio's default
+    "Task exception was never retrieved" logging with no user-visible effect."""
     try:
-        raw = await mcp_clients.call("knowledge", "ingest_my_document", {
-            "owner": claims["name"], "title": title, "filename": filename,
-            "content_base64": base64.b64encode(payload).decode("ascii"), "classification": "",
-        })
+        raw = await mcp_clients.call(
+            "knowledge", "ingest_my_document",
+            {
+                "owner": owner, "title": title, "filename": filename,
+                "content_base64": base64.b64encode(payload).decode("ascii"), "classification": "",
+                "job_id": job_id,
+            },
+            timeout=_INGEST_CALL_TIMEOUT_SEC,
+        )
         result = json.loads(raw)
-    except Exception as exc:  # noqa: BLE001
-        return JSONResponse({"error": str(exc)}, status_code=400)
+    except Exception as exc:  # noqa: BLE001 -- must still resolve the job
+        _log.exception("personal knowledge ingest %s failed", job_id)
+        ingest_progress.set_stage(job_id, "error", message=str(exc) or "ingest failed")
+        return
+
     if result.get("status") == "error":
-        return JSONResponse({"error": result.get("message", "ingest failed")}, status_code=400)
+        # ingest_my_document already marked the job "error" itself (with the
+        # same message) before returning this -- nothing left to do here.
+        return
+
     doc_id = (result.get("document") or {}).get("documentId", "")
-    audit.log_policy_change(actor=claims["name"], action="ingest_personal_knowledge", target=doc_id, detail=filename)
-    return JSONResponse(result)
+    ingest_progress.set_stage(job_id, "done", document_id=doc_id)
+    audit.log_policy_change(actor=owner, action="ingest_personal_knowledge", target=doc_id, detail=filename)
+
+
+async def _knowledge_mine_progress(request):
+    claims = _session(request)
+    if not claims:
+        return _unauthorized()
+    if not _personal_knowledge_allowed(claims):
+        return JSONResponse({"error": "personal knowledge access required"}, status_code=403)
+    job_id = request.path_params["job_id"]
+    record = ingest_progress.get(job_id, owner=claims["name"])
+    if record is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return JSONResponse({
+        "jobId": record["jobId"], "stage": record["stage"], "message": record.get("message", ""),
+        "documentId": record.get("documentId", ""), "filename": record.get("filename", ""),
+    })
 
 
 async def _knowledge_mine_item(request):

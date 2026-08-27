@@ -1,89 +1,4 @@
-/* ── ask card ─────────────────────────────────────────────────────────────── */
-
-.knowledge-ask-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.9rem;
-}
-
-.knowledge-ask-row {
-  display: flex;
-  align-items: flex-end;
-  flex-wrap: wrap;
-  gap: 0.7rem;
-}
-
-.knowledge-ask-actions {
-  display: flex;
-  gap: 0.5rem;
-  margin-left: auto;
-}
-
-@media (max-width: 640px) {
-  .knowledge-ask-row {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .knowledge-ask-actions {
-    margin-left: 0;
-  }
-
-  .knowledge-ask-actions > * {
-    flex: 1;
-  }
-}
-
-.knowledge-ask-results {
-  margin-top: 1.1rem;
-  border-top: 1px solid var(--ui-border);
-  padding-top: 1.1rem;
-}
-
-.knowledge-thinking {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  padding: 0.6rem 0;
-  font-size: var(--ui-fs-sm);
-  color: var(--ui-text-muted);
-  animation: ui-rise var(--ui-dur-2) var(--ui-ease-out) both;
-}
-
-.knowledge-answer {
-  padding: 1rem 1.15rem;
-  border-left: 3px solid var(--ui-accent);
-  border-radius: var(--ui-r-md);
-  background: var(--ui-surface-sunken);
-  animation: ui-rise var(--ui-dur-2) var(--ui-ease-out) both;
-}
-
-.knowledge-answer-text {
-  margin: 0;
-  white-space: pre-wrap;
-  line-height: 1.55;
-  font-size: var(--ui-fs-base);
-}
-
-.knowledge-citations {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-top: 0.9rem;
-}
-
 /* ── document table ───────────────────────────────────────────────────────── */
-
-.knowledge-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  flex-wrap: wrap;
-}
-
-.knowledge-search {
-  width: 12rem;
-}
 
 .knowledge-doc-cell {
   min-width: 0;
@@ -107,44 +22,15 @@
   white-space: nowrap;
 }
 
-.knowledge-pills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-}
-
 .knowledge-inline-confirm {
   display: flex;
   gap: 0.4rem;
 }
 
-/* ── drawer ───────────────────────────────────────────────────────────────── */
-
-.knowledge-drawer-body {
-  display: flex;
-  flex-direction: column;
-  gap: 1.3rem;
-}
-
-.knowledge-section-block {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-
-.knowledge-section-label {
-  margin: 0;
-}
-
-.knowledge-note {
-  margin: 0;
-  font-size: var(--ui-fs-sm);
-  color: var(--ui-text-faint);
-}
-
-.knowledge-confirm-msg {
-  margin: 0;
-  font-size: var(--ui-fs-base);
-  font-weight: 600;
-  color: var(--ui-text);
+.knowledge-upload-progress {
+  margin-bottom: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-r-md);
+  background: var(--ui-surface-sunken);
 }

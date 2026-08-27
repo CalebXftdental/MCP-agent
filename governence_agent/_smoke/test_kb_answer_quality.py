@@ -295,14 +295,30 @@ _PROD_CASES = [
         "mcp": "prod",
         "question": "What AP invoices are due in the next 30 days? Name a vendor from the list.",
         "tool_groups": [frozenset({"get_ap_invoices_due_soon"})],
-        "keywords": [("a real due-soon vendor name", ["colroy"])],
+        # Accept any real vendor confirmed live on this list -- which specific
+        # one the model surfaces legitimately depends on how large a window it
+        # pulls (confirmed: Kuraray and Colroy are both real, verified hits).
+        "keywords": [("a real due-soon vendor name", ["colroy", "kuraray"])],
     },
     {
-        "title": "[prod] AR invoices past due, largest balance",
+        "title": "[prod] AR invoices past due, largest balance (should DECLINE, not scan)",
         "mcp": "prod",
         "question": "Of the AR invoices currently past due, which invoice number has the largest unpaid balance?",
-        "tool_groups": [frozenset({"get_ar_invoices_past_due"})],
-        "keywords": [("invoice number 'AR0214063'", ["ar0214063"])],
+        # This is a whole-dataset MAX question with no server-side aggregation
+        # tool to answer it -- confirmed live (2026-08-26) that letting the
+        # model scan bulk rows for this produces a CONFIDENTLY WRONG answer
+        # (it named an invoice with a smaller balance as "the largest" while
+        # scanning 5,000 real rows, missing two with a larger one three rows
+        # below in its own printed output). The correct behavior, per
+        # SYSTEM_PROMPT's new rule, is to decline and route to My Workflow --
+        # ideally WITHOUT even attempting the doomed tool call (confirmed:
+        # 0 tool calls, 8.8s vs. the old 34.8s-and-wrong scan-based answer).
+        "tool_groups": [],
+        "expect_zero_tool_calls_ok": True,
+        "keywords": [
+            ("an honest decline (can't reliably compute this)", ["can't reliably", "cannot reliably", "not something i can"]),
+            ("routes to My Workflow", ["my workflow"]),
+        ],
     },
     {
         "title": "[prod] AP invoice payment details",
@@ -346,9 +362,13 @@ _PROD_CASES = [
         "title": "[prod] Combined: customer terms + a recent order, same customer",
         "mcp": "prod",
         "question": "For customer AFFEBAY155, what's their default payment method, and give me one of their recent order numbers.",
+        # get_customer_overview alone legitimately satisfies BOTH asks --
+        # confirmed live it aggregates profile + a real "recentOrders" section
+        # in one call, so requiring a SEPARATE orders call would penalize the
+        # model for correctly using the more efficient aggregate tool.
         "tool_groups": [
             frozenset({"get_customer_profile", "get_customer_overview"}),
-            frozenset({"get_customer_orders", "get_customer_order_summary"}),
+            frozenset({"get_customer_orders", "get_customer_order_summary", "get_customer_overview"}),
         ],
         "keywords": [
             ("payment method 'CHECKUSD'", ["checkusd"]),
@@ -414,7 +434,15 @@ async def _run_case(i: int, case: dict, *, local_mcp, local_record, prod_adapter
 
     for group in case["tool_groups"]:
         check(f"  called a tool from {sorted(group)}", bool(tool_names & group), tool_names)
-    check("  did NOT skip straight to a bare guess with zero tool calls", bool(tool_names), result.get("reply"))
+    if case.get("expect_zero_tool_calls_ok"):
+        # Whether it declines immediately (0 calls, ideal) or checks once
+        # first is a secondary efficiency question, not the correctness
+        # signal -- the keyword checks below (declines + routes to My
+        # Workflow, never states a confident-but-unverified answer) are what
+        # actually matters for this case. Just report which happened.
+        print(f"  info   tool calls made before declining: {sorted(tool_names) or '(none)'}")
+    else:
+        check("  did NOT skip straight to a bare guess with zero tool calls", bool(tool_names), result.get("reply"))
 
     for label, alternates in case["keywords"]:
         hit = any(alt.lower() in reply for alt in alternates)

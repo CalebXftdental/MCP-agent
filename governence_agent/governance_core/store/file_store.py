@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import store_concurrency
 import time
 from pathlib import Path
@@ -257,7 +258,7 @@ class FilePolicyStore(PolicyStore):
         for dept in dept_seed.DEPARTMENTS.values():
             self._departments[dept.id] = dept
         raw = (os.getenv("GOVERNANCE_IP_ALLOWLIST") or "").strip()
-        self._whitelist = [c.strip() for c in raw.split(",") if c.strip()]
+        self._whitelist = [c.strip() for c in re.split(r"[,\s]+", raw) if c.strip()]
         self._controls = {}
 
     def _load(self) -> None:

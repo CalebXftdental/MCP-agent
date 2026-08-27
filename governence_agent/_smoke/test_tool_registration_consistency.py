@@ -114,6 +114,18 @@ KNOWN_GATEWAY_META_TOOLS |= {
     "group_stats",
 }
 
+# Home-chat bulk-result export (govern.py's _HOME_CHAT_MAX_RESULT_ROWS cap,
+# added 2026-08-26): ungated itself, but NOT ungoverned data access -- it
+# delegates to office_create_excel_report's own _govern("create_excel_report",
+# ...) call internally, so a caller without export access is still denied
+# there, one hop in. Ungated only so any principal can retrieve data THEY were
+# already shown a capped view of, regardless of which category originally
+# granted the underlying lookup. See gateway/app.py's own matching comment on
+# its _UNGOVERNED_GATEWAY_TOOLS entry -- keep both in sync.
+KNOWN_GATEWAY_META_TOOLS |= {
+    "export_bulk_result_to_excel",
+}
+
 _LIST_TOOLS_SNIPPET = (
     "import asyncio, json\n"
     "import app as _mod\n"

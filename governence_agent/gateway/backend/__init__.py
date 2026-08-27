@@ -180,6 +180,7 @@ def register(app) -> None:
 
     # ── Workflows ─────────────────────────────────────────────────────────────
     api("/workflows", workflow_api._workflows, spa=True)
+    api("/dashboard/workflow-search", workflow_api._workflow_search)
     api("/workflows/{tid}", workflow_api._workflow_template)
     api("/workflows/{tid}/preflight", workflow_api._workflow_preflight, methods=["GET", "POST"])
     api("/workflows/{tid}/run", workflow_api._workflow_run_start, methods=["POST"])
@@ -242,6 +243,7 @@ def register(app) -> None:
     api("/knowledge/mine", knowledge._knowledge_mine, methods=["GET", "POST"])
     api("/knowledge/mine/{did}", knowledge._knowledge_mine_item, methods=["DELETE"])
     api("/knowledge/mine/search", knowledge._knowledge_mine_search, methods=["POST"])
+    api("/knowledge/mine/progress/{job_id}", knowledge._knowledge_mine_progress, methods=["GET"])
     api("/code-plans", code_plans._code_plans, spa=True)
     api("/code-plans/{pid}", code_plans._code_plan_item)
     api("/code-plans/{pid}/request-approval", code_plans._code_plan_request_approval, methods=["POST"])

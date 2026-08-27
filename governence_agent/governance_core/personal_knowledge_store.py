@@ -33,6 +33,7 @@ import uuid
 from pathlib import Path
 
 import embeddings_client
+import ingest_progress
 import knowledge_store
 import rerank_client
 from knowledge_models import KnowledgeChunk, KnowledgeDocument
@@ -174,7 +175,16 @@ _MAX_DOCS_PER_OWNER = int(os.getenv("GOVERNANCE_PERSONAL_KB_MAX_DOCS_PER_OWNER",
 def ingest_document(
     owner: str, title: str, filename: str, payload: bytes,
     classification: list[str] | None = None, metadata: dict | None = None,
+    job_id: str = "",
 ) -> KnowledgeDocument:
+    # `job_id` is optional and purely observational -- every `ingest_progress`
+    # call below is a no-op if it's "" (no job was started for this call, e.g.
+    # local dev/test seeding), so this function's actual behavior never depends
+    # on it.
+    suffix = Path(filename or "").suffix.lower().lstrip(".")
+    if suffix not in knowledge_store.ALLOWED_UPLOAD_EXTENSIONS:
+        allowed = ", ".join(sorted(knowledge_store.ALLOWED_UPLOAD_EXTENSIONS))
+        raise ValueError(f"Unsupported file type \".{suffix or '?'}\" -- supported types are: {allowed}.")
     if len(payload) > _MAX_UPLOAD_BYTES:
         raise ValueError(
             f"File is too large ({len(payload):,} bytes) -- the per-upload limit is "
@@ -186,17 +196,25 @@ def ingest_document(
             f"Your personal knowledge base already has {existing} documents, at the limit of "
             f"{_MAX_DOCS_PER_OWNER} -- delete an existing document before uploading a new one."
         )
+
+    if job_id:
+        ingest_progress.set_stage(job_id, "extracting")
     text, source_type = knowledge_store.extract_text(filename, payload)
     if not text:
         raise ValueError("No text could be extracted from the document")
     checksum = hashlib.sha256(payload).hexdigest()
     doc_id = "pkdoc_" + uuid.uuid4().hex[:16]
     now = _now()
+
+    if job_id:
+        ingest_progress.set_stage(job_id, "chunking")
     chunks_text = knowledge_store._chunk_text(text)
 
     # Best-effort: embed every chunk in one batch call. None (unconfigured, or the
     # call failed) means every chunk's `embedding` stays None -- search() below
     # falls back to TF-IDF for this owner's whole set until a re-ingest succeeds.
+    if job_id:
+        ingest_progress.set_stage(job_id, "embedding")
     embeddings = embeddings_client.embed_texts(chunks_text)
 
     doc = KnowledgeDocument(
@@ -213,6 +231,8 @@ def ingest_document(
         for idx, chunk_text in enumerate(chunks_text)
     ]
 
+    if job_id:
+        ingest_progress.set_stage(job_id, "indexing")
     if _cosmos_configured():
         docs_c, chunks_c = _cosmos_containers()
         docs_c.upsert_item(_doc_to_item(doc))
